@@ -50,7 +50,9 @@ foreach ($field in 'Shelf model', 'Unraid version', 'HBA and driver', 'EMM and c
     if (-not $hardwareForm.Contains($field)) { throw "Hardware issue form is missing: $field" }
 }
 foreach ($form in $bugForm, $hardwareForm) {
-    if (-not $form.Contains('type: upload') -or -not $form.Contains('accept: ".zip,.gz,.tar.gz"')) { throw 'Issue form diagnostic archive upload field is missing.' }
+    if ($form.Contains('type: upload')) { throw 'Unsupported GitHub issue-form upload field is present.' }
+    if ($form -notmatch '(?ms)- type: textarea\s+id: diagnostics\s+attributes:') { throw 'Issue form diagnostic attachment textarea is missing.' }
+    if (-not $form.Contains("drag the ZIP into this box or use GitHub's attachment button")) { throw 'Issue form diagnostic attachment directions are missing.' }
     if (-not $form.Contains('can be accessed without authentication')) { throw 'Issue form public-attachment warning is missing.' }
 }
 
