@@ -6,8 +6,16 @@
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
 <CHANGES>
+### 0.3.0 Beta
+- Adds Manual speeds from 20% through 100% in 10% increments.
+- Turns off active FTDI testing automatically after setup; passive inventory remains available.
+- Makes uninstall a complete reset that removes persistent configuration and commissioning results.
+- Adds expandable setup help, clearer disk mappings, a 2–10 point stacked Auto curve, and local redacted diagnostics.
+- Adds Community Apps metadata, hardware-report forms, privacy/security documentation, and generic MD1220 test coverage.
+- MD1200 is hardware-tested; MD1220 and additional HBA/firmware reports are requested.
+
 ### 0.2.3
 - Uses the hardware-proven reader-first serial session for every speed command.
 - Requires independent SES RPM proof of the final 20% restoration before commissioning succeeds.
@@ -65,7 +73,7 @@ RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
-chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js"
+chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
 chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php"
 chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh"
 
@@ -102,6 +110,15 @@ MD12XX_CONFIG
 fi
 
 chmod 0644 "$CONFIG_FILE"
+php -r '
+  require $argv[1];
+  $config = md12xx_read_config($argv[2]);
+  $updated = md12xx_disable_active_discovery_after_setup($config);
+  if (($config["discovery"]["autoProbeKnownFtdi"] ?? false) && !($updated["discovery"]["autoProbeKnownFtdi"] ?? false)) {
+    md12xx_write_config($updated, $argv[2]);
+    echo "Setup is already complete; active connection testing was turned off.\n";
+  }
+' "$RUNTIME_DIR/include/common.php" "$CONFIG_FILE"
 mkdir -p /var/run/md12xx.fancontrol
 "$RUNTIME_DIR/scripts/start.sh"
 cat <<'MD12XX_BANNER'
@@ -125,12 +142,13 @@ echo "Version @@VERSION@@ installed. Configure it under Settings → Utilities."
 <INLINE>
 <![CDATA[
 RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
   "$RUNTIME_DIR/scripts/stop.sh" || true
 fi
-rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol"
+rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"
 rm -f "/boot/config/plugins/md12xx.fancontrol.plg"
-echo "MD12xx Fan Control removed. Persistent settings were retained in /boot/config/plugins/md12xx.fancontrol."
+echo "MD12xx Fan Control removed. Configuration, commissioning results, and runtime state were deleted."
 ]]>
 </INLINE>
 </FILE>

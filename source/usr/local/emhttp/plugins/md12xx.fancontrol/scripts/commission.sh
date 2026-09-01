@@ -268,6 +268,7 @@ php -r '
     $shelf["commissioned"]=$argv[7] === "true";
   }
   unset($shelf);
+  $config=md12xx_disable_active_discovery_after_setup($config);
   md12xx_write_config($config, $argv[2]);
 ' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY"
 

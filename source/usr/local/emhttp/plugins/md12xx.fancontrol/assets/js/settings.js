@@ -43,9 +43,12 @@
     var ses = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
     var verified = ports.filter(function (item) { return item && typeof item === "object" && item.consoleVerified; }).length;
     var blocked = Array.isArray(discovery.blockedBy) ? discovery.blockedBy : [];
+    var shelves = Array.isArray(config.shelves) ? config.shelves : [];
+    var setupComplete = shelves.length > 0 && shelves.every(function (shelf) { return !!shelf.commissioned; });
     var text = ports.length + " serial adapter" + (ports.length === 1 ? "" : "s") + ", " + ses.length + " SES enclosure" + (ses.length === 1 ? "" : "s") + ", " + verified + " verified MD12xx console" + (verified === 1 ? "" : "s") + ".";
     if (blocked.length) text += " Active probing blocked by: " + blocked.join(", ") + ".";
     else if (discovery.autoProbeKnownFtdi && !discovery.activeProbeAllowed) text += " Active probing is paused while fan control is enabled.";
+    if (setupComplete && discovery.autoProbeKnownFtdi) text += " Setup is complete; turn off Test likely FTDI adapters unless you are troubleshooting.";
     byId("md12xx-discovery-summary").textContent = text;
   }
   function sesOptions(shelf) {
@@ -87,6 +90,11 @@
     if (!shelf.sesAddress && !shelf.sesDevice) return "Select a verified serial adapter, save, then run Identify & test to find its enclosure and disks.";
     return (ses && ses.diskMappingMessage) || "No automatic disk mapping was found. Open Manual mapping only if the identification test cannot resolve it.";
   }
+  function mappedDisks(shelf) {
+    var ses = selectedSes(shelf);
+    var disks = assignmentMode(shelf) === "automatic" && ses && Array.isArray(ses.disks) && ses.disks.length ? ses.disks : shelf.disks;
+    return Array.isArray(disks) ? disks : [];
+  }
 
   function renderShelves() {
     var root = byId("md12xx-shelves");
@@ -108,6 +116,7 @@
           '<label><span>Disk assignment</span><select class="md12xx-assignment">' + option("automatic", "Automatic from detected SES enclosure", assignment === "automatic") + option("manual", "Manual override", assignment === "manual") + '</select><small class="md12xx-assignment-summary">' + esc(assignmentSummary(shelf)) + '</small></label>' +
           '<label><span>Shelf enabled</span><input class="md12xx-shelf-enabled" type="checkbox"' + (shelf.enabled !== false ? " checked" : "") + '><small>Commissioned: ' + (commissioned ? "yes" : "no") + '</small></label>' +
         '</div>' +
+        '<div class="md12xx-mapped-disks"><strong>Associated Unraid disks</strong>' + esc(mappedDisks(shelf).length ? mappedDisks(shelf).join(", ") : "None detected yet") + '</div>' +
         '<details class="md12xx-manual"' + (assignment === "manual" ? " open" : "") + '><summary>Manual mapping fallback</summary><div class="md12xx-shelf-grid">' +
           '<label><span>SES enclosure</span><select class="md12xx-ses">' + sesOptions(shelf) + '</select><small>Normally filled by Identify & test</small></label>' +
           '<label><span>Assigned Unraid disks</span><select class="md12xx-disks" multiple>' + diskOptions(shelf.disks) + '</select><small>Used only in Manual override mode; Ctrl/Cmd-click for multiple disks</small></label>' +
@@ -145,10 +154,28 @@
     var curve = Array.isArray(config.curve) && config.curve.length ? config.curve : [
       { temperatureC: 0, speed: 20 }, { temperatureC: 35, speed: 25 }, { temperatureC: 45, speed: 30 }, { temperatureC: 50, speed: 50 }
     ];
-    byId("md12xx-curve").innerHTML = curve.map(function (step) {
-      return '<div class="md12xx-curve-step"><label><span>At °C</span><input class="md12xx-curve-temp" type="number" min="0" max="100" step="0.5" value="' + esc(step.temperatureC) + '"></label>' +
-        '<label><span>Speed %</span><input class="md12xx-curve-speed" type="number" min="20" max="100" step="5" value="' + esc(step.speed) + '"></label></div>';
+    byId("md12xx-curve-points").value = String(curve.length);
+    byId("md12xx-curve").style.setProperty("--md12xx-curve-columns", String(Math.min(curve.length, 6)));
+    byId("md12xx-curve").innerHTML = curve.map(function (step, index) {
+      return '<div class="md12xx-curve-step"><strong>Point ' + (index + 1) + '</strong><label><span>°C</span><input class="md12xx-curve-temp" type="number" min="0" max="100" step="0.5" value="' + esc(step.temperatureC) + '"></label>' +
+        '<label><span>%</span><input class="md12xx-curve-speed" type="number" min="20" max="100" step="5" value="' + esc(step.speed) + '"></label></div>';
     }).join("");
+  }
+  function resizeCurve(count) {
+    config = collect();
+    count = Math.max(2, Math.min(10, Number(count) || 4));
+    var curve = Array.isArray(config.curve) ? config.curve.slice(0, count) : [];
+    while (curve.length < count) {
+      var previous = curve.length ? curve[curve.length - 1] : { temperatureC: 0, speed: 20 };
+      if (Number(previous.temperatureC) >= 100 && curve.length > 1) {
+        var before = curve[curve.length - 2];
+        curve.splice(curve.length - 1, 0, { temperatureC: (Number(before.temperatureC) + Number(previous.temperatureC)) / 2, speed: Number(previous.speed) });
+      } else {
+        curve.push({ temperatureC: Math.min(100, Number(previous.temperatureC) + 5), speed: Number(previous.speed) });
+      }
+    }
+    config.curve = curve;
+    renderCurve();
   }
 
   function loadGlobals() {
@@ -248,6 +275,17 @@
       await refreshStatus();
     } catch (error) { message(error.message || String(error), true); }
   }
+  async function diagnostics() {
+    try {
+      var token = String(window.csrf_token || "");
+      if (!token) throw new Error("The current Unraid session token is unavailable; reload this page");
+      var body = new URLSearchParams({ action: "diagnostics", csrf_token: token });
+      var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
+      var payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Diagnostics failed");
+      message("Local redacted diagnostics created: " + payload.path + ". Nothing was uploaded.", false);
+    } catch (error) { message(error.message || String(error), true); }
+  }
 
   byId("md12xx-add").addEventListener("click", function () {
     config = collect();
@@ -258,6 +296,14 @@
     renderShelves();
   });
   byId("md12xx-refresh").addEventListener("click", function () { config = collect(); discover().then(function () { message("Discovery refreshed.", false); }).catch(function (error) { message(error.message, true); }); });
+  byId("md12xx-diagnostics").addEventListener("click", diagnostics);
+  byId("md12xx-curve-points").addEventListener("change", function () { resizeCurve(this.value); });
+  byId("md12xx-help-toggle").addEventListener("click", function () {
+    var help = byId("md12xx-help");
+    help.hidden = !help.hidden;
+    this.setAttribute("aria-expanded", help.hidden ? "false" : "true");
+    this.textContent = help.hidden ? "Setup directions" : "Hide directions";
+  });
   byId("md12xx-save").addEventListener("click", save);
 
   loadGlobals();

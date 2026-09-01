@@ -44,11 +44,25 @@ try {
         $current['mode'] = $mode;
         if ($mode === 'manual') {
             $speed = (int) ($_POST['speed'] ?? 0);
-            if (!in_array($speed, [20, 30, 40, 50], true)) throw new InvalidArgumentException('Unsupported manual speed');
+            if (!in_array($speed, [20, 30, 40, 50, 60, 70, 80, 90, 100], true)) throw new InvalidArgumentException('Unsupported manual speed');
             $current['manualSpeed'] = $speed;
         }
         md12xx_write_config($current);
         echo json_encode(['ok' => true, 'status' => md12xx_public_status()], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
+    if ($action === 'diagnostics') {
+        $script = dirname(__DIR__) . '/scripts/diagnose.sh';
+        if (!is_file($script) || !is_executable($script)) throw new RuntimeException('Diagnostics script is unavailable');
+        $lines = [];
+        $exitCode = 1;
+        @exec(escapeshellarg($script) . ' 2>&1', $lines, $exitCode);
+        if ($exitCode !== 0) throw new RuntimeException('Diagnostics failed: ' . implode(' ', $lines));
+        $last = trim((string) end($lines));
+        $prefix = 'Read-only diagnostics: ';
+        if (!str_starts_with($last, $prefix)) throw new RuntimeException('Diagnostics completed without an archive path');
+        echo json_encode(['ok' => true, 'path' => substr($last, strlen($prefix)), 'uploaded' => false], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         exit;
     }
 

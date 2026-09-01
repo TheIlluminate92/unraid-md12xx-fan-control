@@ -1,6 +1,6 @@
 Menu="Utilities"
 Title="MD12xx Fan Control"
-Icon="cogs"
+Icon="fan"
 Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0','>=')"
 
 ---
@@ -21,8 +21,25 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
       <p>Standalone temperature-based control with independent SES fan telemetry.</p>
     </div>
-    <span id="md12xx-health" class="md12xx-pill is-loading">LOADING</span>
+    <div class="md12xx-hero-actions">
+      <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
+      <span id="md12xx-health" class="md12xx-pill is-loading">LOADING</span>
+    </div>
   </header>
+
+  <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
+
+  <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
+    <h3>Safe setup</h3>
+    <ol>
+      <li>Keep this controller disabled and stop WAZ Dashboard or any Docker process that controls the same shelf.</li>
+      <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
+      <li>Run the displayed <b>Identify &amp; test</b> command. It verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
+      <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>
+      <li>Active connection testing turns off automatically when setup completes. Passive inventory remains available. Enable this controller only after every competing fan writer is disabled.</li>
+    </ol>
+    <p class="md12xx-warning"><b>Recovery:</b> if a commissioning test cannot prove the final 20% state, keep all controllers stopped and restore 20% manually before continuing.</p>
+  </section>
 
   <div id="md12xx-message" class="md12xx-message" hidden></div>
 
@@ -31,7 +48,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <div class="md12xx-grid">
       <label><span>Controller enabled</span><input id="md12xx-enabled" type="checkbox"></label>
       <label><span>Mode</span><select id="md12xx-mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
-      <label><span>Manual speed</span><select id="md12xx-manual"><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option></select></label>
+      <label><span>Manual speed</span><select id="md12xx-manual"><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option></select></label>
       <label><span>Polling interval</span><input id="md12xx-poll" type="number" min="10" max="300" step="5"><small>Seconds; 30 recommended</small></label>
       <label><span>Reassert interval</span><input id="md12xx-reassert" type="number" min="60" max="3600" step="30"><small>Seconds; 900 recommended</small></label>
       <label><span>Sensor-failure speed</span><input id="md12xx-failsafe" type="number" min="20" max="100" step="5"><small>50% recommended</small></label>
@@ -42,7 +59,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   <section class="md12xx-panel">
     <h3>Connection discovery</h3>
     <div class="md12xx-grid">
-      <label><span>Test likely FTDI adapters</span><input id="md12xx-probe-ftdi" type="checkbox"><small>Optional; off by default</small></label>
+      <label><span>Test likely FTDI adapters</span><input id="md12xx-probe-ftdi" type="checkbox"><small>Optional; automatically turns off after all configured shelves pass Identify &amp; test</small></label>
       <label><span>Discovery interval</span><input id="md12xx-discovery-interval" type="number" min="60" max="3600" step="60"><small>Seconds; 300 recommended</small></label>
       <label><span>Response wait</span><input id="md12xx-response-seconds" type="number" min="1" max="10" step="1"><small>Seconds; 3 recommended</small></label>
     </div>
@@ -56,12 +73,16 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   </section>
 
   <section class="md12xx-panel">
-    <h3>Auto curve</h3>
+    <div class="md12xx-title-row">
+      <h3>Auto curve</h3>
+      <label class="md12xx-point-count"><span>Number of points</span><input id="md12xx-curve-points" type="number" min="2" max="10" step="1"></label>
+    </div>
     <div id="md12xx-curve" class="md12xx-curve"></div>
     <label class="md12xx-inline"><span>Downshift hysteresis</span><input id="md12xx-hysteresis" type="number" min="0" max="10" step="0.5"><em>°C</em></label>
   </section>
 
   <footer class="md12xx-actions">
+    <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
     <button id="md12xx-refresh" type="button">Refresh discovery</button>
     <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
   </footer>

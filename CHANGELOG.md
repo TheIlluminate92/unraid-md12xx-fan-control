@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-09-01
+
+- Expands Manual mode to 20% through 100% in 10% increments.
+- Automatically disables active FTDI connection testing after every configured shelf has passed commissioning; passive inventory remains available.
+- Makes uninstall a complete reset by removing persistent configuration, commissioning results, runtime state, and the installed plugin file.
+- Adds compact expandable setup directions, a visible Beta/testing notice, a shelf/fan icon, and a prominent associated-disk summary for each shelf.
+- Reworks the Auto curve into 2–10 user-selected points with stacked temperature and speed fields.
+- Adds a local diagnostics export with privacy redaction and no automatic upload.
+- Adds Community Apps profile/wrapper metadata, credits, contribution guidance, and structured bug/hardware-report issue forms.
+- Adds local-only security policy checks and a generic synthetic 24-bay MD1220 topology fixture alongside the existing MD1200 tests.
+
 ## 0.2.3 — 2026-09-01
 
 - Opens the serial response reader before the command writer, matching the only session pattern that repeatedly applied both 50% and the following 20% on real MD1200 hardware.

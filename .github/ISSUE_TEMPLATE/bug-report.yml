@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible plugin problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Never include credentials, hostnames, network addresses, disk serial numbers, share names, or unredacted serial-adapter identifiers."
+  - type: input
+    id: versions
+    attributes:
+      label: Plugin and Unraid versions
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics or relevant output
+      description: Use Export local diagnostics and inspect the archive before attaching it.

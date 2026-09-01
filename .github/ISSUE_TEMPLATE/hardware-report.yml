@@ -1,0 +1,92 @@
+name: Beta hardware report
+description: Report a successful or failed MD1200/MD1220 setup
+title: "[Hardware]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for testing. Do not include hostnames, network addresses, drive serial numbers, share names, credentials, or unredacted serial-adapter identifiers."
+  - type: dropdown
+    id: shelf
+    attributes:
+      label: Shelf model
+      options: [Dell PowerVault MD1200, Dell PowerVault MD1220]
+    validations:
+      required: true
+  - type: input
+    id: unraid
+    attributes:
+      label: Unraid version
+      placeholder: "7.3.2"
+    validations:
+      required: true
+  - type: input
+    id: plugin
+    attributes:
+      label: Plugin version
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: hba
+    attributes:
+      label: HBA and driver
+      placeholder: "Controller model, firmware, and driver if known"
+    validations:
+      required: true
+  - type: input
+    id: shelf_firmware
+    attributes:
+      label: Shelf/EMM firmware
+      placeholder: "Firmware or console version if known"
+  - type: dropdown
+    id: emm_path
+    attributes:
+      label: EMM and cabling arrangement
+      options: [Single cable to one EMM, Redundant paths to both EMMs, Daisy-chained shelf, Other or unknown]
+    validations:
+      required: true
+  - type: input
+    id: serial
+    attributes:
+      label: USB serial adapter chipset
+      placeholder: "For example FTDI FT232; do not include its unique serial number"
+  - type: textarea
+    id: result
+    attributes:
+      label: Commissioning result
+      description: Paste the PASS/FAIL summary and RPM values, with unique identifiers removed.
+    validations:
+      required: true
+  - type: textarea
+    id: discovery
+    attributes:
+      label: Discovery summary
+      description: Include candidate/verified counts and any blocked-by message, but remove unique adapter paths.
+    validations:
+      required: true
+  - type: dropdown
+    id: mapping
+    attributes:
+      label: Disk mapping
+      options: [Automatic mapping worked, Manual mapping was required, No usable mapping]
+    validations:
+      required: true
+  - type: dropdown
+    id: competing
+    attributes:
+      label: Competing fan controller state during testing
+      options: [WAZ and legacy Docker were stopped, Plugin correctly blocked the test, No other fan controller is installed, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Optional redacted diagnostics
+      description: Drag in the archive created by Export local diagnostics only after inspecting it.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I reviewed the report and removed private or unique identifiers.
+          required: true

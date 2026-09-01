@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "mode": "manual",
-  "manualSpeed": 40,
+  "manualSpeed": 100,
   "pollSeconds": 30,
   "reassertSeconds": 900,
   "sensorFailureSpeed": 50,
@@ -27,4 +27,3 @@
     }
   ]
 }
-

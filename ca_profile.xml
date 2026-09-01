@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CommunityApplications>
+  <Profile>Beta Unraid plugins for safe, local management of Dell PowerVault storage hardware. MD12xx Fan Control provides guarded discovery, RPM-proven commissioning, independent SES telemetry, and temperature-based fan control for MD1200 and MD1220 shelves.</Profile>
+  <Icon>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/icon.svg</Icon>
+  <WebPage>https://github.com/TheIlluminate92/unraid-md12xx-fan-control</WebPage>
+</CommunityApplications>

@@ -63,8 +63,8 @@ function md12xx_validate_config(array $input): array
     $config['mode'] = strtolower((string) ($input['mode'] ?? 'auto')) === 'manual' ? 'manual' : 'auto';
 
     $manualSpeed = (int) ($input['manualSpeed'] ?? 20);
-    if (!in_array($manualSpeed, [20, 30, 40, 50], true)) {
-        throw new InvalidArgumentException('Manual speed must be 20, 30, 40, or 50 percent');
+    if (!in_array($manualSpeed, [20, 30, 40, 50, 60, 70, 80, 90, 100], true)) {
+        throw new InvalidArgumentException('Manual speed must be between 20 and 100 percent in 10 percent increments');
     }
     $config['manualSpeed'] = $manualSpeed;
     $config['pollSeconds'] = max(10, min(300, (int) ($input['pollSeconds'] ?? 30)));
@@ -167,6 +167,18 @@ function md12xx_validate_config(array $input): array
     return $config;
 }
 
+function md12xx_disable_active_discovery_after_setup(array $config): array
+{
+    $shelves = is_array($config['shelves'] ?? null) ? $config['shelves'] : [];
+    if ($shelves === []) return $config;
+    foreach ($shelves as $shelf) {
+        if (!is_array($shelf) || !filter_var($shelf['commissioned'] ?? false, FILTER_VALIDATE_BOOL)) return $config;
+    }
+    if (!is_array($config['discovery'] ?? null)) $config['discovery'] = [];
+    $config['discovery']['autoProbeKnownFtdi'] = false;
+    return $config;
+}
+
 function md12xx_write_config(array $input, ?string $path = null): array
 {
     $path = $path ?: MD12XX_CONFIG_FILE;
@@ -245,7 +257,7 @@ function md12xx_public_status(): array
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
-        'allowedManualSpeeds' => [20, 30, 40, 50],
+        'allowedManualSpeeds' => [20, 30, 40, 50, 60, 70, 80, 90, 100],
         'stale' => $generatedAt === null || (time() - $generatedAt) > $staleAfter,
         'generatedAt' => $generatedAt,
         'controller' => is_array($state['controller'] ?? null) ? $state['controller'] : [],
