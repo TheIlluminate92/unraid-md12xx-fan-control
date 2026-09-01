@@ -39,7 +39,7 @@ function md12xx_controller_disks(string $path): array
 
 function md12xx_controller_spun_down(array $disk): bool
 {
-    $explicit = strtolower(trim((string) ($disk['spundown'] ?? ''));
+    $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
     if (in_array($explicit, ['1', 'yes', 'true', 'on'], true)) return true;
     return str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
 }
