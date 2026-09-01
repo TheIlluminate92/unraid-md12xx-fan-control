@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-09-01
+
+- Validated passive discovery against two real MD1200 shelves, two FTDI adapters, two unrelated Espressif serial devices, and an unrelated SES enclosure.
+- Fixed a controller startup syntax error found by the Linux verification workflow.
+- Added a small terminal installation banner.
+
 ## 0.1.0 — 2026-09-01
 
 - Extracted the hardware-confirmed Dell MD1200 controller from WAZ Dashboard.

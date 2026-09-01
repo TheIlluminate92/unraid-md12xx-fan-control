@@ -8,6 +8,10 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/waz-control/feature/standalone-md12xx-plugin/src/md12xx-fan-control/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/waz-control/issues" icon="cogs">
 <CHANGES>
+### 0.1.1
+- Validates conservative discovery against mixed USB serial and SES hardware.
+- Fixes the controller startup parser and adds a terminal installation banner.
+
 ### 0.1.0
 - Initial standalone beta for Dell PowerVault MD1200 and MD1220 shelves.
 - Adds multi-shelf configuration, conservative background discovery, Auto/Manual control, independent RPM telemetry, locking, and guarded commissioning.
@@ -79,7 +83,19 @@ fi
 chmod 0644 "$CONFIG_FILE"
 mkdir -p /var/run/md12xx.fancontrol
 "$RUNTIME_DIR/scripts/start.sh"
-echo "MD12xx Fan Control @@VERSION@@ installed. Configure it under Settings → Utilities."
+cat <<'MD12XX_BANNER'
+
+              \   |   /
+            ---\  |  /---
+          -------(O)-------
+            ---/  |  \---
+              /   |   \
+
+             MD12xx FAN CONTROL
+      Storage is awesome. Quiet is power.
+
+MD12XX_BANNER
+echo "Version @@VERSION@@ installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>
