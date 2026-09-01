@@ -6,8 +6,11 @@
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/waz-control/feature/standalone-md12xx-plugin/src/md12xx-fan-control/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/waz-control/issues" icon="cogs">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.1.2
+- Moves updates and support to the dedicated standalone repository.
+
 ### 0.1.1
 - Validates conservative discovery against mixed USB serial and SES hardware.
 - Fixes the controller startup parser and adds a terminal installation banner.

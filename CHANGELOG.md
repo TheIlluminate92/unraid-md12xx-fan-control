@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2 — 2026-09-01
+
+- Moved development to the dedicated `TheIlluminate92/unraid-md12xx-fan-control` repository.
+- Updated the plugin self-update and support URLs for the standalone repository.
+
 ## 0.1.1 — 2026-09-01
 
 - Validated passive discovery against two real MD1200 shelves, two FTDI adapters, two unrelated Espressif serial devices, and an unrelated SES enclosure.

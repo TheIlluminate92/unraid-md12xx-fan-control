@@ -2,12 +2,15 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.1.1">
+  <!ENTITY version "0.1.2">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/waz-control/feature/standalone-md12xx-plugin/src/md12xx-fan-control/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/waz-control/issues" icon="cogs">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.1.2
+- Moves updates and support to the dedicated standalone repository.
+
 ### 0.1.1
 - Validates conservative discovery against mixed USB serial and SES hardware.
 - Fixes the controller startup parser and adds a terminal installation banner.
@@ -635,7 +638,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(75, ((int) $config['pollSeconds'] * 2) + 15);
     return [
-        'version' => '0.1.1',
+        'version' => '0.1.2',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -1278,7 +1281,7 @@ $jsVersion = @filemtime(__DIR__ . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.1.1',
+    'version' => '0.1.2',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES)?>;
@@ -1600,7 +1603,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.1.1 installed. Configure it under Settings → Utilities."
+echo "Version 0.1.2 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>
