@@ -6,7 +6,7 @@ PLUGIN_DIR="$PROJECT_DIR/source/usr/local/emhttp/plugins/md12xx.fancontrol"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-"$PROJECT_DIR/scripts/build.sh" "$TMP_DIR/md12xx.fancontrol.plg"
+bash "$PROJECT_DIR/scripts/build.sh" "$TMP_DIR/md12xx.fancontrol.plg"
 for FILE in "$PLUGIN_DIR"/include/*.php; do php -l "$FILE" >/dev/null; done
 for FILE in "$PLUGIN_DIR"/scripts/*.sh "$PROJECT_DIR/scripts/build.sh"; do bash -n "$FILE"; done
 node --check "$PLUGIN_DIR/assets/js/settings.js"
