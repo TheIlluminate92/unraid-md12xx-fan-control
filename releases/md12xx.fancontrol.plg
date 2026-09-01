@@ -2,12 +2,16 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.1.3">
+  <!ENTITY version "0.2.0">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.2.0
+- Adds RPM-proven automatic serial-to-SES identification and automatic Unraid disk assignment.
+- Keeps a manual mapping fallback and refuses ambiguous or empty automatic mappings.
+
 ### 0.1.3
 - Fixes the blank Unraid Settings page caused by page-builder path resolution.
 
@@ -66,6 +70,10 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
 .md12xx-shelf-head strong { font-size: 15px; }
 .md12xx-shelf-grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 13px 18px; }
 .md12xx-shelf .md12xx-disks { min-height: 120px; }
+.md12xx-manual { margin-top: 12px; border: 1px solid #343a40; padding: 10px 12px; background: #0d0f11; }
+.md12xx-manual summary { cursor: pointer; color: #f4b942; font-weight: 600; }
+.md12xx-manual[open] summary { margin-bottom: 12px; }
+.md12xx-assignment-summary { line-height: 1.45; }
 .md12xx-status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .md12xx-status span { padding: 8px; background: #1c2024; font-size: 12px; }
 .md12xx-status b { display: block; margin-top: 3px; font-size: 15px; }
@@ -150,6 +158,27 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
     selected.forEach(function (name) { if (values.indexOf(name) < 0) values.push(name); });
     return values.map(function (name) { return option(name, name, selected.indexOf(name) >= 0); }).join("");
   }
+  function assignmentMode(shelf) {
+    if (shelf.diskAssignment === "automatic" || shelf.diskAssignment === "manual") return shelf.diskAssignment;
+    return Array.isArray(shelf.disks) && shelf.disks.length ? "manual" : "automatic";
+  }
+  function selectedSes(shelf) {
+    var devices = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    return devices.find(function (item) {
+      return (shelf.sesAddress && item.address === shelf.sesAddress) || (!shelf.sesAddress && shelf.sesDevice && item.device === shelf.sesDevice);
+    }) || null;
+  }
+  function assignmentSummary(shelf) {
+    if (assignmentMode(shelf) === "manual") {
+      var manual = Array.isArray(shelf.disks) ? shelf.disks : [];
+      return manual.length ? "Manual override: " + manual.join(", ") : "Manual override selected; choose at least one Unraid disk below.";
+    }
+    var ses = selectedSes(shelf);
+    var disks = ses && Array.isArray(ses.disks) && ses.disks.length ? ses.disks : (Array.isArray(shelf.disks) ? shelf.disks : []);
+    if (disks.length) return "Automatically detected: " + disks.join(", ");
+    if (!shelf.sesAddress && !shelf.sesDevice) return "Select a verified serial adapter, save, then run Identify & test to find its enclosure and disks.";
+    return (ses && ses.diskMappingMessage) || "No automatic disk mapping was found. Open Manual mapping only if the identification test cannot resolve it.";
+  }
 
   function renderShelves() {
     var root = byId("md12xx-shelves");
@@ -161,23 +190,27 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
     root.innerHTML = shelves.map(function (shelf, index) {
       var status = stateById[shelf.id] || {};
       var commissioned = !!shelf.commissioned;
+      var assignment = assignmentMode(shelf);
       return '<article class="md12xx-shelf" data-index="' + index + '" data-id="' + esc(shelf.id) + '" data-commissioned="' + (commissioned ? "1" : "0") + '">' +
         '<div class="md12xx-shelf-head"><strong>' + esc(shelf.name || shelf.model || "Shelf") + '</strong><button type="button" class="md12xx-remove">Remove</button></div>' +
         '<div class="md12xx-shelf-grid">' +
           '<label><span>Name</span><input class="md12xx-name" maxlength="80" value="' + esc(shelf.name || "") + '"></label>' +
           '<label><span>Model</span><select class="md12xx-model">' + option("MD1200", "Dell PowerVault MD1200", shelf.model !== "MD1220") + option("MD1220", "Dell PowerVault MD1220", shelf.model === "MD1220") + '</select></label>' +
-          '<label><span>Serial adapter</span><select class="md12xx-port">' + serialOptions(shelf.serialPort || "") + '</select><small>Must be a /dev/serial/by-id path</small></label>' +
-          '<label><span>SES enclosure</span><select class="md12xx-ses">' + sesOptions(shelf) + '</select><small>The stable SCSI address survives /dev/sg renumbering</small></label>' +
-          '<label><span>Assigned Unraid disks</span><select class="md12xx-disks" multiple>' + diskOptions(shelf.disks) + '</select><small>Ctrl/Cmd-click to select multiple disks</small></label>' +
+          '<label><span>Serial adapter</span><select class="md12xx-port">' + serialOptions(shelf.serialPort || "") + '</select><small>This is the only hardware choice needed for automatic setup</small></label>' +
+          '<label><span>Disk assignment</span><select class="md12xx-assignment">' + option("automatic", "Automatic from detected SES enclosure", assignment === "automatic") + option("manual", "Manual override", assignment === "manual") + '</select><small class="md12xx-assignment-summary">' + esc(assignmentSummary(shelf)) + '</small></label>' +
           '<label><span>Shelf enabled</span><input class="md12xx-shelf-enabled" type="checkbox"' + (shelf.enabled !== false ? " checked" : "") + '><small>Commissioned: ' + (commissioned ? "yes" : "no") + '</small></label>' +
         '</div>' +
+        '<details class="md12xx-manual"' + (assignment === "manual" ? " open" : "") + '><summary>Manual mapping fallback</summary><div class="md12xx-shelf-grid">' +
+          '<label><span>SES enclosure</span><select class="md12xx-ses">' + sesOptions(shelf) + '</select><small>Normally filled by Identify & test</small></label>' +
+          '<label><span>Assigned Unraid disks</span><select class="md12xx-disks" multiple>' + diskOptions(shelf.disks) + '</select><small>Used only in Manual override mode; Ctrl/Cmd-click for multiple disks</small></label>' +
+        '</div></details>' +
         '<div class="md12xx-status">' +
           '<span>RPM<b>' + esc(status.averageRpm == null ? "—" : status.averageRpm) + '</b></span>' +
           '<span>Temperature<b>' + esc(status.temperatureC == null ? "—" : status.temperatureC + "°C") + '</b></span>' +
           '<span>Target<b>' + esc(status.targetPercent == null ? "—" : status.targetPercent + "%") + '</b></span>' +
           '<span>State<b>' + esc(status.writeState || status.telemetryState || "—") + '</b></span>' +
         '</div>' +
-        '<div class="md12xx-commission">Commission: /usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh ' + esc(shelf.id) + '</div>' +
+        '<div class="md12xx-commission">Identify & test: /usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh ' + esc(shelf.id) + '<br>Guarded test: verifies the console, runs 20% → 50% → 20%, identifies the responding SES enclosure, and saves automatic disk assignments.</div>' +
       '</article>';
     }).join("");
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-remove"), function (button) {
@@ -185,6 +218,17 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
         var card = button.closest(".md12xx-shelf");
         config.shelves.splice(Number(card.getAttribute("data-index")), 1);
         renderShelves();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-assignment"), function (select) {
+      select.addEventListener("change", function () {
+        var card = select.closest(".md12xx-shelf");
+        var details = card.querySelector(".md12xx-manual");
+        if (select.value === "manual") details.open = true;
+        var disks = Array.prototype.map.call(card.querySelector(".md12xx-disks").selectedOptions, function (item) { return item.value; });
+        var sesValue = card.querySelector(".md12xx-ses").value.split("|");
+        var preview = { diskAssignment: select.value, disks: disks, sesAddress: sesValue[0] || "", sesDevice: sesValue[1] || "" };
+        card.querySelector(".md12xx-assignment-summary").textContent = assignmentSummary(preview);
       });
     });
   }
@@ -248,6 +292,7 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
         serialPort: card.querySelector(".md12xx-port").value,
         sesAddress: ses[0] || "",
         sesDevice: ses[1] || "",
+        diskAssignment: card.querySelector(".md12xx-assignment").value,
         disks: disks
       });
     });
@@ -301,7 +346,7 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
     var number = config.shelves.length + 1;
     var id = "shelf-" + number;
     while (config.shelves.some(function (item) { return item.id === id; })) { number++; id = "shelf-" + number; }
-    config.shelves.push({ id: id, name: "MD1200 Shelf " + number, model: "MD1200", enabled: true, commissioned: false, serialPort: "", sesDevice: "", sesAddress: "", disks: [] });
+    config.shelves.push({ id: id, name: "MD1200 Shelf " + number, model: "MD1200", enabled: true, commissioned: false, serialPort: "", sesDevice: "", sesAddress: "", diskAssignment: "automatic", disks: [] });
     renderShelves();
   });
   byId("md12xx-refresh").addEventListener("click", function () { config = collect(); discover().then(function () { message("Discovery refreshed.", false); }).catch(function (error) { message(error.message, true); }); });
@@ -385,6 +430,17 @@ try {
     foreach ($decoded['shelves'] ?? [] as &$shelf) {
         if (!is_array($shelf)) continue;
         $old = $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] ?? null;
+        // A terminal identification test can update the SES mapping while an
+        // older Settings page is still open. Do not let that stale page erase
+        // a proven automatic pairing when it later saves unrelated settings.
+        $automatic = strtolower((string) ($shelf['diskAssignment'] ?? 'automatic')) === 'automatic';
+        $sameSerial = is_array($old) && (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '');
+        if ($automatic && $sameSerial && (bool) ($old['commissioned'] ?? false)
+            && trim((string) ($shelf['sesAddress'] ?? '')) === '' && trim((string) ($shelf['sesDevice'] ?? '')) === '') {
+            $shelf['sesAddress'] = (string) ($old['sesAddress'] ?? '');
+            $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
+            $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
+        }
         $sameHardware = is_array($old)
             && strtoupper((string) ($old['model'] ?? '')) === strtoupper((string) ($shelf['model'] ?? ''))
             && (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '')
@@ -545,6 +601,16 @@ function md12xx_validate_config(array $input): array
         $sesAddress = trim((string) ($shelf['sesAddress'] ?? ''));
         if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid stable SCSI address');
 
+        $diskAssignment = strtolower(trim((string) ($shelf['diskAssignment'] ?? '')));
+        if ($diskAssignment === '') {
+            // Preserve pre-0.1.4 configurations as manual mappings. Newly added
+            // shelves explicitly opt into automatic enclosure mapping in the UI.
+            $diskAssignment = !empty($shelf['disks']) ? 'manual' : 'automatic';
+        }
+        if (!in_array($diskAssignment, ['automatic', 'manual'], true)) {
+            throw new InvalidArgumentException('Disk assignment must be automatic or manual');
+        }
+
         $disks = is_array($shelf['disks'] ?? null) ? $shelf['disks'] : [];
         $disks = array_values(array_unique(array_filter(array_map(static function ($disk): string {
             $name = strtolower(trim((string) $disk));
@@ -560,6 +626,7 @@ function md12xx_validate_config(array $input): array
             'serialPort' => $port,
             'sesDevice' => $sesDevice,
             'sesAddress' => $sesAddress,
+            'diskAssignment' => $diskAssignment,
             'disks' => $disks,
         ];
     }
@@ -641,7 +708,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(75, ((int) $config['pollSeconds'] * 2) + 15);
     return [
-        'version' => '0.1.3',
+        'version' => '0.2.0',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -693,10 +760,83 @@ function md12xx_serial_port_details(): array
     return $result;
 }
 
-function md12xx_discover_ses(): array
+function md12xx_ses_disk_mapping(
+    string $address,
+    string $disksPath = '/var/local/emhttp/disks.ini',
+    string $sysfsRoot = '/sys'
+): array
+{
+    $base = [
+        'state' => 'unavailable',
+        'blockDevices' => [],
+        'disks' => [],
+        'message' => 'Linux enclosure-to-disk links are unavailable',
+    ];
+    if ($address === '' || !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $address)) return $base;
+
+    $enclosureRoot = rtrim($sysfsRoot, '/\\') . '/class/enclosure';
+    $enclosure = $enclosureRoot . '/' . $address;
+    if (!is_dir($enclosure)) {
+        foreach (glob($enclosureRoot . '/*') ?: [] as $candidate) {
+            $resolved = @realpath($candidate);
+            if (basename($candidate) === $address || ($resolved !== false && basename($resolved) === $address)) {
+                $enclosure = $candidate;
+                break;
+            }
+        }
+    }
+    if (!is_dir($enclosure)) return $base;
+
+    $blockDevices = [];
+    foreach (glob($enclosure . '/*') ?: [] as $component) {
+        if (!is_dir($component)) continue;
+        $device = $component . '/device';
+        $resolved = @realpath($device);
+        foreach (array_unique(array_filter([$device, $resolved !== false ? $resolved : null])) as $devicePath) {
+            foreach (glob($devicePath . '/block/*') ?: [] as $blockPath) {
+                $name = basename($blockPath);
+                if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+            }
+        }
+    }
+    $blockDevices = array_values(array_unique($blockDevices));
+    sort($blockDevices, SORT_NATURAL | SORT_FLAG_CASE);
+    if (!$blockDevices) {
+        return array_replace($base, [
+            'state' => 'empty',
+            'message' => 'The enclosure was found, but Linux did not link any block devices to its slots',
+        ]);
+    }
+
+    $byDevice = [];
+    foreach (md12xx_discover_disks($disksPath) as $disk) {
+        $device = basename(trim((string) ($disk['device'] ?? '')));
+        if ($device !== '') $byDevice[strtolower($device)] = (string) $disk['name'];
+    }
+    $disks = [];
+    foreach ($blockDevices as $device) {
+        $name = $byDevice[strtolower($device)] ?? '';
+        if ($name !== '') $disks[] = $name;
+    }
+    $disks = array_values(array_unique($disks));
+    usort($disks, 'strnatcasecmp');
+    return [
+        'state' => $disks ? 'verified' : 'unassigned',
+        'blockDevices' => $blockDevices,
+        'disks' => $disks,
+        'message' => $disks
+            ? 'Mapped through Linux enclosure slot links and the current Unraid disk inventory'
+            : 'Physical enclosure disks were found, but none are currently assigned by Unraid',
+    ];
+}
+
+function md12xx_discover_ses(
+    string $disksPath = '/var/local/emhttp/disks.ini',
+    string $sysfsRoot = '/sys'
+): array
 {
     $result = [];
-    foreach (glob('/sys/class/scsi_generic/sg*') ?: [] as $genericPath) {
+    foreach (glob(rtrim($sysfsRoot, '/\\') . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
         $devicePath = $genericPath . '/device';
         $resolved = @realpath($devicePath);
         if ($resolved === false) continue;
@@ -704,12 +844,17 @@ function md12xx_discover_ses(): array
         $model = trim((string) @file_get_contents($devicePath . '/model'));
         $type = trim((string) @file_get_contents($devicePath . '/type'));
         if ($type !== '13' && stripos($model, 'MD12') === false) continue;
+        $mapping = md12xx_ses_disk_mapping(basename($resolved), $disksPath, $sysfsRoot);
         $result[] = [
             'device' => '/dev/' . basename($genericPath),
             'address' => basename($resolved),
             'vendor' => $vendor,
             'model' => $model,
             'supportedCandidate' => stripos($vendor . ' ' . $model, 'DELL') !== false || stripos($model, 'MD12') !== false,
+            'diskMappingState' => $mapping['state'],
+            'blockDevices' => $mapping['blockDevices'],
+            'disks' => $mapping['disks'],
+            'diskMappingMessage' => $mapping['message'],
         ];
     }
     usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['device'], $b['device']));
@@ -954,7 +1099,20 @@ while ($running) {
 
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
-        $thermal = md12xx_controller_temperature($shelf['disks'], $disks);
+        $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
+        $assignedDisks = is_array($shelf['disks'] ?? null) ? $shelf['disks'] : [];
+        $diskMapping = [
+            'state' => $assignmentMode === 'automatic' ? 'unavailable' : 'manual',
+            'disks' => $assignedDisks,
+            'message' => $assignmentMode === 'automatic' ? 'SES enclosure is not mapped' : 'Manual disk override',
+        ];
+        if ($assignmentMode === 'automatic' && (string) $shelf['sesAddress'] !== '') {
+            $diskMapping = md12xx_ses_disk_mapping((string) $shelf['sesAddress'], $disksPath);
+            // Keep the last hardware-confirmed snapshot if sysfs is temporarily
+            // unavailable. A successful current mapping always wins.
+            if (!empty($diskMapping['disks'])) $assignedDisks = $diskMapping['disks'];
+        }
+        $thermal = md12xx_controller_temperature($assignedDisks, $disks);
         $auto = md12xx_controller_auto_target($config, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
         $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
         $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
@@ -982,7 +1140,10 @@ while ($running) {
             'serialPort' => $shelf['serialPort'],
             'sesDevice' => $sesDevice,
             'sesAddress' => $shelf['sesAddress'],
-            'assignedDisks' => $shelf['disks'],
+            'diskAssignment' => $assignmentMode,
+            'diskMappingState' => $diskMapping['state'],
+            'diskMappingMessage' => $diskMapping['message'],
+            'assignedDisks' => $assignedDisks,
             'assignedSeen' => $thermal['assignedSeen'],
             'activeDisks' => $thermal['activeDisks'],
             'temperatureC' => $thermal['temperatureC'],
@@ -1285,7 +1446,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.1.3',
+    'version' => '0.2.0',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES)?>;
@@ -1307,18 +1468,19 @@ STATE_DIR="/var/run/md12xx.fancontrol"
 RESULT_ROOT="/boot/config/plugins/md12xx.fancontrol/commissioning"
 SHELF_ID="${1:-}"
 WAIT_SECONDS="${MD12XX_TEST_WAIT_SECONDS:-10}"
+RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "Run this test as root from the Unraid terminal." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
-for REQUIRED in jq flock sg_ses stty sha1sum awk; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
+for REQUIRED in jq flock sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
 [ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
 
 if jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
-  echo "Disable the MD12xx controller before commissioning hardware." >&2
+  echo "Disable the MD12xx controller before identifying or commissioning hardware." >&2
   exit 1
 fi
 if [ -f /boot/config/plugins/waz.dashboard/waz.dashboard.cfg ] && grep -Eqi '^MD1200_ENABLED="?(yes|true|1|on)"?$' /boot/config/plugins/waz.dashboard/waz.dashboard.cfg; then
-  echo "The WAZ Dashboard MD1200 controller is enabled. Disable it before commissioning this standalone plugin." >&2
+  echo "The WAZ Dashboard MD1200 controller is enabled. Disable it before running this guarded test." >&2
   exit 1
 fi
 if ! jq -e --arg id "$SHELF_ID" '.shelves[] | select(.id == $id)' "$CONFIG_FILE" >/dev/null; then
@@ -1332,8 +1494,9 @@ MODEL="$(jq -r '.model' <<< "$SHELF_JSON")"
 PORT="$(jq -r '.serialPort' <<< "$SHELF_JSON")"
 SES_ADDRESS="$(jq -r '.sesAddress' <<< "$SHELF_JSON")"
 SES_CONFIGURED="$(jq -r '.sesDevice' <<< "$SHELF_JSON")"
+ASSIGNMENT="$(jq -r '.diskAssignment // (if ((.disks // []) | length) > 0 then "manual" else "automatic" end)' <<< "$SHELF_JSON")"
 
-[[ "$PORT" == /dev/serial/by-id/* ]] || { echo "Configure a persistent serial adapter path first." >&2; exit 1; }
+[[ "$PORT" == /dev/serial/by-id/* ]] || { echo "Select a persistent serial adapter and save the configuration first." >&2; exit 1; }
 [ -e "$PORT" ] || { echo "Serial adapter is missing: $PORT" >&2; exit 1; }
 
 while IFS= read -r NAME; do
@@ -1344,28 +1507,42 @@ while IFS= read -r NAME; do
   fi
 done < <(jq -r '.legacyContainerNames[]?' "$CONFIG_FILE")
 
-resolve_ses() {
-  local ADDRESS="$1" GENERIC RESOLVED
-  if [ -n "$ADDRESS" ]; then
-    for GENERIC in /sys/class/scsi_generic/sg*; do
-      [ -e "$GENERIC/device" ] || continue
-      RESOLVED="$(readlink -f "$GENERIC/device")"
-      if [ "$(basename "$RESOLVED")" = "$ADDRESS" ]; then echo "/dev/$(basename "$GENERIC")"; return 0; fi
-    done
-  fi
-  [ -n "$SES_CONFIGURED" ] && [ -e "$SES_CONFIGURED" ] && { echo "$SES_CONFIGURED"; return 0; }
-  return 1
-}
-
-SES_DEVICE="$(resolve_ses "$SES_ADDRESS")" || { echo "SES enclosure was not found for $SHELF_NAME." >&2; exit 1; }
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RESULT_DIR="$RESULT_ROOT/${STAMP}-${SHELF_ID}"
 mkdir -p "$RESULT_DIR" "$STATE_DIR"
-SUMMARY="$RESULT_DIR/summary.csv"
-printf 'shelf,model,command_percent,wait_seconds,fan_count,average_rpm,fan_rpms\n' > "$SUMMARY"
-
 HASH="$(printf '%s' "$PORT" | sha1sum | cut -c1-12)"
 LOCK_FILE="$STATE_DIR/serial-${HASH}.lock"
+IDENTITY_CAPTURE="$RESULT_DIR/identity.txt"
+
+verify_console() {
+  (
+    flock -n 9 || { echo "Serial adapter is locked by another process." >&2; exit 1; }
+    if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
+      echo "Serial adapter is open in another process." >&2
+      exit 1
+    fi
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 1 time 0
+    timeout "$RESPONSE_SECONDS" cat "$PORT" > "$IDENTITY_CAPTURE" &
+    local READER=$!
+    sleep 0.25
+    exec 8>"$PORT"
+    printf '_who\r' >&8
+    exec 8>&-
+    wait "$READER" 2>/dev/null || true
+  ) 9>"$LOCK_FILE"
+
+  local FINGERPRINTS=0
+  grep -Eqi 'Host[[:space:]]+Links[[:space:]]+UP[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'Expansion[[:space:]]+Links[[:space:]]+UP[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'Drive\(s\)[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'EMM[[:space:]]*\(' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'Power[[:space:]]+Supplies[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  if [ "$FINGERPRINTS" -lt 4 ] || ! grep -Eqi 'I.?m[[:space:]]+primary[[:space:]]+and[[:space:]]+active' "$IDENTITY_CAPTURE"; then
+    echo "The selected adapter did not prove a primary, active MD12xx console. No fan command was sent." >&2
+    return 1
+  fi
+}
+
 send_speed() {
   local SPEED="$1"
   (
@@ -1381,52 +1558,133 @@ send_speed() {
   ) 9>"$LOCK_FILE"
 }
 
-sample_rpm() {
-  local LABEL="$1" COMMAND="$2" RAW SPEEDS COUNT AVERAGE LIST
-  RAW="$RESULT_DIR/${LABEL}-ses.txt"
-  sg_ses -p es "$SES_DEVICE" > "$RAW" 2>&1
+sample_device_rpm() {
+  local DEVICE="$1" LABEL="$2" SAFE RAW SPEEDS COUNT AVERAGE
+  SAFE="$(basename "$DEVICE")"
+  RAW="$RESULT_DIR/${LABEL}-${SAFE}-ses.txt"
+  timeout 10 sg_ses -p es "$DEVICE" > "$RAW" 2>&1 || return 1
   SPEEDS="$(sed -n 's/.*Actual speed=\([0-9][0-9]*\) rpm.*/\1/p' "$RAW" | awk '$1 > 0')"
   COUNT="$(printf '%s\n' "$SPEEDS" | sed '/^$/d' | wc -l | tr -d ' ')"
-  [ "$COUNT" -ge 2 ] || { echo "$SHELF_NAME reported only $COUNT non-zero fan values." >&2; return 1; }
+  [ "$COUNT" -ge 2 ] || return 1
   AVERAGE="$(printf '%s\n' "$SPEEDS" | awk '{sum += $1; count++} END {printf "%.0f", sum / count}')"
-  LIST="$(printf '%s\n' "$SPEEDS" | paste -sd';' -)"
-  printf '%s,%s,%s,%s,%s,%s,%s\n' "$SHELF_ID" "$MODEL" "$COMMAND" "$WAIT_SECONDS" "$COUNT" "$AVERAGE" "$LIST" >> "$SUMMARY"
-  echo "$AVERAGE"
+  printf '%s\t%s\n' "$AVERAGE" "$COUNT"
 }
 
-restore_safe() { set +e; echo "Returning $SHELF_NAME to 20%..."; send_speed 20; }
+candidate_ses() {
+  php -r '
+    require $argv[1];
+    foreach (md12xx_discover_ses() as $s) {
+      if (!empty($s["supportedCandidate"])) echo $s["address"], "\t", $s["device"], "\n";
+    }
+  ' "$PLUGIN_DIR/include/common.php"
+}
+
+restore_safe() {
+  echo "Returning the selected MD12xx console to 20%..."
+  send_speed 20 || echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+}
+
+echo "Verifying the selected serial console with a read-only identity query..."
+verify_console
+echo "Primary, active MD12xx console verified."
+
+CANDIDATES="$RESULT_DIR/candidates.tsv"
+candidate_ses > "$CANDIDATES"
+if [ -n "$SES_ADDRESS" ]; then
+  awk -F '\t' -v wanted="$SES_ADDRESS" '$1 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
+  mv "$CANDIDATES.selected" "$CANDIDATES"
+elif [ -n "$SES_CONFIGURED" ]; then
+  awk -F '\t' -v wanted="$SES_CONFIGURED" '$2 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
+  mv "$CANDIDATES.selected" "$CANDIDATES"
+fi
+[ -s "$CANDIDATES" ] || { echo "No supported MD1200/MD1220 SES enclosure is available for this test." >&2; exit 1; }
+
+LOW="$RESULT_DIR/20-percent.tsv"
+HIGH="$RESULT_DIR/50-percent.tsv"
+: > "$LOW"; : > "$HIGH"
 trap restore_safe EXIT
 trap 'restore_safe; trap - EXIT; exit 130' INT TERM
 
-echo "Commissioning $SHELF_NAME ($MODEL) on $SES_DEVICE"
-BASELINE="$(sample_rpm baseline baseline)"
-echo "Commanding 20%, waiting ${WAIT_SECONDS}s..."
-send_speed 20; sleep "$WAIT_SECONDS"; RPM_20="$(sample_rpm 20-percent 20)"
-echo "Commanding 50%, waiting ${WAIT_SECONDS}s..."
-send_speed 50; sleep "$WAIT_SECONDS"; RPM_50="$(sample_rpm 50-percent 50)"
+echo "Commanding 20%, waiting ${WAIT_SECONDS}s, then recording every candidate enclosure..."
+send_speed 20
+sleep "$WAIT_SECONDS"
+while IFS=$'\t' read -r ADDRESS DEVICE; do
+  if SAMPLE="$(sample_device_rpm "$DEVICE" 20-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$LOW"; fi
+done < "$CANDIDATES"
+
+echo "Commanding 50%, waiting ${WAIT_SECONDS}s, then looking for the enclosure whose RPM rises..."
+send_speed 50
+sleep "$WAIT_SECONDS"
+while IFS=$'\t' read -r ADDRESS DEVICE; do
+  if SAMPLE="$(sample_device_rpm "$DEVICE" 50-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$HIGH"; fi
+done < "$CANDIDATES"
+
 restore_safe
 trap - EXIT INT TERM
 
-RESULT="$(awk -v low="$RPM_20" -v high="$RPM_50" 'BEGIN {delta=high-low; pct=(low>0?delta/low*100:0); printf "%s|%d|%.1f", (delta>=250 && pct>=10?"PASS":"REVIEW"), delta, pct}')"
-STATUS="${RESULT%%|*}"; REST="${RESULT#*|}"; DELTA="${REST%%|*}"; PERCENT="${REST#*|}"
+MATCHES="$RESULT_DIR/matches.tsv"
+awk -F '\t' '
+  NR == FNR { low[$1]=$3; next }
+  ($1 in low) {
+    delta=$3-low[$1]; pct=(low[$1]>0 ? delta/low[$1]*100 : 0);
+    if (delta >= 250 && pct >= 10) printf "%s\t%s\t%d\t%d\t%d\t%.1f\n", $1, $2, low[$1], $3, delta, pct;
+  }
+' "$LOW" "$HIGH" > "$MATCHES"
+
+MATCH_COUNT="$(wc -l < "$MATCHES" | tr -d ' ')"
+if [ "$MATCH_COUNT" -ne 1 ]; then
+  echo "Identification was ambiguous: expected exactly one responding SES enclosure, found $MATCH_COUNT." >&2
+  echo "The 20% command was restored and no hardware mapping was saved." >&2
+  echo "Use Manual mapping only after checking the captured results in $RESULT_DIR." >&2
+  exit 1
+fi
+
+IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_50 DELTA PERCENT < "$MATCHES"
+MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
+AUTO_DISKS="$(jq -c '.disks // []' <<< "$MAPPING_JSON")"
+AUTO_COUNT="$(jq '(.disks // []) | length' <<< "$MAPPING_JSON")"
+READY=false
+if [ "$ASSIGNMENT" = "manual" ]; then
+  [ "$(jq '(.disks // []) | length' <<< "$SHELF_JSON")" -gt 0 ] && READY=true
+elif [ "$AUTO_COUNT" -gt 0 ]; then
+  READY=true
+fi
+
+php -r '
+  require $argv[1];
+  $config=md12xx_read_config($argv[2]);
+  $automaticDisks=json_decode($argv[6], true) ?: [];
+  foreach ($config["shelves"] as &$shelf) {
+    if ($shelf["id"] !== $argv[3]) continue;
+    $shelf["sesAddress"]=$argv[4];
+    $shelf["sesDevice"]=$argv[5];
+    $assignment=$shelf["diskAssignment"] ?? (!empty($shelf["disks"]) ? "manual" : "automatic");
+    if ($assignment === "automatic") $shelf["disks"]=$automaticDisks;
+    $shelf["commissioned"]=$argv[7] === "true";
+  }
+  unset($shelf);
+  md12xx_write_config($config, $argv[2]);
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY"
+
 {
-  echo "MD12xx fan control commissioning"
+  echo "MD12xx fan control identification and commissioning"
   echo "Collected: $(date -Is)"
   echo "Shelf: $SHELF_NAME ($MODEL)"
-  echo "SES: $SES_ADDRESS -> $SES_DEVICE"
   echo "Serial: $PORT"
-  echo "Baseline: $BASELINE RPM"
+  echo "Matched SES: $SES_ADDRESS -> $SES_DEVICE"
   echo "20%: $RPM_20 RPM"
   echo "50%: $RPM_50 RPM"
-  echo "Response: $STATUS (delta +$DELTA RPM, $PERCENT%)"
+  echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
+  echo "Disk assignment: $ASSIGNMENT"
+  echo "Automatic disks: $(jq -r 'if length then join(", ") else "none" end' <<< "$AUTO_DISKS")"
   echo "Final command: 20%"
 } | tee "$RESULT_DIR/result.txt"
 
-if [ "$STATUS" = "PASS" ]; then
-  php -r 'require $argv[1]; $c=md12xx_read_config($argv[2]); foreach ($c["shelves"] as &$s) { if ($s["id"] === $argv[3]) $s["commissioned"] = true; } unset($s); md12xx_write_config($c, $argv[2]);' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID"
-  echo "Commissioning saved. The shelf may now be enabled from the Settings page."
+if [ "$READY" = true ]; then
+  echo "Identification and commissioning saved. The shelf may now be enabled from Settings."
 else
-  echo "Response requires review; commissioning was not granted." >&2
+  echo "The serial-to-SES pairing passed, but no usable disk assignment was found." >&2
+  echo "The pairing was saved without commissioning. Use Manual mapping, select the shelf disks, save, and rerun this test." >&2
 fi
 
 if command -v zip >/dev/null 2>&1; then
@@ -1436,7 +1694,7 @@ else
   tar -czf "$RESULT_ROOT/${STAMP}-${SHELF_ID}.tar.gz" -C "$RESULT_ROOT" "${STAMP}-${SHELF_ID}"
   echo "Results: $RESULT_ROOT/${STAMP}-${SHELF_ID}.tar.gz"
 fi
-[ "$STATUS" = "PASS" ]
+[ "$READY" = true ]
 
 ]]>
 </INLINE>
@@ -1607,7 +1865,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.1.3 installed. Configure it under Settings → Utilities."
+echo "Version 0.2.0 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>

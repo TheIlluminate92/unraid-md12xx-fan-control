@@ -66,6 +66,27 @@
     selected.forEach(function (name) { if (values.indexOf(name) < 0) values.push(name); });
     return values.map(function (name) { return option(name, name, selected.indexOf(name) >= 0); }).join("");
   }
+  function assignmentMode(shelf) {
+    if (shelf.diskAssignment === "automatic" || shelf.diskAssignment === "manual") return shelf.diskAssignment;
+    return Array.isArray(shelf.disks) && shelf.disks.length ? "manual" : "automatic";
+  }
+  function selectedSes(shelf) {
+    var devices = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    return devices.find(function (item) {
+      return (shelf.sesAddress && item.address === shelf.sesAddress) || (!shelf.sesAddress && shelf.sesDevice && item.device === shelf.sesDevice);
+    }) || null;
+  }
+  function assignmentSummary(shelf) {
+    if (assignmentMode(shelf) === "manual") {
+      var manual = Array.isArray(shelf.disks) ? shelf.disks : [];
+      return manual.length ? "Manual override: " + manual.join(", ") : "Manual override selected; choose at least one Unraid disk below.";
+    }
+    var ses = selectedSes(shelf);
+    var disks = ses && Array.isArray(ses.disks) && ses.disks.length ? ses.disks : (Array.isArray(shelf.disks) ? shelf.disks : []);
+    if (disks.length) return "Automatically detected: " + disks.join(", ");
+    if (!shelf.sesAddress && !shelf.sesDevice) return "Select a verified serial adapter, save, then run Identify & test to find its enclosure and disks.";
+    return (ses && ses.diskMappingMessage) || "No automatic disk mapping was found. Open Manual mapping only if the identification test cannot resolve it.";
+  }
 
   function renderShelves() {
     var root = byId("md12xx-shelves");
@@ -77,23 +98,27 @@
     root.innerHTML = shelves.map(function (shelf, index) {
       var status = stateById[shelf.id] || {};
       var commissioned = !!shelf.commissioned;
+      var assignment = assignmentMode(shelf);
       return '<article class="md12xx-shelf" data-index="' + index + '" data-id="' + esc(shelf.id) + '" data-commissioned="' + (commissioned ? "1" : "0") + '">' +
         '<div class="md12xx-shelf-head"><strong>' + esc(shelf.name || shelf.model || "Shelf") + '</strong><button type="button" class="md12xx-remove">Remove</button></div>' +
         '<div class="md12xx-shelf-grid">' +
           '<label><span>Name</span><input class="md12xx-name" maxlength="80" value="' + esc(shelf.name || "") + '"></label>' +
           '<label><span>Model</span><select class="md12xx-model">' + option("MD1200", "Dell PowerVault MD1200", shelf.model !== "MD1220") + option("MD1220", "Dell PowerVault MD1220", shelf.model === "MD1220") + '</select></label>' +
-          '<label><span>Serial adapter</span><select class="md12xx-port">' + serialOptions(shelf.serialPort || "") + '</select><small>Must be a /dev/serial/by-id path</small></label>' +
-          '<label><span>SES enclosure</span><select class="md12xx-ses">' + sesOptions(shelf) + '</select><small>The stable SCSI address survives /dev/sg renumbering</small></label>' +
-          '<label><span>Assigned Unraid disks</span><select class="md12xx-disks" multiple>' + diskOptions(shelf.disks) + '</select><small>Ctrl/Cmd-click to select multiple disks</small></label>' +
+          '<label><span>Serial adapter</span><select class="md12xx-port">' + serialOptions(shelf.serialPort || "") + '</select><small>This is the only hardware choice needed for automatic setup</small></label>' +
+          '<label><span>Disk assignment</span><select class="md12xx-assignment">' + option("automatic", "Automatic from detected SES enclosure", assignment === "automatic") + option("manual", "Manual override", assignment === "manual") + '</select><small class="md12xx-assignment-summary">' + esc(assignmentSummary(shelf)) + '</small></label>' +
           '<label><span>Shelf enabled</span><input class="md12xx-shelf-enabled" type="checkbox"' + (shelf.enabled !== false ? " checked" : "") + '><small>Commissioned: ' + (commissioned ? "yes" : "no") + '</small></label>' +
         '</div>' +
+        '<details class="md12xx-manual"' + (assignment === "manual" ? " open" : "") + '><summary>Manual mapping fallback</summary><div class="md12xx-shelf-grid">' +
+          '<label><span>SES enclosure</span><select class="md12xx-ses">' + sesOptions(shelf) + '</select><small>Normally filled by Identify & test</small></label>' +
+          '<label><span>Assigned Unraid disks</span><select class="md12xx-disks" multiple>' + diskOptions(shelf.disks) + '</select><small>Used only in Manual override mode; Ctrl/Cmd-click for multiple disks</small></label>' +
+        '</div></details>' +
         '<div class="md12xx-status">' +
           '<span>RPM<b>' + esc(status.averageRpm == null ? "—" : status.averageRpm) + '</b></span>' +
           '<span>Temperature<b>' + esc(status.temperatureC == null ? "—" : status.temperatureC + "°C") + '</b></span>' +
           '<span>Target<b>' + esc(status.targetPercent == null ? "—" : status.targetPercent + "%") + '</b></span>' +
           '<span>State<b>' + esc(status.writeState || status.telemetryState || "—") + '</b></span>' +
         '</div>' +
-        '<div class="md12xx-commission">Commission: /usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh ' + esc(shelf.id) + '</div>' +
+        '<div class="md12xx-commission">Identify & test: /usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh ' + esc(shelf.id) + '<br>Guarded test: verifies the console, runs 20% → 50% → 20%, identifies the responding SES enclosure, and saves automatic disk assignments.</div>' +
       '</article>';
     }).join("");
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-remove"), function (button) {
@@ -101,6 +126,17 @@
         var card = button.closest(".md12xx-shelf");
         config.shelves.splice(Number(card.getAttribute("data-index")), 1);
         renderShelves();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-assignment"), function (select) {
+      select.addEventListener("change", function () {
+        var card = select.closest(".md12xx-shelf");
+        var details = card.querySelector(".md12xx-manual");
+        if (select.value === "manual") details.open = true;
+        var disks = Array.prototype.map.call(card.querySelector(".md12xx-disks").selectedOptions, function (item) { return item.value; });
+        var sesValue = card.querySelector(".md12xx-ses").value.split("|");
+        var preview = { diskAssignment: select.value, disks: disks, sesAddress: sesValue[0] || "", sesDevice: sesValue[1] || "" };
+        card.querySelector(".md12xx-assignment-summary").textContent = assignmentSummary(preview);
       });
     });
   }
@@ -164,6 +200,7 @@
         serialPort: card.querySelector(".md12xx-port").value,
         sesAddress: ses[0] || "",
         sesDevice: ses[1] || "",
+        diskAssignment: card.querySelector(".md12xx-assignment").value,
         disks: disks
       });
     });
@@ -217,7 +254,7 @@
     var number = config.shelves.length + 1;
     var id = "shelf-" + number;
     while (config.shelves.some(function (item) { return item.id === id; })) { number++; id = "shelf-" + number; }
-    config.shelves.push({ id: id, name: "MD1200 Shelf " + number, model: "MD1200", enabled: true, commissioned: false, serialPort: "", sesDevice: "", sesAddress: "", disks: [] });
+    config.shelves.push({ id: id, name: "MD1200 Shelf " + number, model: "MD1200", enabled: true, commissioned: false, serialPort: "", sesDevice: "", sesAddress: "", diskAssignment: "automatic", disks: [] });
     renderShelves();
   });
   byId("md12xx-refresh").addEventListener("click", function () { config = collect(); discover().then(function () { message("Discovery refreshed.", false); }).catch(function (error) { message(error.message, true); }); });

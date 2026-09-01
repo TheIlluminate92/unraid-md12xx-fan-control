@@ -16,6 +16,13 @@ if grep -qE 'require_once[[:space:]]+__DIR__' "$PLUGIN_DIR/MD12xxFanControl.page
 fi
 grep -Fq "\$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';" "$PLUGIN_DIR/MD12xxFanControl.page"
 
+mkdir -p "$TMP_DIR/sys/class/enclosure/0:0:99:0/Slot 00/device/block/sda"
+php -r '
+  require $argv[1];
+  echo json_encode(md12xx_ses_disk_mapping("0:0:99:0", $argv[2], $argv[3]), JSON_UNESCAPED_SLASHES);
+' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys" > "$TMP_DIR/disk-mapping.json"
+jq -e '.state == "verified" and .blockDevices == ["sda"] and .disks == ["disk1"]' "$TMP_DIR/disk-mapping.json" >/dev/null
+
 php "$PLUGIN_DIR/include/discovery.php" --once \
   --config="$PROJECT_DIR/tests/fixtures/auto.json" \
   --state="$TMP_DIR/discovery-state.json"
@@ -24,6 +31,10 @@ if grep -n 'set_speed' "$PLUGIN_DIR/include/discovery.php"; then
   echo "Read-only discovery contains a fan-speed command." >&2
   exit 1
 fi
+grep -Fq "printf '_who\\r'" "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'expected exactly one responding SES enclosure' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'Returning the selected MD12xx console to 20%' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'md12xx_ses_disk_mapping' "$PLUGIN_DIR/scripts/commission.sh"
 
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$PROJECT_DIR/tests/fixtures/auto.json" \

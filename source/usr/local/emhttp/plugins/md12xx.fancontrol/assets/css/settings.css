@@ -21,6 +21,10 @@
 .md12xx-shelf-head strong { font-size: 15px; }
 .md12xx-shelf-grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 13px 18px; }
 .md12xx-shelf .md12xx-disks { min-height: 120px; }
+.md12xx-manual { margin-top: 12px; border: 1px solid #343a40; padding: 10px 12px; background: #0d0f11; }
+.md12xx-manual summary { cursor: pointer; color: #f4b942; font-weight: 600; }
+.md12xx-manual[open] summary { margin-bottom: 12px; }
+.md12xx-assignment-summary { line-height: 1.45; }
 .md12xx-status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .md12xx-status span { padding: 8px; background: #1c2024; font-size: 12px; }
 .md12xx-status b { display: block; margin-top: 3px; font-size: 15px; }

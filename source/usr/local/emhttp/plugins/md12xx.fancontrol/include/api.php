@@ -64,6 +64,17 @@ try {
     foreach ($decoded['shelves'] ?? [] as &$shelf) {
         if (!is_array($shelf)) continue;
         $old = $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] ?? null;
+        // A terminal identification test can update the SES mapping while an
+        // older Settings page is still open. Do not let that stale page erase
+        // a proven automatic pairing when it later saves unrelated settings.
+        $automatic = strtolower((string) ($shelf['diskAssignment'] ?? 'automatic')) === 'automatic';
+        $sameSerial = is_array($old) && (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '');
+        if ($automatic && $sameSerial && (bool) ($old['commissioned'] ?? false)
+            && trim((string) ($shelf['sesAddress'] ?? '')) === '' && trim((string) ($shelf['sesDevice'] ?? '')) === '') {
+            $shelf['sesAddress'] = (string) ($old['sesAddress'] ?? '');
+            $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
+            $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
+        }
         $sameHardware = is_array($old)
             && strtoupper((string) ($old['model'] ?? '')) === strtoupper((string) ($shelf['model'] ?? ''))
             && (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '')

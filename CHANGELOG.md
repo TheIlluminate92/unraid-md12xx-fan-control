@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0 — 2026-09-01
+
+- Replaced the normal multi-select disk workflow with automatic SES-to-Unraid disk mapping.
+- Added a guarded serial-to-SES identification test using independently measured 20% and 50% fan RPM response, with an unconditional 20% restore attempt.
+- Requires the selected serial console to pass the read-only MD12xx identity check before any fan command is sent.
+- Keeps the SES and disk selectors under a Manual mapping fallback for hardware where Linux does not expose enclosure-slot links.
+- Refuses to commission ambiguous pairings or automatic mappings with no assigned Unraid disks.
+
 ## 0.1.3 — 2026-09-01
 
 - Fixed the blank Unraid Settings page by resolving runtime files from the explicit plugin root rather than the page builder's `__DIR__` context.

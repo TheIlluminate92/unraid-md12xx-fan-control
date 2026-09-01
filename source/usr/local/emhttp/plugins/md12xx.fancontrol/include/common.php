@@ -134,6 +134,16 @@ function md12xx_validate_config(array $input): array
         $sesAddress = trim((string) ($shelf['sesAddress'] ?? ''));
         if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid stable SCSI address');
 
+        $diskAssignment = strtolower(trim((string) ($shelf['diskAssignment'] ?? '')));
+        if ($diskAssignment === '') {
+            // Preserve pre-0.1.4 configurations as manual mappings. Newly added
+            // shelves explicitly opt into automatic enclosure mapping in the UI.
+            $diskAssignment = !empty($shelf['disks']) ? 'manual' : 'automatic';
+        }
+        if (!in_array($diskAssignment, ['automatic', 'manual'], true)) {
+            throw new InvalidArgumentException('Disk assignment must be automatic or manual');
+        }
+
         $disks = is_array($shelf['disks'] ?? null) ? $shelf['disks'] : [];
         $disks = array_values(array_unique(array_filter(array_map(static function ($disk): string {
             $name = strtolower(trim((string) $disk));
@@ -149,6 +159,7 @@ function md12xx_validate_config(array $input): array
             'serialPort' => $port,
             'sesDevice' => $sesDevice,
             'sesAddress' => $sesAddress,
+            'diskAssignment' => $diskAssignment,
             'disks' => $disks,
         ];
     }
@@ -282,10 +293,83 @@ function md12xx_serial_port_details(): array
     return $result;
 }
 
-function md12xx_discover_ses(): array
+function md12xx_ses_disk_mapping(
+    string $address,
+    string $disksPath = '/var/local/emhttp/disks.ini',
+    string $sysfsRoot = '/sys'
+): array
+{
+    $base = [
+        'state' => 'unavailable',
+        'blockDevices' => [],
+        'disks' => [],
+        'message' => 'Linux enclosure-to-disk links are unavailable',
+    ];
+    if ($address === '' || !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $address)) return $base;
+
+    $enclosureRoot = rtrim($sysfsRoot, '/\\') . '/class/enclosure';
+    $enclosure = $enclosureRoot . '/' . $address;
+    if (!is_dir($enclosure)) {
+        foreach (glob($enclosureRoot . '/*') ?: [] as $candidate) {
+            $resolved = @realpath($candidate);
+            if (basename($candidate) === $address || ($resolved !== false && basename($resolved) === $address)) {
+                $enclosure = $candidate;
+                break;
+            }
+        }
+    }
+    if (!is_dir($enclosure)) return $base;
+
+    $blockDevices = [];
+    foreach (glob($enclosure . '/*') ?: [] as $component) {
+        if (!is_dir($component)) continue;
+        $device = $component . '/device';
+        $resolved = @realpath($device);
+        foreach (array_unique(array_filter([$device, $resolved !== false ? $resolved : null])) as $devicePath) {
+            foreach (glob($devicePath . '/block/*') ?: [] as $blockPath) {
+                $name = basename($blockPath);
+                if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+            }
+        }
+    }
+    $blockDevices = array_values(array_unique($blockDevices));
+    sort($blockDevices, SORT_NATURAL | SORT_FLAG_CASE);
+    if (!$blockDevices) {
+        return array_replace($base, [
+            'state' => 'empty',
+            'message' => 'The enclosure was found, but Linux did not link any block devices to its slots',
+        ]);
+    }
+
+    $byDevice = [];
+    foreach (md12xx_discover_disks($disksPath) as $disk) {
+        $device = basename(trim((string) ($disk['device'] ?? '')));
+        if ($device !== '') $byDevice[strtolower($device)] = (string) $disk['name'];
+    }
+    $disks = [];
+    foreach ($blockDevices as $device) {
+        $name = $byDevice[strtolower($device)] ?? '';
+        if ($name !== '') $disks[] = $name;
+    }
+    $disks = array_values(array_unique($disks));
+    usort($disks, 'strnatcasecmp');
+    return [
+        'state' => $disks ? 'verified' : 'unassigned',
+        'blockDevices' => $blockDevices,
+        'disks' => $disks,
+        'message' => $disks
+            ? 'Mapped through Linux enclosure slot links and the current Unraid disk inventory'
+            : 'Physical enclosure disks were found, but none are currently assigned by Unraid',
+    ];
+}
+
+function md12xx_discover_ses(
+    string $disksPath = '/var/local/emhttp/disks.ini',
+    string $sysfsRoot = '/sys'
+): array
 {
     $result = [];
-    foreach (glob('/sys/class/scsi_generic/sg*') ?: [] as $genericPath) {
+    foreach (glob(rtrim($sysfsRoot, '/\\') . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
         $devicePath = $genericPath . '/device';
         $resolved = @realpath($devicePath);
         if ($resolved === false) continue;
@@ -293,12 +377,17 @@ function md12xx_discover_ses(): array
         $model = trim((string) @file_get_contents($devicePath . '/model'));
         $type = trim((string) @file_get_contents($devicePath . '/type'));
         if ($type !== '13' && stripos($model, 'MD12') === false) continue;
+        $mapping = md12xx_ses_disk_mapping(basename($resolved), $disksPath, $sysfsRoot);
         $result[] = [
             'device' => '/dev/' . basename($genericPath),
             'address' => basename($resolved),
             'vendor' => $vendor,
             'model' => $model,
             'supportedCandidate' => stripos($vendor . ' ' . $model, 'DELL') !== false || stripos($model, 'MD12') !== false,
+            'diskMappingState' => $mapping['state'],
+            'blockDevices' => $mapping['blockDevices'],
+            'disks' => $mapping['disks'],
+            'diskMappingMessage' => $mapping['message'],
         ];
     }
     usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['device'], $b['device']));

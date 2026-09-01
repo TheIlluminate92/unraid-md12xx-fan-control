@@ -8,6 +8,7 @@ Standalone, host-native fan control for Dell PowerVault MD1200 and MD1220 disk s
 
 - Supports one or more MD1200/MD1220 shelves.
 - Passively inventories candidate SES devices, persistent serial adapter paths, and Unraid disks.
+- Automatically maps enclosure slots to the current Unraid disk names when Linux exposes the standard enclosure links.
 - Optionally verifies likely FTDI serial consoles with a read-only `_who` query while all fan controllers are stopped.
 - Auto mode controls each shelf from its assigned disks independently.
 - Manual choices: 20%, 30%, 40%, and 50%.
@@ -33,7 +34,9 @@ The controller polls every 30 seconds, uses 1°C downshift hysteresis, and reass
 
 ## Safety model
 
-The plugin never guesses which serial adapter controls which enclosure. Discovery suggests candidates, but the operator must explicitly pair each shelf and run the commissioning test. The test verifies a measurable RPM response at 20% and 50% and always attempts to restore 20% before exiting.
+The normal setup asks for one verified persistent serial adapter. The guarded identification test first repeats the read-only MD12xx console check, then measures every candidate SES enclosure at 20% and 50%. It accepts the pairing only when exactly one enclosure shows a clear RPM response, always attempts to restore 20%, and automatically maps that enclosure's Linux block devices to the current Unraid disk names. If Linux does not expose usable enclosure-slot links, the Settings page retains an explicit Manual mapping fallback.
+
+The plugin does not treat a matching model name, USB vendor, prompt string, or drive count as proof of a serial-to-SES pairing. Ambiguous RPM results and empty automatic disk assignments are not commissioned.
 
 Active connection discovery is off by default. When enabled, it considers a console verified only when the structured MD12xx `_who` response and the primary/active EMM role are both present. `BlueDress` is recorded when seen but is not required, because prompt wording may differ by firmware. Discovery never sends `set_speed`, is blocked while this plugin controls fans, and is also blocked by WAZ Dashboard or the legacy Docker controller.
 

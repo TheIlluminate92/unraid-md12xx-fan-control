@@ -211,7 +211,20 @@ while ($running) {
 
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
-        $thermal = md12xx_controller_temperature($shelf['disks'], $disks);
+        $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
+        $assignedDisks = is_array($shelf['disks'] ?? null) ? $shelf['disks'] : [];
+        $diskMapping = [
+            'state' => $assignmentMode === 'automatic' ? 'unavailable' : 'manual',
+            'disks' => $assignedDisks,
+            'message' => $assignmentMode === 'automatic' ? 'SES enclosure is not mapped' : 'Manual disk override',
+        ];
+        if ($assignmentMode === 'automatic' && (string) $shelf['sesAddress'] !== '') {
+            $diskMapping = md12xx_ses_disk_mapping((string) $shelf['sesAddress'], $disksPath);
+            // Keep the last hardware-confirmed snapshot if sysfs is temporarily
+            // unavailable. A successful current mapping always wins.
+            if (!empty($diskMapping['disks'])) $assignedDisks = $diskMapping['disks'];
+        }
+        $thermal = md12xx_controller_temperature($assignedDisks, $disks);
         $auto = md12xx_controller_auto_target($config, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
         $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
         $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
@@ -239,7 +252,10 @@ while ($running) {
             'serialPort' => $shelf['serialPort'],
             'sesDevice' => $sesDevice,
             'sesAddress' => $shelf['sesAddress'],
-            'assignedDisks' => $shelf['disks'],
+            'diskAssignment' => $assignmentMode,
+            'diskMappingState' => $diskMapping['state'],
+            'diskMappingMessage' => $diskMapping['message'],
+            'assignedDisks' => $assignedDisks,
             'assignedSeen' => $thermal['assignedSeen'],
             'activeDisks' => $thermal['activeDisks'],
             'temperatureC' => $thermal['temperatureC'],
