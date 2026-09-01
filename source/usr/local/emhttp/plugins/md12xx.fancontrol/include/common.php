@@ -5,6 +5,8 @@ declare(strict_types=1);
 const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';
 const MD12XX_STATE_FILE = '/var/run/md12xx.fancontrol/status.json';
 const MD12XX_PID_FILE = '/var/run/md12xx.fancontrol/controller.pid';
+const MD12XX_DISCOVERY_FILE = '/var/run/md12xx.fancontrol/discovery.json';
+const MD12XX_DISCOVERY_PID_FILE = '/var/run/md12xx.fancontrol/discovery.pid';
 const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';
 
 function md12xx_defaults(): array
@@ -17,6 +19,11 @@ function md12xx_defaults(): array
         'reassertSeconds' => 900,
         'sensorFailureSpeed' => 50,
         'hysteresisC' => 1.0,
+        'discovery' => [
+            'autoProbeKnownFtdi' => false,
+            'intervalSeconds' => 300,
+            'responseSeconds' => 3,
+        ],
         'curve' => [
             ['temperatureC' => 0.0, 'speed' => 20],
             ['temperatureC' => 35.0, 'speed' => 25],
@@ -64,6 +71,12 @@ function md12xx_validate_config(array $input): array
     $config['reassertSeconds'] = max(60, min(3600, (int) ($input['reassertSeconds'] ?? 900)));
     $config['sensorFailureSpeed'] = max(20, min(100, (int) ($input['sensorFailureSpeed'] ?? 50)));
     $config['hysteresisC'] = max(0.0, min(10.0, (float) ($input['hysteresisC'] ?? 1.0)));
+    $discovery = is_array($input['discovery'] ?? null) ? $input['discovery'] : [];
+    $config['discovery'] = [
+        'autoProbeKnownFtdi' => filter_var($discovery['autoProbeKnownFtdi'] ?? false, FILTER_VALIDATE_BOOL),
+        'intervalSeconds' => max(60, min(3600, (int) ($discovery['intervalSeconds'] ?? 300))),
+        'responseSeconds' => max(1, min(10, (int) ($discovery['responseSeconds'] ?? 3))),
+    ];
 
     $curve = is_array($input['curve'] ?? null) ? array_values($input['curve']) : $defaults['curve'];
     if (count($curve) < 2 || count($curve) > 10) {
@@ -176,6 +189,40 @@ function md12xx_read_state(?string $path = null): array
     return md12xx_read_json($path ?: MD12XX_STATE_FILE);
 }
 
+function md12xx_read_discovery(?string $path = null): array
+{
+    return md12xx_read_json($path ?: MD12XX_DISCOVERY_FILE);
+}
+
+function md12xx_competing_controllers(array $config): array
+{
+    $conflicts = [];
+    $names = is_array($config['legacyContainerNames'] ?? null) ? $config['legacyContainerNames'] : [];
+    $lines = [];
+    $exitCode = 1;
+    @exec("docker ps --format '{{.Names}}' 2>/dev/null", $lines, $exitCode);
+    if ($exitCode === 0 && $names) {
+        $wanted = array_map('strtolower', array_map('trim', $names));
+        $conflicts = array_values(array_filter(array_map('trim', $lines), static fn(string $name): bool => in_array(strtolower($name), $wanted, true)));
+    }
+
+    $wazConfig = '/boot/config/plugins/waz.dashboard/waz.dashboard.cfg';
+    $waz = is_file($wazConfig) ? @parse_ini_file($wazConfig, false, INI_SCANNER_RAW) : [];
+    $wazEnabled = is_array($waz) && in_array(strtolower(trim((string) ($waz['MD1200_ENABLED'] ?? 'no'))), ['1', 'yes', 'true', 'on'], true);
+    if ($wazEnabled) $conflicts[] = 'WAZ Dashboard MD1200 controller';
+    return array_values(array_unique($conflicts));
+}
+
+function md12xx_serial_busy(string $port): bool
+{
+    $binary = trim((string) @shell_exec('command -v fuser 2>/dev/null'));
+    if ($binary === '') return false;
+    $target = @realpath($port);
+    $exitCode = 1;
+    @exec(escapeshellarg($binary) . ' ' . escapeshellarg($target !== false ? $target : $port) . ' >/dev/null 2>&1', $unused, $exitCode);
+    return $exitCode === 0;
+}
+
 function md12xx_public_status(): array
 {
     $config = md12xx_read_config();
@@ -200,6 +247,39 @@ function md12xx_discover_serial_ports(): array
     $ports = glob('/dev/serial/by-id/*') ?: [];
     sort($ports, SORT_NATURAL | SORT_FLAG_CASE);
     return array_values(array_filter($ports, 'is_string'));
+}
+
+function md12xx_serial_port_details(): array
+{
+    $result = [];
+    foreach (md12xx_discover_serial_ports() as $path) {
+        $target = @realpath($path);
+        $tty = $target !== false ? basename($target) : '';
+        $cursor = $tty !== '' ? @realpath('/sys/class/tty/' . $tty . '/device') : false;
+        $metadata = ['vendorId' => '', 'productId' => '', 'manufacturer' => '', 'product' => '', 'serial' => ''];
+        for ($depth = 0; $cursor !== false && $depth < 8; $depth++, $cursor = @realpath(dirname($cursor))) {
+            foreach ([
+                'vendorId' => 'idVendor', 'productId' => 'idProduct', 'manufacturer' => 'manufacturer',
+                'product' => 'product', 'serial' => 'serial',
+            ] as $key => $filename) {
+                if ($metadata[$key] === '' && is_file($cursor . '/' . $filename)) {
+                    $metadata[$key] = trim((string) @file_get_contents($cursor . '/' . $filename));
+                }
+            }
+            if ($metadata['vendorId'] !== '' && $metadata['productId'] !== '') break;
+            if ($cursor === '/sys' || $cursor === '/') break;
+        }
+        $knownFtdi = strtolower($metadata['vendorId']) === '0403'
+            || stripos($path, 'FTDI_USB_Serial_Converter') !== false
+            || stripos($metadata['manufacturer'] . ' ' . $metadata['product'], 'FTDI') !== false;
+        $result[] = array_merge([
+            'path' => $path,
+            'device' => $target !== false ? $target : null,
+            'tty' => $tty !== '' ? $tty : null,
+            'knownFtdiCandidate' => $knownFtdi,
+        ], $metadata);
+    }
+    return $result;
 }
 
 function md12xx_discover_ses(): array

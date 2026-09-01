@@ -11,6 +11,15 @@ for FILE in "$PLUGIN_DIR"/include/*.php; do php -l "$FILE" >/dev/null; done
 for FILE in "$PLUGIN_DIR"/scripts/*.sh "$PROJECT_DIR/scripts/build.sh"; do bash -n "$FILE"; done
 node --check "$PLUGIN_DIR/assets/js/settings.js"
 
+php "$PLUGIN_DIR/include/discovery.php" --once \
+  --config="$PROJECT_DIR/tests/fixtures/auto.json" \
+  --state="$TMP_DIR/discovery-state.json"
+jq -e '.serialPorts | type == "array"' "$TMP_DIR/discovery-state.json" >/dev/null
+if grep -n 'set_speed' "$PLUGIN_DIR/include/discovery.php"; then
+  echo "Read-only discovery contains a fan-speed command." >&2
+  exit 1
+fi
+
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$PROJECT_DIR/tests/fixtures/auto.json" \
   --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \

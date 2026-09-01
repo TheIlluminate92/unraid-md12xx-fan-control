@@ -6,11 +6,12 @@
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/waz-control/feature/standalone-md12xx-plugin/src/md12xx-fan-control/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/waz-control/issues" icon="cogs">
 <CHANGES>
 ### 0.1.0
 - Initial standalone beta for Dell PowerVault MD1200 and MD1220 shelves.
-- Adds multi-shelf configuration, discovery, Auto/Manual control, independent RPM telemetry, locking, and guarded commissioning.
+- Adds multi-shelf configuration, conservative background discovery, Auto/Manual control, independent RPM telemetry, locking, and guarded commissioning.
+- Optional serial verification is read-only, requires an MD12xx-shaped `_who` response, and is blocked while another fan controller is active.
 </CHANGES>
 
 <FILE Run="/bin/bash">
@@ -40,11 +41,12 @@ CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
 chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js"
-chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/api.php"
+chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php"
 chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh"
 
 php -l "$RUNTIME_DIR/include/common.php" >/dev/null
 php -l "$RUNTIME_DIR/include/controller.php" >/dev/null
+php -l "$RUNTIME_DIR/include/discovery.php" >/dev/null
 php -l "$RUNTIME_DIR/include/api.php" >/dev/null
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -57,6 +59,11 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "reassertSeconds": 900,
   "sensorFailureSpeed": 50,
   "hysteresisC": 1,
+  "discovery": {
+    "autoProbeKnownFtdi": false,
+    "intervalSeconds": 300,
+    "responseSeconds": 3
+  },
   "curve": [
     {"temperatureC": 0, "speed": 20},
     {"temperatureC": 35, "speed": 25},

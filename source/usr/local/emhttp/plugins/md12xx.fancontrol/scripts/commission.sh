@@ -70,6 +70,10 @@ send_speed() {
   local SPEED="$1"
   (
     flock -n 9 || { echo "Serial adapter is locked by another process." >&2; exit 1; }
+    if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
+      echo "Serial adapter is open in another process." >&2
+      exit 1
+    fi
     stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb
     exec 8>"$PORT"
     for _ in 1 2 3 4 5; do printf 'set_speed %s\r' "$SPEED" >&8; sleep 0.1; done

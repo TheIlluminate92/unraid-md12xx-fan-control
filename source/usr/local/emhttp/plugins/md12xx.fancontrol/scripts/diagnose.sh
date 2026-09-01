@@ -16,6 +16,7 @@ mkdir -p "$RESULT_DIR"
 
 cp -f "$CONFIG_DIR/config.json" "$RESULT_DIR/config.json" 2>/dev/null || true
 cp -f /var/run/md12xx.fancontrol/status.json "$RESULT_DIR/status.json" 2>/dev/null || true
+cp -f /var/run/md12xx.fancontrol/discovery.json "$RESULT_DIR/discovery.json" 2>/dev/null || true
 ls -la /dev/serial/by-id > "$RESULT_DIR/serial-adapters.txt" 2>&1 || true
 
 for GENERIC in /sys/class/scsi_generic/sg*; do
@@ -33,4 +34,3 @@ done
 
 tar -czf "$RESULT_ROOT/${STAMP}.tar.gz" -C "$RESULT_ROOT" "$STAMP"
 echo "Read-only diagnostics: $RESULT_ROOT/${STAMP}.tar.gz"
-

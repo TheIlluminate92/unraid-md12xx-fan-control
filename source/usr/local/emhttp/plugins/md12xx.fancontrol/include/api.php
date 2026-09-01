@@ -13,10 +13,16 @@ try {
 
     if ($method === 'GET') {
         if ($action === 'discover') {
+            $background = md12xx_read_discovery();
             echo json_encode([
-                'serialPorts' => md12xx_discover_serial_ports(),
-                'sesDevices' => md12xx_discover_ses(),
+                'generatedAt' => $background['generatedAt'] ?? null,
+                'autoProbeKnownFtdi' => $background['autoProbeKnownFtdi'] ?? false,
+                'activeProbeAllowed' => $background['activeProbeAllowed'] ?? false,
+                'blockedBy' => $background['blockedBy'] ?? [],
+                'serialPorts' => $background['serialPorts'] ?? md12xx_serial_port_details(),
+                'sesDevices' => $background['sesDevices'] ?? md12xx_discover_ses(),
                 'disks' => md12xx_discover_disks(),
+                'pairingPolicy' => $background['pairingPolicy'] ?? 'Explicit operator pairing is required.',
             ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         } elseif ($action === 'config') {
             echo json_encode(['config' => md12xx_read_config()], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
@@ -75,4 +81,3 @@ try {
     if (http_response_code() < 400) http_response_code(500);
     echo json_encode(['error' => $error->getMessage()], JSON_UNESCAPED_SLASHES);
 }
-

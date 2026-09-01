@@ -92,24 +92,6 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
     return ['speed' => $candidate, 'reason' => ($thermal['temperatureSource'] ?? 'disk') . ' ' . $temperature . '°C'];
 }
 
-function md12xx_controller_conflicts(array $names): array
-{
-    $conflicts = [];
-    $lines = [];
-    $exitCode = 1;
-    @exec("docker ps --format '{{.Names}}' 2>/dev/null", $lines, $exitCode);
-    if ($exitCode === 0 && $names) {
-        $wanted = array_map('strtolower', array_map('trim', $names));
-        $conflicts = array_values(array_filter(array_map('trim', $lines), static fn(string $name): bool => in_array(strtolower($name), $wanted, true)));
-    }
-
-    $wazConfig = '/boot/config/plugins/waz.dashboard/waz.dashboard.cfg';
-    $waz = is_file($wazConfig) ? @parse_ini_file($wazConfig, false, INI_SCANNER_RAW) : [];
-    $wazEnabled = is_array($waz) && in_array(strtolower(trim((string) ($waz['MD1200_ENABLED'] ?? 'no'))), ['1', 'yes', 'true', 'on'], true);
-    if ($wazEnabled) $conflicts[] = 'WAZ Dashboard MD1200 controller';
-    return array_values(array_unique($conflicts));
-}
-
 function md12xx_controller_resolve_ses(string $configuredDevice, string $scsiAddress): string
 {
     if ($scsiAddress !== '') {
@@ -127,6 +109,7 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
     if ($port === '' || !str_starts_with($port, '/dev/serial/by-id/') || !file_exists($port)) {
         return ['state' => 'fault', 'message' => 'Persistent serial adapter is missing'];
     }
+    if (md12xx_serial_busy($port)) return ['state' => 'fault', 'message' => 'Serial adapter is open in another process'];
     if (!is_dir(MD12XX_RUNTIME_DIR)) @mkdir(MD12XX_RUNTIME_DIR, 0755, true);
     $lockPath = MD12XX_RUNTIME_DIR . '/serial-' . substr(sha1($port), 0, 12) . '.lock';
     $lock = @fopen($lockPath, 'c+');
@@ -216,7 +199,7 @@ while ($running) {
     $enabled = (bool) $config['enabled'];
     $mode = (string) $config['mode'];
     $manualSpeed = (int) $config['manualSpeed'];
-    $conflicts = $enabled ? md12xx_controller_conflicts($config['legacyContainerNames']) : [];
+    $conflicts = $enabled ? md12xx_competing_controllers($config) : [];
     $disks = md12xx_controller_disks($disksPath);
     $controllerState = 'normal';
     $messages = [];

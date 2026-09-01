@@ -39,6 +39,17 @@ $jsVersion = @filemtime(__DIR__ . '/assets/js/settings.js') ?: 0;
   </section>
 
   <section class="md12xx-panel">
+    <h3>Connection discovery</h3>
+    <div class="md12xx-grid">
+      <label><span>Test likely FTDI adapters</span><input id="md12xx-probe-ftdi" type="checkbox"><small>Optional; off by default</small></label>
+      <label><span>Discovery interval</span><input id="md12xx-discovery-interval" type="number" min="60" max="3600" step="60"><small>Seconds; 300 recommended</small></label>
+      <label><span>Response wait</span><input id="md12xx-response-seconds" type="number" min="1" max="10" step="1"><small>Seconds; 3 recommended</small></label>
+    </div>
+    <p id="md12xx-discovery-summary" class="md12xx-discovery-summary">Waiting for passive inventory…</p>
+    <p class="md12xx-warning"><b>Read-only test:</b> sends only <code>_who</code> with the hardware-confirmed carriage return. It never sends a fan-speed command, runs only while this controller is disabled, and skips all probes if WAZ or the legacy Docker controller is active.</p>
+  </section>
+
+  <section class="md12xx-panel">
     <div class="md12xx-title-row"><h3>Shelves</h3><button id="md12xx-add" type="button">Add shelf</button></div>
     <div id="md12xx-shelves"></div>
   </section>

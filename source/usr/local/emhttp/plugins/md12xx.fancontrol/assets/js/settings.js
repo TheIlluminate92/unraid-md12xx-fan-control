@@ -28,11 +28,25 @@
   }
 
   function serialOptions(selected) {
-    var values = discovery.serialPorts.slice();
-    if (selected && values.indexOf(selected) < 0) values.unshift(selected);
-    return option("", "Select persistent serial adapter…", !selected) + values.map(function (value) {
-      return option(value, value, value === selected);
+    var values = discovery.serialPorts.map(function (item) {
+      return typeof item === "string" ? { path: item, probeState: "passive-only" } : item;
+    });
+    if (selected && !values.some(function (item) { return item.path === selected; })) values.unshift({ path: selected, probeState: "saved" });
+    return option("", "Select persistent serial adapter…", !selected) + values.map(function (item) {
+      var suffix = item.consoleVerified ? " · MD12xx verified" : item.knownFtdiCandidate ? " · FTDI candidate" : " · " + (item.probeState || "detected");
+      return option(item.path, item.path + suffix, item.path === selected);
     }).join("");
+  }
+
+  function renderDiscoverySummary() {
+    var ports = Array.isArray(discovery.serialPorts) ? discovery.serialPorts : [];
+    var ses = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    var verified = ports.filter(function (item) { return item && typeof item === "object" && item.consoleVerified; }).length;
+    var blocked = Array.isArray(discovery.blockedBy) ? discovery.blockedBy : [];
+    var text = ports.length + " serial adapter" + (ports.length === 1 ? "" : "s") + ", " + ses.length + " SES enclosure" + (ses.length === 1 ? "" : "s") + ", " + verified + " verified MD12xx console" + (verified === 1 ? "" : "s") + ".";
+    if (blocked.length) text += " Active probing blocked by: " + blocked.join(", ") + ".";
+    else if (discovery.autoProbeKnownFtdi && !discovery.activeProbeAllowed) text += " Active probing is paused while fan control is enabled.";
+    byId("md12xx-discovery-summary").textContent = text;
   }
   function sesOptions(shelf) {
     var selected = (shelf.sesAddress || "") + "|" + (shelf.sesDevice || "");
@@ -108,6 +122,10 @@
     byId("md12xx-poll").value = String(config.pollSeconds || 30);
     byId("md12xx-reassert").value = String(config.reassertSeconds || 900);
     byId("md12xx-failsafe").value = String(config.sensorFailureSpeed || 50);
+    var discoveryConfig = config.discovery || {};
+    byId("md12xx-probe-ftdi").checked = !!discoveryConfig.autoProbeKnownFtdi;
+    byId("md12xx-discovery-interval").value = String(discoveryConfig.intervalSeconds || 300);
+    byId("md12xx-response-seconds").value = String(discoveryConfig.responseSeconds || 3);
     byId("md12xx-hysteresis").value = String(config.hysteresisC == null ? 1 : config.hysteresisC);
     renderCurve();
     renderShelves();
@@ -122,6 +140,11 @@
       reassertSeconds: Number(byId("md12xx-reassert").value),
       sensorFailureSpeed: Number(byId("md12xx-failsafe").value),
       hysteresisC: Number(byId("md12xx-hysteresis").value),
+      discovery: {
+        autoProbeKnownFtdi: byId("md12xx-probe-ftdi").checked,
+        intervalSeconds: Number(byId("md12xx-discovery-interval").value),
+        responseSeconds: Number(byId("md12xx-response-seconds").value)
+      },
       legacyContainerNames: Array.isArray(config.legacyContainerNames) ? config.legacyContainerNames : ["MD1200-Fan-Controller"],
       curve: [], shelves: []
     };
@@ -152,6 +175,7 @@
     var payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Discovery failed");
     discovery = payload;
+    renderDiscoverySummary();
     renderShelves();
   }
   async function refreshStatus() {

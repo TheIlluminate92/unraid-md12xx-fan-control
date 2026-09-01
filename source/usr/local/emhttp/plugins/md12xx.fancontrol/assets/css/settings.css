@@ -15,6 +15,7 @@
 .md12xx-pill.is-normal { color: #70df9b; }.md12xx-pill.is-attention { color: #ffd166; }.md12xx-pill.is-fault { color: #ff6b6b; }
 .md12xx-message { margin-top: 14px; padding: 11px 13px; border-left: 3px solid #f15a2b; background: #24282d; }
 .md12xx-warning { margin: 16px 0 0; color: #ffd166; }
+.md12xx-discovery-summary { margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid #4bb3fd; background: rgba(75,179,253,.08); }
 .md12xx-shelf { margin-top: 14px; padding: 14px; border: 1px solid #343a40; background: #111316; }
 .md12xx-shelf-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 .md12xx-shelf-head strong { font-size: 15px; }
@@ -29,4 +30,3 @@
 .md12xx-inline { display: flex; align-items: center; gap: 8px; margin-top: 14px; }.md12xx-inline input { width: 90px; }
 .md12xx-actions { margin-top: 18px; justify-content: flex-end; }
 @media (max-width: 850px) { .md12xx-grid, .md12xx-shelf-grid { grid-template-columns: 1fr; }.md12xx-curve { grid-template-columns: repeat(2, 1fr); }.md12xx-status { grid-template-columns: repeat(2, 1fr); } }
-

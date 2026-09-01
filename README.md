@@ -7,7 +7,8 @@ Standalone, host-native fan control for Dell PowerVault MD1200 and MD1220 disk s
 ## Features
 
 - Supports one or more MD1200/MD1220 shelves.
-- Discovers candidate SES devices, persistent serial adapter paths, and Unraid disks.
+- Passively inventories candidate SES devices, persistent serial adapter paths, and Unraid disks.
+- Optionally verifies likely FTDI serial consoles with a read-only `_who` query while all fan controllers are stopped.
 - Auto mode controls each shelf from its assigned disks independently.
 - Manual choices: 20%, 30%, 40%, and 50%.
 - Reads independent fan RPM telemetry through `sg_ses`.
@@ -34,7 +35,10 @@ The controller polls every 30 seconds, uses 1°C downshift hysteresis, and reass
 
 The plugin never guesses which serial adapter controls which enclosure. Discovery suggests candidates, but the operator must explicitly pair each shelf and run the commissioning test. The test verifies a measurable RPM response at 20% and 50% and always attempts to restore 20% before exiting.
 
+Active connection discovery is off by default. When enabled, it considers a console verified only when the structured MD12xx `_who` response and the primary/active EMM role are both present. `BlueDress` is recorded when seen but is not required, because prompt wording may differ by firmware. Discovery never sends `set_speed`, is blocked while this plugin controls fans, and is also blocked by WAZ Dashboard or the legacy Docker controller.
+
 Do not run this plugin alongside another process that writes to the same enclosure serial adapter.
+The controller, discovery worker, and commissioning test also refuse to open a serial device that the operating system reports as already in use.
 
 ## Development install
 
@@ -50,7 +54,8 @@ Other local plugins, including WAZ Dashboard, can read:
 
 The default GET response is intentionally read-only JSON containing controller and shelf state.
 
+An optional compact WAZ Dashboard module is planned after the discovery result has been validated on real MD1200 hardware and, separately, on an MD1220.
+
 ## License and hardware disclaimer
 
 MIT licensed. Dell does not document the BlueDress fan command used by this project. Use at your own risk, keep current backups, and validate every shelf before enabling automatic control.
-
