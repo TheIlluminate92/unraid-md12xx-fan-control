@@ -3,9 +3,13 @@
 
   var boot = window.MD12xxBootstrap || {};
   var endpoint = boot.endpoint || "/plugins/md12xx.fancontrol/include/api.php";
+  var downloadEndpoint = endpoint.replace(/api\.php(?:\?.*)?$/, "download.php");
   var config = JSON.parse(JSON.stringify(boot.config || {}));
   var discovery = { serialPorts: [], sesDevices: [], disks: [] };
   var stateById = {};
+  var controllerState = {};
+  var commissionJobs = {};
+  var commissionTimers = {};
 
   function byId(id) { return document.getElementById(id); }
   function esc(value) {
@@ -96,6 +100,59 @@
     return Array.isArray(disks) ? disks : [];
   }
 
+  function commissionPhaseLabel(phase) {
+    return {
+      "not-started": "Ready",
+      "starting": "Starting…",
+      "verifying-console": "Verifying console…",
+      "testing-20": "Recording 20% baseline…",
+      "testing-50": "Testing 50% response…",
+      "restoring": "Returning to 20%…",
+      "verifying-restore": "Verifying final 20% state…",
+      "passed": "Passed",
+      "failed": "Failed"
+    }[phase] || phase || "Ready";
+  }
+
+  function updateCommissionCard(id) {
+    var card = Array.prototype.find.call(document.querySelectorAll(".md12xx-shelf"), function (item) { return item.getAttribute("data-id") === id; });
+    if (!card) return;
+    var job = commissionJobs[id] || { phase: "not-started", running: false, output: "" };
+    var button = card.querySelector(".md12xx-commission-start");
+    var phase = card.querySelector(".md12xx-commission-phase");
+    var output = card.querySelector(".md12xx-commission-output");
+    var result = card.querySelector(".md12xx-commission-result");
+    button.disabled = !!job.running || !!config.enabled || !card.querySelector(".md12xx-port").value;
+    button.textContent = job.running ? "Identify & test running…" : "Identify & test";
+    phase.textContent = commissionPhaseLabel(job.phase);
+    phase.className = "md12xx-commission-phase is-" + (job.phase === "passed" ? "passed" : job.phase === "failed" ? "failed" : job.running ? "running" : "ready");
+    output.textContent = job.output || "";
+    output.hidden = !job.output;
+    if (!output.hidden) output.scrollTop = output.scrollHeight;
+    result.hidden = !job.resultFile;
+    if (job.resultFile) result.href = downloadEndpoint + "?type=commissioning&file=" + encodeURIComponent(job.resultFile);
+  }
+
+  function updateShelfStatus() {
+    Array.prototype.forEach.call(document.querySelectorAll(".md12xx-shelf"), function (card) {
+      var id = card.getAttribute("data-id");
+      var status = stateById[id] || {};
+      var values = {
+        rpm: status.averageRpm == null ? "—" : status.averageRpm,
+        temperature: status.temperatureC == null ? "—" : status.temperatureC + "°C",
+        target: status.targetPercent == null ? "—" : status.targetPercent + "%",
+        state: status.writeState || status.telemetryState || "—"
+      };
+      Object.keys(values).forEach(function (key) {
+        var node = card.querySelector('[data-status="' + key + '"]');
+        if (node) node.textContent = values[key];
+      });
+      var stateNode = card.querySelector('[data-status="state"]');
+      if (stateNode) stateNode.title = status.writeMessage || status.telemetryMessage || "";
+      updateCommissionCard(id);
+    });
+  }
+
   function renderShelves() {
     var root = byId("md12xx-shelves");
     var shelves = Array.isArray(config.shelves) ? config.shelves : [];
@@ -108,7 +165,7 @@
       var commissioned = !!shelf.commissioned;
       var assignment = assignmentMode(shelf);
       return '<article class="md12xx-shelf" data-index="' + index + '" data-id="' + esc(shelf.id) + '" data-commissioned="' + (commissioned ? "1" : "0") + '">' +
-        '<div class="md12xx-shelf-head"><strong>' + esc(shelf.name || shelf.model || "Shelf") + '</strong><button type="button" class="md12xx-remove">Remove</button></div>' +
+        '<div class="md12xx-shelf-head"><strong class="md12xx-shelf-title">' + esc(shelf.name || shelf.model || "Shelf") + '</strong><button type="button" class="md12xx-remove">Remove</button></div>' +
         '<div class="md12xx-shelf-grid">' +
           '<label><span>Name</span><input class="md12xx-name" maxlength="80" value="' + esc(shelf.name || "") + '"></label>' +
           '<label><span>Model</span><select class="md12xx-model">' + option("MD1200", "Dell PowerVault MD1200", shelf.model !== "MD1220") + option("MD1220", "Dell PowerVault MD1220", shelf.model === "MD1220") + '</select></label>' +
@@ -122,12 +179,14 @@
           '<label><span>Assigned Unraid disks</span><select class="md12xx-disks" multiple>' + diskOptions(shelf.disks) + '</select><small>Used only in Manual override mode; Ctrl/Cmd-click for multiple disks</small></label>' +
         '</div></details>' +
         '<div class="md12xx-status">' +
-          '<span>RPM<b>' + esc(status.averageRpm == null ? "—" : status.averageRpm) + '</b></span>' +
-          '<span>Temperature<b>' + esc(status.temperatureC == null ? "—" : status.temperatureC + "°C") + '</b></span>' +
-          '<span>Target<b>' + esc(status.targetPercent == null ? "—" : status.targetPercent + "%") + '</b></span>' +
-          '<span>State<b>' + esc(status.writeState || status.telemetryState || "—") + '</b></span>' +
+          '<span>RPM<b data-status="rpm">' + esc(status.averageRpm == null ? "—" : status.averageRpm) + '</b></span>' +
+          '<span>Temperature<b data-status="temperature">' + esc(status.temperatureC == null ? "—" : status.temperatureC + "°C") + '</b></span>' +
+          '<span>Target<b data-status="target">' + esc(status.targetPercent == null ? "—" : status.targetPercent + "%") + '</b></span>' +
+          '<span>State<b data-status="state" title="' + esc(status.writeMessage || status.telemetryMessage || "") + '">' + esc(status.writeState || status.telemetryState || "—") + '</b></span>' +
         '</div>' +
-        '<div class="md12xx-commission">Identify & test: /usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh ' + esc(shelf.id) + '<br>Guarded test: verifies the console, runs 20% → 50% → 20%, identifies the responding SES enclosure, and saves automatic disk assignments.</div>' +
+        '<div class="md12xx-commission"><div class="md12xx-commission-head"><button type="button" class="md12xx-commission-start">Identify &amp; test</button><strong class="md12xx-commission-phase">Ready</strong></div>' +
+          '<p>Verifies the console, runs 20% → 50% → 20%, identifies the responding SES enclosure, saves its disks, and proves the final 20% state.</p>' +
+          '<pre class="md12xx-commission-output" hidden></pre><a class="md12xx-commission-result" href="#" hidden>Download test results</a></div>' +
       '</article>';
     }).join("");
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-remove"), function (button) {
@@ -148,6 +207,26 @@
         card.querySelector(".md12xx-assignment-summary").textContent = assignmentSummary(preview);
       });
     });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-name"), function (input) {
+      var timer = null;
+      var updateTitle = function () {
+        var card = input.closest(".md12xx-shelf");
+        var model = card.querySelector(".md12xx-model").value;
+        card.querySelector(".md12xx-shelf-title").textContent = input.value.trim() || model || "Shelf";
+      };
+      input.addEventListener("input", function () {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(updateTitle, 400);
+      });
+      input.addEventListener("blur", function () { window.clearTimeout(timer); updateTitle(); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-commission-start"), function (button) {
+      button.addEventListener("click", function () {
+        var id = button.closest(".md12xx-shelf").getAttribute("data-id");
+        startCommission(id);
+      });
+    });
+    updateShelfStatus();
   }
 
   function renderCurve() {
@@ -182,7 +261,7 @@
     byId("md12xx-enabled").checked = !!config.enabled;
     byId("md12xx-mode").value = config.mode === "manual" ? "manual" : "auto";
     byId("md12xx-manual").value = String(config.manualSpeed || 20);
-    byId("md12xx-poll").value = String(config.pollSeconds || 30);
+    byId("md12xx-poll").value = String(config.pollSeconds || 5);
     byId("md12xx-reassert").value = String(config.reassertSeconds || 900);
     byId("md12xx-failsafe").value = String(config.sensorFailureSpeed || 50);
     var discoveryConfig = config.discovery || {};
@@ -249,18 +328,19 @@
       stateById = {};
       (payload.shelves || []).forEach(function (shelf) { stateById[shelf.id] = shelf; });
       var controller = payload.controller || {};
+      controllerState = controller;
       var health = byId("md12xx-health");
       var state = payload.enabled ? (controller.state || (payload.stale ? "fault" : "normal")) : "disabled";
       health.className = "md12xx-pill is-" + (state === "normal" ? "normal" : state === "fault" ? "fault" : "attention");
       health.textContent = String(state).toUpperCase();
       config = collect();
-      renderShelves();
+      updateShelfStatus();
     } catch (error) {
       byId("md12xx-health").className = "md12xx-pill is-fault";
       byId("md12xx-health").textContent = "UNAVAILABLE";
     }
   }
-  async function save() {
+  async function save(showConfirmation) {
     try {
       var next = collect();
       var token = String(window.csrf_token || "");
@@ -271,9 +351,10 @@
       if (!response.ok) throw new Error(payload.error || "Save failed");
       config = payload.config;
       loadGlobals();
-      message("Configuration saved. Hardware remapping clears commissioning until the guarded test passes.", false);
+      if (showConfirmation !== false) message("Configuration saved. Hardware remapping clears commissioning until Identify & test passes.", false);
       await refreshStatus();
-    } catch (error) { message(error.message || String(error), true); }
+      return true;
+    } catch (error) { message(error.message || String(error), true); return false; }
   }
   async function diagnostics() {
     try {
@@ -283,8 +364,66 @@
       var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
       var payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Diagnostics failed");
-      message("Local redacted diagnostics created: " + payload.path + ". Nothing was uploaded.", false);
+      message("Local redacted diagnostics created and downloaded. Nothing was uploaded.", false);
+      window.location.assign(downloadEndpoint + "?type=diagnostics&file=" + encodeURIComponent(payload.file));
     } catch (error) { message(error.message || String(error), true); }
+  }
+
+  async function loadFreshConfig() {
+    var response = await fetch(endpoint + "?action=config&_=" + Date.now(), { cache: "no-store", credentials: "same-origin" });
+    var payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Configuration refresh failed");
+    config = payload.config;
+    loadGlobals();
+  }
+
+  async function pollCommission(id) {
+    window.clearTimeout(commissionTimers[id]);
+    try {
+      var response = await fetch(endpoint + "?action=commission&id=" + encodeURIComponent(id) + "&_=" + Date.now(), { cache: "no-store", credentials: "same-origin" });
+      var job = await response.json();
+      if (!response.ok) throw new Error(job.error || "Unable to read commissioning progress");
+      commissionJobs[id] = job;
+      updateCommissionCard(id);
+      if (job.running) {
+        commissionTimers[id] = window.setTimeout(function () { pollCommission(id); }, 1000);
+      } else if (job.phase === "passed") {
+        await loadFreshConfig();
+        await discover();
+        message("Identify & test passed. Review the detected enclosure and associated disks before enabling control.", false);
+      } else if (job.phase === "failed") {
+        await loadFreshConfig();
+        message("Identify & test failed. Review the result below; the shelf remains uncommissioned.", true);
+      }
+    } catch (error) {
+      message(error.message || String(error), true);
+      commissionTimers[id] = window.setTimeout(function () { pollCommission(id); }, 2000);
+    }
+  }
+
+  async function startCommission(id) {
+    if (config.enabled || byId("md12xx-enabled").checked) {
+      message("Disable this controller before running Identify & test.", true);
+      return;
+    }
+    if (!window.confirm("Identify this shelf now? Its fans will run at 20%, then 50%, then return to 20%. The test takes about one minute and must not be interrupted.")) return;
+    if (!await save(false)) return;
+    try {
+      var token = String(window.csrf_token || "");
+      if (!token) throw new Error("The current Unraid session token is unavailable; reload this page");
+      var body = new URLSearchParams({ action: "commission", csrf_token: token, id: id });
+      var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
+      var payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Unable to start Identify & test");
+      commissionJobs[id] = payload.job;
+      updateCommissionCard(id);
+      message("Identify & test started. It continues safely even if this page is closed.", false);
+      pollCommission(id);
+    } catch (error) { message(error.message || String(error), true); }
+  }
+
+  function resumeCommissionJobs() {
+    (config.shelves || []).forEach(function (shelf) { pollCommission(shelf.id); });
   }
 
   byId("md12xx-add").addEventListener("click", function () {
@@ -304,10 +443,11 @@
     this.setAttribute("aria-expanded", help.hidden ? "false" : "true");
     this.textContent = help.hidden ? "Setup directions" : "Hide directions";
   });
-  byId("md12xx-save").addEventListener("click", save);
+  byId("md12xx-save").addEventListener("click", function () { save(true); });
 
   loadGlobals();
   discover().catch(function (error) { message(error.message, true); });
   refreshStatus();
+  resumeCommissionJobs();
   window.setInterval(refreshStatus, 5000);
 }());

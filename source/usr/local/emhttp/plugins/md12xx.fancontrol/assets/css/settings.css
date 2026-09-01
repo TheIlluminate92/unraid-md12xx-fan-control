@@ -35,7 +35,17 @@
 .md12xx-status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 .md12xx-status span { padding: 8px; background: #1c2024; font-size: 12px; }
 .md12xx-status b { display: block; margin-top: 3px; font-size: 15px; }
-.md12xx-commission { margin-top: 12px; padding: 9px; font-family: monospace; background: #090a0b; overflow-x: auto; user-select: all; }
+.md12xx-commission { margin-top: 12px; padding: 12px; background: #090a0b; border: 1px solid #343a40; }
+.md12xx-commission-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.md12xx-commission p { margin: 9px 0 0; opacity: .72; line-height: 1.4; }
+.md12xx-commission-phase { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.md12xx-commission-phase.is-running { color: #4bb3fd; }
+.md12xx-commission-phase.is-passed { color: #70df9b; }
+.md12xx-commission-phase.is-failed { color: #ff6b6b; }
+.md12xx-commission-output { max-height: 250px; margin: 12px 0 0; padding: 10px; overflow: auto; white-space: pre-wrap; color: #d9e0e6; background: #050607; border: 1px solid #2d3238; font: 12px/1.45 monospace; }
+.md12xx-commission-result { display: inline-block; margin-top: 10px; color: #4bb3fd; }
+.md12xx-commission-result[hidden] { display: none; }
+.md12xx-page button:disabled { cursor: not-allowed; opacity: .5; }
 .md12xx-point-count { display: flex; align-items: center; gap: 8px; }.md12xx-point-count input { width: 72px; }
 .md12xx-curve { display: grid; grid-template-columns: repeat(var(--md12xx-curve-columns, 4), minmax(110px, 1fr)); gap: 12px; margin-top: 14px; }
 .md12xx-curve-step { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #111316; border: 1px solid #343a40; }

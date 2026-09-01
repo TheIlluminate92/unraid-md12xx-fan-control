@@ -16,12 +16,15 @@ $required = @(
     '/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/include/discovery.php',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/include/api.php',
+    '/usr/local/emhttp/plugins/md12xx.fancontrol/include/download.php',
+    '/usr/local/emhttp/plugins/md12xx.fancontrol/icon.svg',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/assets/icon.svg',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/assets/css/settings.css',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/start.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stop.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh',
+    '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission-job.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh'
 )
 foreach ($path in $required) { if (-not $text.Contains("Name=`"$path`"")) { throw "Missing packaged file: $path" } }
@@ -49,7 +52,7 @@ foreach ($marker in @(
     'MD1200', 'MD1220', '/dev/serial/by-id/', 'commissioned',
     'set_speed', 'Actual\s+speed', 'window.csrf_token',
     'assigned disks spun down', 'temperature unavailable; fail-safe',
-    'WAZ Dashboard MD1200 controller', 'fan speeds cannot decrease as temperature rises',
+    'Another fan controller', 'fan speeds cannot decrease as temperature rises',
     'autoProbeKnownFtdi', 'MD12xx EMM console verified as primary and active'
 )) { if ($text -notmatch [regex]::Escape($marker) -and $marker -notmatch '\\') { throw "Missing required marker: $marker" } }
 
@@ -62,12 +65,17 @@ $pageSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/
 if ($pageSource -match 'require_once\s+__DIR__') { throw 'Settings page relies on the page builder __DIR__ context.' }
 if (-not $pageSource.Contains("`$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';")) { throw 'Settings page explicit plugin root is missing.' }
 if (-not $pageSource.Contains('id="md12xx-help-toggle"') -or -not $pageSource.Contains('id="md12xx-curve-points"')) { throw 'Beta setup help or variable Auto curve control is missing.' }
+if (-not $pageSource.Contains('Icon="icon.svg"')) { throw 'Packaged Settings icon is not configured.' }
+if ($pageSource -match '(?i)terminal') { throw 'Terminal-only wording remains in Settings.' }
 $discoverySource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/discovery.php'))
 if ($discoverySource -match 'set_speed') { throw 'Read-only discovery contains a fan-speed command.' }
 if (-not $discoverySource.Contains('commissioning.active')) { throw 'Discovery does not yield to commissioning.' }
 $settingsSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js'))
 if (-not $settingsSource.Contains('Setup is complete; turn off Test likely FTDI adapters')) { throw 'Completed-setup discovery reminder is missing.' }
 if (-not $settingsSource.Contains('Associated Unraid disks') -or -not $pageSource.Contains('Export local diagnostics')) { throw 'Shelf mapping or local diagnostics UI is missing.' }
+foreach ($marker in 'md12xx-commission-start', 'startCommission', 'pollCommission', 'It continues safely even if this page is closed', 'window.setTimeout(updateTitle, 400)', 'updateShelfStatus', 'Download test results', 'type=diagnostics') {
+    if (-not $settingsSource.Contains($marker)) { throw "App commissioning or focus-safe refresh marker is missing: $marker" }
+}
 $commissionSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh'))
 if (-not $commissionSource.Contains('flock -w 15 9')) { throw 'Commissioning lock wait is missing.' }
 if (-not $commissionSource.Contains('timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT"')) { throw 'Commissioning does not open its response reader before writing.' }
@@ -77,11 +85,13 @@ $templateSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugin/
 if (-not $templateSource.Contains('Setup is already complete; active connection testing was turned off.')) { throw 'Upgrade-time discovery shutdown is missing.' }
 $commonSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/common.php'))
 if (-not $commonSource.Contains('[20, 30, 40, 50, 60, 70, 80, 90, 100]')) { throw 'The complete Manual speed list is missing.' }
+if (-not $commonSource.Contains("'pollSeconds' => 5") -or -not $commonSource.Contains('max(5, min(300')) { throw 'Five-second telemetry polling is not configured.' }
 foreach ($speed in 20, 30, 40, 50, 60, 70, 80, 90, 100) {
     if (-not $pageSource.Contains("value=`"$speed`">$speed%</option>")) { throw "Manual speed $speed% is missing from Settings." }
 }
 $controllerSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php'))
 if (-not $controllerSource.Contains('$reader = @fopen($port, ''r'');') -or -not $controllerSource.Contains('$writer = @fopen($port, ''w'');')) { throw 'Controller reader-first serial session is missing.' }
+if (-not $controllerSource.Contains("'state' => 'blocked'")) { throw 'Competing-controller shelf status is not blocked.' }
 if (-not $text.Contains("'sas-expander'")) { throw 'SAS expander disk mapping fallback is missing.' }
 if (-not (Test-Path (Join-Path $projectRoot 'tests/fixtures/disks-md1220.ini'))) { throw 'Synthetic MD1220 disk fixture is missing.' }
 
@@ -95,6 +105,8 @@ foreach ($marker in 'config.redacted.json', 'status.redacted.json', 'discovery.r
     if (-not $diagnosticsSource.Contains($marker)) { throw "Diagnostics privacy marker is missing: $marker" }
 }
 if ($diagnosticsSource.Contains('cp -f "$CONFIG_DIR/config.json"')) { throw 'Diagnostics copies raw configuration.' }
+$downloadSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'include/download.php'))
+if (-not $downloadSource.Contains('basename(') -or -not $downloadSource.Contains('realpath(') -or -not $downloadSource.Contains('application/zip')) { throw 'Local archive download validation is incomplete.' }
 if ($text.Contains('@@')) { throw 'An unexpanded build placeholder remains.' }
 
 $node = Get-Command node -ErrorAction SilentlyContinue

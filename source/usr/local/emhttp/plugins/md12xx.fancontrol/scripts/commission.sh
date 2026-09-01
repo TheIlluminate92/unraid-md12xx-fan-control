@@ -12,17 +12,13 @@ RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
 SPEED_RESPONSE_SECONDS="${MD12XX_SPEED_RESPONSE_SECONDS:-4}"
 RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
 
-if [ "$(id -u)" -ne 0 ]; then echo "Run this test as root from the Unraid terminal." >&2; exit 1; fi
+if [ "$(id -u)" -ne 0 ]; then echo "The commissioning service requires administrator privileges." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
 for REQUIRED in jq flock sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
 [ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
 
 if jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
   echo "Disable the MD12xx controller before identifying or commissioning hardware." >&2
-  exit 1
-fi
-if [ -f /boot/config/plugins/waz.dashboard/waz.dashboard.cfg ] && grep -Eqi '^MD1200_ENABLED="?(yes|true|1|on)"?$' /boot/config/plugins/waz.dashboard/waz.dashboard.cfg; then
-  echo "The WAZ Dashboard MD1200 controller is enabled. Disable it before running this guarded test." >&2
   exit 1
 fi
 if ! jq -e --arg id "$SHELF_ID" '.shelves[] | select(.id == $id)' "$CONFIG_FILE" >/dev/null; then
@@ -41,13 +37,10 @@ ASSIGNMENT="$(jq -r '.diskAssignment // (if ((.disks // []) | length) > 0 then "
 [[ "$PORT" == /dev/serial/by-id/* ]] || { echo "Select a persistent serial adapter and save the configuration first." >&2; exit 1; }
 [ -e "$PORT" ] || { echo "Serial adapter is missing: $PORT" >&2; exit 1; }
 
-while IFS= read -r NAME; do
-  [ -z "$NAME" ] && continue
-  if docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxiq "$NAME"; then
-    echo "Competing controller is running: $NAME" >&2
-    exit 1
-  fi
-done < <(jq -r '.legacyContainerNames[]?' "$CONFIG_FILE")
+if [ "$(php -r 'require $argv[1]; echo count(md12xx_competing_controllers(md12xx_read_config($argv[2])));' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE")" -gt 0 ]; then
+  echo "Another fan controller is active. Disable it, then retry Identify & test." >&2
+  exit 1
+fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RESULT_DIR="$RESULT_ROOT/${STAMP}-${SHELF_ID}"
@@ -237,7 +230,7 @@ fi
 
 if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
   echo "SAFETY FAILURE: the enclosure did not prove a return to its 20% RPM range." >&2
-  echo "The shelf remains uncommissioned. Keep other controllers stopped and restore 20% manually." >&2
+  echo "The shelf remains uncommissioned. Keep other controllers stopped, resolve the serial connection, then select Identify & test again; every retry begins by commanding 20%." >&2
   exit 1
 fi
 

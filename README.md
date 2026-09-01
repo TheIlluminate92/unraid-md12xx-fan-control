@@ -49,7 +49,7 @@ The normal setup asks for one verified persistent serial adapter. The guarded id
 
 The plugin does not treat a matching model name, USB vendor, prompt string, or drive count as proof of a serial-to-SES pairing. Ambiguous RPM results and empty automatic disk assignments are not commissioned.
 
-Active connection discovery is off by default and automatically turns off once every configured shelf has passed commissioning. It can be enabled again manually for troubleshooting. When enabled, it considers a console verified only when the structured MD12xx `_who` response and the primary/active EMM role are both present. `BlueDress` is recorded when seen but is not required, because prompt wording may differ by firmware. Discovery never sends `set_speed`, is blocked while this plugin controls fans, and is also blocked by WAZ Dashboard or the legacy Docker controller.
+Active connection discovery is off by default and automatically turns off once every configured shelf has passed commissioning. It can be enabled again manually for troubleshooting. When enabled, it considers a console verified only when the structured MD12xx `_who` response and the primary/active EMM role are both present. `BlueDress` is recorded when seen but is not required, because prompt wording may differ by firmware. Discovery never sends `set_speed` and pauses whenever this or another fan controller is active.
 
 Do not run this plugin alongside another process that writes to the same enclosure serial adapter.
 The controller, discovery worker, and commissioning test also refuse to open a serial device that the operating system reports as already in use.
@@ -64,13 +64,13 @@ wget -O /tmp/md12xx.fancontrol.plg \
 plugin install /tmp/md12xx.fancontrol.plg
 ```
 
-Open **Settings → Utilities → MD12xx Fan Control**, expand **Setup directions**, and leave the controller disabled until every shelf passes **Identify & test**. Active FTDI testing is a temporary setup tool and turns off after every configured shelf is commissioned.
+Open **Settings → Utilities → MD12xx Fan Control**, expand **Setup directions**, and leave the controller disabled until every shelf passes **Identify & test**. The app shows live progress for the guarded 20% → 50% → 20% test and continues the server-side safety workflow if the page is closed. Active FTDI testing is a temporary setup tool and turns off after every configured shelf is commissioned.
 
 Normal updates keep configuration. Uninstall is a complete reset: it removes `/boot/config/plugins/md12xx.fancontrol`, including saved shelf mappings, local diagnostics, and commissioning results, as well as runtime files and state. Copy anything you want to retain before uninstalling.
 
 ## Development
 
-Build `dist/md12xx.fancontrol.plg`, copy it to the Unraid boot flash, then install it through **Plugins → Install Plugin** or the terminal. Configure it under **Settings → Utilities → MD12xx Fan Control**.
+Build `dist/md12xx.fancontrol.plg`, copy it to the Unraid boot flash, then install it through **Plugins → Install Plugin**. Configure it under **Settings → Utilities → MD12xx Fan Control**.
 
 Run `bash tests/verify.sh` on Linux before publishing. The suite builds the package, validates runtime syntax, exercises MD1200 and synthetic 24-bay MD1220 fixtures, checks the safety markers, and runs the local-only security policy scan.
 
@@ -80,7 +80,7 @@ Run `bash tests/verify.sh` on Linux before publishing. The suite builds the pack
 
 ## Status integration
 
-Other local plugins, including WAZ Dashboard, can read:
+Other local plugins can read:
 
 ```text
 /plugins/md12xx.fancontrol/include/api.php
@@ -88,7 +88,7 @@ Other local plugins, including WAZ Dashboard, can read:
 
 The default GET response is intentionally read-only JSON containing controller and shelf state.
 
-An optional compact WAZ Dashboard module is planned after the discovery result has been validated on real MD1200 hardware and, separately, on an MD1220.
+An optional compact dashboard module may be added after the standalone plugin has broader MD1220 validation.
 
 ## License and hardware disclaimer
 

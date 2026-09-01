@@ -93,10 +93,21 @@ grep -Fq 'timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT"' "$PLUGIN_DIR/scripts/co
 grep -Fq 'Final 20% restoration: PASS' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'flock -w 15 9' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'commissioning.active' "$PLUGIN_DIR/include/discovery.php"
+grep -Fq 'md12xx-commission-start' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'pollCommission' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'Download test results' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'type=diagnostics' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'window.setTimeout(updateTitle, 400)' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'Icon="icon.svg"' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq "'pollSeconds' => 5" "$PLUGIN_DIR/include/common.php"
+grep -Fq 'max(5, min(300' "$PLUGIN_DIR/include/common.php"
+grep -Fq "'state' => 'blocked'" "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'Setup is complete; turn off Test likely FTDI adapters' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Setup is already complete; active connection testing was turned off.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'Configuration, commissioning results, and runtime state were deleted.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
+grep -Fq 'Content-Type: application/zip' "$PLUGIN_DIR/include/download.php"
+grep -Fq 'basename(' "$PLUGIN_DIR/include/download.php"
 
 php -r '
   require $argv[1];

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 - 2026-09-01
+
+- Adds fully app-driven per-shelf Identify & test with live progress and server-side continuation.
+- Adds a packaged Settings icon and fixes shelf-name editing so status refreshes never steal focus.
+- Uses generic competing-controller messages and reports shelf writes as blocked during a conflict.
+- Lowers the default hardware telemetry interval to five seconds while configuration changes remain immediate.
+- Removes installation-specific wording from the public interface and documentation.
+
 ## 0.3.0 — 2026-09-01
 
 - Expands Manual mode to 20% through 100% in 10% increments.
@@ -50,11 +58,11 @@
 
 - Validated passive discovery against two real MD1200 shelves, two FTDI adapters, two unrelated Espressif serial devices, and an unrelated SES enclosure.
 - Fixed a controller startup syntax error found by the Linux verification workflow.
-- Added a small terminal installation banner.
+- Added a small installation banner.
 
 ## 0.1.0 — 2026-09-01
 
-- Extracted the hardware-confirmed Dell MD1200 controller from WAZ Dashboard.
+- Extracted the hardware-confirmed Dell MD1200 controller into a standalone plugin.
 - Added standalone Unraid Settings UI and JSON status API.
 - Added support for any number of explicitly configured MD1200 or MD1220 shelves.
 - Added passive discovery for SES enclosures, serial adapters, and Unraid disks.

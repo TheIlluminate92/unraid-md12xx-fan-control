@@ -2,7 +2,7 @@
   "enabled": true,
   "mode": "auto",
   "manualSpeed": 20,
-  "pollSeconds": 30,
+  "pollSeconds": 5,
   "reassertSeconds": 900,
   "sensorFailureSpeed": 50,
   "hysteresisC": 1,
@@ -27,4 +27,3 @@
     }
   ]
 }
-

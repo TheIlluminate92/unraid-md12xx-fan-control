@@ -8,6 +8,7 @@ const MD12XX_PID_FILE = '/var/run/md12xx.fancontrol/controller.pid';
 const MD12XX_DISCOVERY_FILE = '/var/run/md12xx.fancontrol/discovery.json';
 const MD12XX_DISCOVERY_PID_FILE = '/var/run/md12xx.fancontrol/discovery.pid';
 const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';
+const MD12XX_COMMISSION_JOB_DIR = '/var/run/md12xx.fancontrol/commission-jobs';
 
 function md12xx_defaults(): array
 {
@@ -15,7 +16,7 @@ function md12xx_defaults(): array
         'enabled' => false,
         'mode' => 'auto',
         'manualSpeed' => 20,
-        'pollSeconds' => 30,
+        'pollSeconds' => 5,
         'reassertSeconds' => 900,
         'sensorFailureSpeed' => 50,
         'hysteresisC' => 1.0,
@@ -67,7 +68,7 @@ function md12xx_validate_config(array $input): array
         throw new InvalidArgumentException('Manual speed must be between 20 and 100 percent in 10 percent increments');
     }
     $config['manualSpeed'] = $manualSpeed;
-    $config['pollSeconds'] = max(10, min(300, (int) ($input['pollSeconds'] ?? 30)));
+    $config['pollSeconds'] = max(5, min(300, (int) ($input['pollSeconds'] ?? 5)));
     $config['reassertSeconds'] = max(60, min(3600, (int) ($input['reassertSeconds'] ?? 900)));
     $config['sensorFailureSpeed'] = max(20, min(100, (int) ($input['sensorFailureSpeed'] ?? 50)));
     $config['hysteresisC'] = max(0.0, min(10.0, (float) ($input['hysteresisC'] ?? 1.0)));
@@ -219,21 +220,26 @@ function md12xx_read_discovery(?string $path = null): array
 
 function md12xx_competing_controllers(array $config): array
 {
-    $conflicts = [];
+    $detected = false;
     $names = is_array($config['legacyContainerNames'] ?? null) ? $config['legacyContainerNames'] : [];
     $lines = [];
     $exitCode = 1;
     @exec("docker ps --format '{{.Names}}' 2>/dev/null", $lines, $exitCode);
     if ($exitCode === 0 && $names) {
         $wanted = array_map('strtolower', array_map('trim', $names));
-        $conflicts = array_values(array_filter(array_map('trim', $lines), static fn(string $name): bool => in_array(strtolower($name), $wanted, true)));
+        $detected = (bool) array_filter(array_map('trim', $lines), static fn(string $name): bool => in_array(strtolower($name), $wanted, true));
     }
 
-    $wazConfig = '/boot/config/plugins/waz.dashboard/waz.dashboard.cfg';
-    $waz = is_file($wazConfig) ? @parse_ini_file($wazConfig, false, INI_SCANNER_RAW) : [];
-    $wazEnabled = is_array($waz) && in_array(strtolower(trim((string) ($waz['MD1200_ENABLED'] ?? 'no'))), ['1', 'yes', 'true', 'on'], true);
-    if ($wazEnabled) $conflicts[] = 'WAZ Dashboard MD1200 controller';
-    return array_values(array_unique($conflicts));
+    // Detect another local MD12xx writer by its process role without exposing
+    // implementation-specific plugin or host names in the public interface.
+    foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $cmdline) {
+        $raw = @file_get_contents($cmdline);
+        if (is_string($raw) && str_contains(str_replace("\0", ' ', $raw), '/md1200-controller.php')) {
+            $detected = true;
+            break;
+        }
+    }
+    return $detected ? ['Another fan controller'] : [];
 }
 
 function md12xx_serial_busy(string $port): bool
@@ -251,7 +257,7 @@ function md12xx_public_status(): array
     $config = md12xx_read_config();
     $state = md12xx_read_state();
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
-    $staleAfter = max(75, ((int) $config['pollSeconds'] * 2) + 15);
+    $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
         'version' => '@@VERSION@@',
         'enabled' => (bool) $config['enabled'],

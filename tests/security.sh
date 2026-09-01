@@ -40,5 +40,7 @@ grep -Fq "const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/con
 grep -Fq "const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';" "$RUNTIME_DIR/include/common.php"
 grep -Fq 'credentials: "same-origin"' "$RUNTIME_DIR/assets/js/settings.js"
 grep -Fq 'window.csrf_token' "$RUNTIME_DIR/assets/js/settings.js"
+grep -Fq 'basename(' "$RUNTIME_DIR/include/download.php"
+grep -Fq 'realpath(' "$RUNTIME_DIR/include/download.php"
 
 echo "MD12xx local-only security policy passed."

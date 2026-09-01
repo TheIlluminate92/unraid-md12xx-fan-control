@@ -230,7 +230,7 @@ while ($running) {
 
     if (!$enabled) $messages[] = 'Controller disabled';
     if ($enabled && !$config['shelves']) { $controllerState = 'attention'; $messages[] = 'No shelves configured'; }
-    if ($conflicts) { $controllerState = 'fault'; $messages[] = 'Competing controller running: ' . implode(', ', $conflicts); }
+    if ($conflicts) { $controllerState = 'fault'; $messages[] = 'Another fan controller is active'; }
 
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
@@ -254,7 +254,11 @@ while ($running) {
         $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
         $lastCommand = $lastCommands[$id] ?? null;
         $commandDue = $operable && !$conflicts && ($configChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
-        $write = ['state' => $operable ? 'idle' : 'disabled', 'message' => $operable ? 'No command due' : ((bool) $shelf['commissioned'] ? 'Shelf or controller disabled' : 'Shelf not commissioned')];
+        if ($conflicts) {
+            $write = ['state' => 'blocked', 'message' => 'Another fan controller is active'];
+        } else {
+            $write = ['state' => $operable ? 'idle' : 'disabled', 'message' => $operable ? 'No command due' : ((bool) $shelf['commissioned'] ? 'Shelf or controller disabled' : 'Shelf not commissioned')];
+        }
         if ($commandDue) {
             $write = md12xx_controller_send((string) $shelf['serialPort'], $target, $dryRun);
             if (in_array($write['state'], ['sent', 'dry-run'], true)) $lastCommands[$id] = time();

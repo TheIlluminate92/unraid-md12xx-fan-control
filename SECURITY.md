@@ -11,7 +11,7 @@ The runtime reads only the hardware and Unraid state required for fan control:
 - `/dev/serial/by-id/*` for explicitly selected shelf consoles.
 - `/dev/sg*` and `/sys` for SES telemetry and topology.
 - `/var/local/emhttp/disks.ini` for current Unraid disk names, temperatures, and spin state.
-- The WAZ Dashboard fan-control flag and running Docker container names solely to block competing fan writers.
+- Local process roles and configured Docker container names solely to block competing fan writers.
 
 Persistent writes are restricted to `/boot/config/plugins/md12xx.fancontrol`. Volatile state and locks are restricted to `/var/run/md12xx.fancontrol`. Installed files live under `/usr/local/emhttp/plugins/md12xx.fancontrol`. The plugin does not read or write array/share contents, access `/mnt/user`, or use the Docker socket.
 

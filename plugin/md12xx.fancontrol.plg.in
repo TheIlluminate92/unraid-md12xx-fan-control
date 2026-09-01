@@ -8,6 +8,13 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
 <CHANGES>
+### 0.4.0 Beta
+- Adds fully app-driven Identify &amp; test with live progress and safe server-side continuation.
+- Adds a packaged Settings icon and fixes shelf-name editing so refreshes do not steal focus.
+- Uses generic competing-controller messages and reports blocked shelf writes accurately.
+- Lowers hardware telemetry polling to 5 seconds while saved control changes remain immediate.
+- Removes installation-specific wording from the public interface and documentation.
+
 ### 0.3.0 Beta
 - Adds Manual speeds from 20% through 100% in 10% increments.
 - Turns off active FTDI testing automatically after setup; passive inventory remains available.
@@ -39,7 +46,7 @@
 
 ### 0.1.1
 - Validates conservative discovery against mixed USB serial and SES hardware.
-- Fixes the controller startup parser and adds a terminal installation banner.
+- Fixes the controller startup parser and adds an installation banner.
 
 ### 0.1.0
 - Initial standalone beta for Dell PowerVault MD1200 and MD1220 shelves.
@@ -73,9 +80,9 @@ RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
-chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
-chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php"
-chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh"
+chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
+chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php"
+chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
 
 php -l "$RUNTIME_DIR/include/common.php" >/dev/null
 php -l "$RUNTIME_DIR/include/controller.php" >/dev/null
@@ -88,7 +95,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
   "enabled": false,
   "mode": "auto",
   "manualSpeed": 20,
-  "pollSeconds": 30,
+  "pollSeconds": 5,
   "reassertSeconds": 900,
   "sensorFailureSpeed": 50,
   "hysteresisC": 1,

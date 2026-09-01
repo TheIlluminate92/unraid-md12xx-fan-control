@@ -12,9 +12,10 @@
 ## Real Unraid validation
 
 - [x] Two MD1200 shelves independently passed 20% → 50% → 20% commissioning and automatic disk mapping.
-- [ ] Clean uninstall proves configuration, commissioning results, runtime state, and the saved `.plg` are removed.
+- [x] Clean uninstall proves configuration, commissioning results, runtime state, and the saved `.plg` are removed.
 - [ ] Clean reinstall starts disabled with no configured shelves.
-- [ ] Fresh discovery and commissioning pass on both MD1200 shelves.
+- [x] Fresh discovery and commissioning pass on both MD1200 shelves.
+- [x] Standalone Auto control owns both shelves with normal SES telemetry and no competing writer.
 - [ ] Manual mode is spot-checked at a safe requested speed and returned to Auto/20%.
 - [ ] Controller survives an Unraid reboot and array stop/start without racing another fan writer.
 - [ ] 24–48 hour Auto-mode soak test completes without stale telemetry or unexplained writes.
