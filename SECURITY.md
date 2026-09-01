@@ -1,6 +1,6 @@
 # Security and privacy
 
-Report security-sensitive issues privately to the repository owner before opening a public issue.
+Security-sensitive issues must not be posted publicly. The repository owner should enable GitHub private vulnerability reporting under **Settings → Security → Advanced Security → Private vulnerability reporting**. Once enabled, use the repository's **Report a vulnerability** button; do not attach sensitive diagnostics to a public issue.
 
 ## Local-only contract
 
@@ -12,6 +12,8 @@ The runtime reads only the hardware and Unraid state required for fan control:
 - `/dev/sg*` and `/sys` for SES telemetry and topology.
 - `/var/local/emhttp/disks.ini` for current Unraid disk names, temperatures, and spin state.
 - Local process roles and configured Docker container names solely to block competing fan writers.
+
+HBA interaction is read-only: the plugin reads Linux SAS topology and requests the SES enclosure-status page through `sg_ses`. It does not configure or flash the HBA, alter RAID settings, or send fan-speed commands over SAS. Fan writes use only the explicitly selected USB serial console. Disk temperature and spin state are consumed from Unraid's existing `disks.ini` state; the plugin does not directly issue SMART queries to sleeping disks.
 
 Persistent writes are restricted to `/boot/config/plugins/md12xx.fancontrol`. Volatile state and locks are restricted to `/var/run/md12xx.fancontrol`. Installed files live under `/usr/local/emhttp/plugins/md12xx.fancontrol`. The plugin does not read or write array/share contents, access `/mnt/user`, or use the Docker socket.
 
