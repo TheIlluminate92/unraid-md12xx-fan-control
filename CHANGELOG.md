@@ -14,6 +14,7 @@
 - Treats stale controller state as a visible fault and recovers abandoned commissioning locks.
 - Keeps the commissioning lock through the final mapping write and saves the measured 20%/50% RPM calibration.
 - Verifies normal control commands against independent SES telemetry, detects later RPM drift, and retries failed responses.
+- Requires intermediate targets to rise meaningfully above the commissioned 20% RPM baseline.
 - Selects fail-safe speed for incomplete or changed disk mappings and clears commissioning after control-critical mapping edits.
 - Covers duplicate Unraid names for one block device without selecting a flash alias as a shelf temperature source.
 - Keeps Settings open when downloading diagnostics or commissioning results.

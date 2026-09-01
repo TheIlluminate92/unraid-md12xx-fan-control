@@ -224,9 +224,17 @@ function md12xx_controller_verify_target(int $target, int $rpm, array $calibrati
         $minimum = $high - max(350, (int) round($span * 0.30));
         return ['passed' => $rpm >= $minimum, 'minimumOnly' => $target > 50, 'expected' => 'at least ' . $minimum . ' RPM from the commissioned 50% response'];
     }
-    $expected = (int) round($low + ($span * (($target - 20) / 30)));
+    $progress = ($target - 20) / 30;
+    $expected = (int) round($low + ($span * $progress));
     $tolerance = max(350, (int) round($span * 0.30));
-    return ['passed' => abs($rpm - $expected) <= $tolerance, 'expected' => 'about ' . $expected . ' RPM (±' . $tolerance . ')'];
+    // A wide interpolation tolerance accommodates nonlinear MD12xx fan
+    // curves, but it must never be wide enough to accept the unchanged 20%
+    // baseline as proof of a higher command.
+    $minimum = $low + max(150, (int) round($span * $progress * 0.40));
+    return [
+        'passed' => $rpm >= $minimum && abs($rpm - $expected) <= $tolerance,
+        'expected' => 'about ' . $expected . ' RPM (±' . $tolerance . '), with at least ' . $minimum . ' RPM',
+    ];
 }
 
 function md12xx_write_config(array $input, ?string $path = null): array

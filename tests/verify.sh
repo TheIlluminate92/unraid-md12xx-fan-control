@@ -176,6 +176,8 @@ php -r '
   $calibration = ["rpmAt20" => 3500, "rpmAt50" => 6300];
   if (!md12xx_controller_verify_target(20, 3500, $calibration)["passed"]) exit(1);
   if (md12xx_controller_verify_target(20, 5200, $calibration)["passed"]) exit(1);
+  if (!md12xx_controller_verify_target(30, 4400, $calibration)["passed"]) exit(1);
+  if (md12xx_controller_verify_target(30, 3500, $calibration)["passed"]) exit(1);
   if (!md12xx_controller_verify_target(50, 6300, $calibration)["passed"]) exit(1);
   if (md12xx_controller_verify_target(50, 3500, $calibration)["passed"]) exit(1);
 ' "$PLUGIN_DIR/include/common.php"
