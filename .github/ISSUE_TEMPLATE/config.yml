@@ -2,4 +2,4 @@ blank_issues_enabled: false
 contact_links:
   - name: Security report
     url: https://github.com/TheIlluminate92/unraid-md12xx-fan-control/security
-    about: Review the security policy before reporting a security-sensitive problem publicly.
+    about: Review the private-reporting instructions before sharing a security-sensitive problem.

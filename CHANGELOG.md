@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.4 - 2026-09-01
+
+- Expands hardware requirements with the tested Dell service/password-reset cable, FTDI USB-to-serial adapter, SAS HBA/SES path, and matching-EMM-firmware recommendation.
+- Documents the independent command and verification paths and states explicitly that HBA access is read-only.
+- Clarifies commissioning failure recovery and active/primary EMM selection.
+- Marks MD1400, MD1420, split-mode, daisy-chain, redundant-path, and alternate-EMM configurations as unsupported or unverified until proven by hardware reports.
+- Adds a Community Apps `Requires` field and expands the Beta hardware report to collect enclosure, cable, HBA, firmware, and topology details without unique identifiers.
+- Documents the GitHub private vulnerability-reporting enablement path and warns against public disclosure.
+- Records the passing Community Apps Validate and Scan results.
+
 ## 0.4.3 - 2026-09-01
 
 - Supervises the fan controller, restarts unexpected exits with a bounded 5–60 second backoff, and raises rate-limited local Unraid failure and recovery notifications.

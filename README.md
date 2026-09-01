@@ -16,12 +16,25 @@ Reports from different HBAs, firmware revisions, serial adapters, and Unraid rel
 ## Requirements
 
 - Unraid 7.3.2 or newer. This is the oldest release validated by the current beta.
-- A Dell PowerVault MD1200, or an MD1220 for experimental validation.
-- Access to the active EMM console through a persistent `/dev/serial/by-id` serial adapter path.
-- The enclosure exposed as a SCSI Enclosure Services device under `/dev/sg*`, with `sg_ses` available.
+- A Dell PowerVault MD1200, or an MD1220 for experimental validation. MD1400, MD1420, and other shelves are not supported by this release.
+- A compatible SAS HBA/controller and external SAS cabling that expose both the enclosure's disks and a SCSI Enclosure Services device under `/dev/sg*` to Unraid.
+- `sg_ses` available on the Unraid host.
+- Access to the active/primary EMM console through a persistent `/dev/serial/by-id` path. The tested MD1200 command path uses a Dell-compatible six-pin service/password-reset cable, an FTDI USB-to-serial adapter, and the required USB cable to the server. Other adapter chipsets are unverified.
+- Matching firmware on both EMMs is strongly recommended.
 - Exclusive fan control: Docker containers, scripts, and other plugins that write to the same serial console must be stopped.
 
 The plugin discovers candidates and proves each serial-to-SES pairing with a guarded RPM test. It does not assume that a USB adapter, model string, disk count, or path belongs to a particular shelf.
+
+The command and verification paths are intentionally independent:
+
+```text
+Fan commands: Unraid USB -> FTDI adapter -> Dell service cable -> active EMM console
+Verification: Unraid -> SAS HBA/controller -> enclosure SES interface
+```
+
+The plugin reads SES enclosure status through the HBA; it does not configure or flash the HBA, change RAID settings, or send fan commands through SAS. Disk temperatures and spin state come from Unraid's existing `/var/local/emhttp/disks.ini` state rather than direct SMART polling by this plugin.
+
+MD1200 hardware validation currently covers the tested direct-attached arrangements described in the hardware reports. Split mode, daisy chains, redundant paths, alternate EMM layouts, and MD1220 hardware remain Beta test cases unless a report explicitly proves them.
 
 ## Features
 
@@ -61,6 +74,8 @@ The normal setup asks for one verified persistent serial adapter. The guarded id
 
 The plugin does not treat a matching model name, USB vendor, prompt string, or drive count as proof of a serial-to-SES pairing. Ambiguous RPM results and empty automatic disk assignments are not commissioned. If the commissioned disk mapping changes or assigned disks disappear from Unraid's inventory, Auto mode selects the configured fail-safe speed instead of assuming the disks are asleep. Changing a shelf's model, serial adapter, SES pairing, assignment mode, or disk list clears commissioning and requires a new test.
 
+If commissioning cannot prove the final 20% state, the shelf remains uncommissioned and the controller must remain disabled. Keep competing fan writers stopped and use **Identify & test** again; each retry begins by commanding 20%. If another attempt still cannot verify the restoration, stop setup, leave the shelf uncommissioned, restore a known-safe state using the enclosure's previously proven control method, and attach reviewed diagnostics to a support report.
+
 Active connection discovery is off by default and automatically turns off once every configured shelf has passed commissioning. It can be enabled again manually for troubleshooting. When enabled, it considers a console verified only when the structured MD12xx `_who` response and the primary/active EMM role are both present. `BlueDress` is recorded when seen but is not required, because prompt wording may differ by firmware. Discovery never sends `set_speed` and pauses whenever this or another fan controller is active.
 
 Do not run this plugin alongside another process that writes to the same enclosure serial adapter.
@@ -77,6 +92,8 @@ plugin install /tmp/md12xx.fancontrol.plg
 ```
 
 Open **Settings → Utilities → MD12xx Fan Control**, expand **Setup directions**, and leave the controller disabled until every shelf passes **Identify & test**. The app shows live progress for the guarded 20% → 50% → 20% test and continues the server-side safety workflow if the page is closed. **Refresh discovery** saves only the discovery options and runs one guarded inventory pass immediately. Active FTDI testing is a temporary setup tool and turns off after every configured shelf is commissioned.
+
+If discovery identifies the selected console but reports that it is not the active/primary EMM, move the service connection to the active EMM and refresh discovery before commissioning. Do not bypass that identity check.
 
 ## Screenshots
 

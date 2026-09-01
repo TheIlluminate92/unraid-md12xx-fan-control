@@ -8,6 +8,11 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
 <CHANGES>
+### 0.4.4 Beta
+- Clarifies the tested service cable, FTDI adapter, HBA/SES path, model boundaries, and commissioning recovery steps.
+- States explicitly that HBA access is read-only and fan commands travel only through the selected USB serial console.
+- Adds concrete Community Apps requirements and private security-reporting enablement guidance.
+
 ### 0.4.3 Beta
 - Supervises the fan controller, restarts unexpected exits with bounded backoff, and raises local Unraid failure/recovery notifications.
 - Exposes watchdog state in Settings and redacted local diagnostics.
