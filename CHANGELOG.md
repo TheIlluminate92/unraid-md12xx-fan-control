@@ -19,6 +19,7 @@
 - Covers duplicate Unraid names for one block device without selecting a flash alias as a shelf temperature source.
 - Keeps Settings open when downloading diagnostics or commissioning results.
 - Confirms control-affecting saves while the controller is already live.
+- Passes a clean two-shelf hardware run covering automatic pairing, disk mapping, simultaneous Manual 50% control, independent RPM verification, and restoration to Auto/20%.
 
 ## 0.4.0 - 2026-09-01
 
@@ -91,3 +92,4 @@
 - Preserved Auto, Manual, hysteresis, fail-safe, locking, RPM telemetry, and command reassertion behavior.
 - Added a guarded per-shelf 20%/50% commissioning test.
 - Defaults to disabled and blocks writes when a known legacy Docker controller is running.
+
