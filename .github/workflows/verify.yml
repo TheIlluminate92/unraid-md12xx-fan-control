@@ -1,0 +1,16 @@
+name: Verify plugin
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify plugin and controller fixtures
+        run: ./tests/verify.sh

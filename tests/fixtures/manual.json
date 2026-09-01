@@ -1,0 +1,30 @@
+{
+  "enabled": true,
+  "mode": "manual",
+  "manualSpeed": 40,
+  "pollSeconds": 30,
+  "reassertSeconds": 900,
+  "sensorFailureSpeed": 50,
+  "hysteresisC": 1,
+  "curve": [
+    {"temperatureC": 0, "speed": 20},
+    {"temperatureC": 35, "speed": 25},
+    {"temperatureC": 45, "speed": 30},
+    {"temperatureC": 50, "speed": 50}
+  ],
+  "legacyContainerNames": [],
+  "shelves": [
+    {
+      "id": "shelf-1",
+      "name": "Fixture MD1220",
+      "model": "MD1220",
+      "enabled": true,
+      "commissioned": true,
+      "serialPort": "/dev/serial/by-id/fixture",
+      "sesDevice": "/dev/sg99",
+      "sesAddress": "0:0:99:0",
+      "disks": ["disk1"]
+    }
+  ]
+}
+

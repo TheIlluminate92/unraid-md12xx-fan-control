@@ -1,0 +1,14 @@
+  Element type: Cooling, subenclosure id: 0 [ti=3]
+    element 0 descriptor: Fan 0
+      Predicted failure=0, Disabled=0, Swap=0, status: OK
+      Ident=0, Fail=0, Hot swap=1, Actual speed=3450 rpm
+    element 1 descriptor: Fan 1
+      Predicted failure=0, Disabled=0, Swap=0, status: OK
+      Ident=0, Fail=0, Hot swap=1, Actual speed=3520 rpm
+    element 2 descriptor: Fan 2
+      Predicted failure=0, Disabled=0, Swap=0, status: OK
+      Ident=0, Fail=0, Hot swap=1, Actual speed=3480 rpm
+    element 3 descriptor: Fan 3
+      Predicted failure=0, Disabled=0, Swap=0, status: OK
+      Ident=0, Fail=0, Hot swap=1, Actual speed=3550 rpm
+

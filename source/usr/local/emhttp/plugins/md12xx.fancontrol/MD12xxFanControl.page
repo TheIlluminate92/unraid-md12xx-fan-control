@@ -1,0 +1,65 @@
+Menu="Utilities"
+Title="MD12xx Fan Control"
+Icon="cogs"
+Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0','>=')"
+
+---
+
+<?php
+require_once __DIR__ . '/include/common.php';
+$config = md12xx_read_config();
+$webRoot = '/plugins/md12xx.fancontrol';
+$cssVersion = @filemtime(__DIR__ . '/assets/css/settings.css') ?: 0;
+$jsVersion = @filemtime(__DIR__ . '/assets/js/settings.js') ?: 0;
+?>
+<link rel="stylesheet" href="<?=$webRoot?>/assets/css/settings.css?v=<?=$cssVersion?>">
+
+<section class="md12xx-page">
+  <header class="md12xx-hero">
+    <div>
+      <h2>Dell MD1200 / MD1220 Fan Control</h2>
+      <p>Standalone temperature-based control with independent SES fan telemetry.</p>
+    </div>
+    <span id="md12xx-health" class="md12xx-pill is-loading">LOADING</span>
+  </header>
+
+  <div id="md12xx-message" class="md12xx-message" hidden></div>
+
+  <section class="md12xx-panel">
+    <h3>Controller</h3>
+    <div class="md12xx-grid">
+      <label><span>Controller enabled</span><input id="md12xx-enabled" type="checkbox"></label>
+      <label><span>Mode</span><select id="md12xx-mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
+      <label><span>Manual speed</span><select id="md12xx-manual"><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option></select></label>
+      <label><span>Polling interval</span><input id="md12xx-poll" type="number" min="10" max="300" step="5"><small>Seconds; 30 recommended</small></label>
+      <label><span>Reassert interval</span><input id="md12xx-reassert" type="number" min="60" max="3600" step="30"><small>Seconds; 900 recommended</small></label>
+      <label><span>Sensor-failure speed</span><input id="md12xx-failsafe" type="number" min="20" max="100" step="5"><small>50% recommended</small></label>
+    </div>
+    <p class="md12xx-warning"><b>Safety:</b> enabling the controller does not enable an uncommissioned shelf. Each hardware pairing must pass its terminal commissioning test.</p>
+  </section>
+
+  <section class="md12xx-panel">
+    <div class="md12xx-title-row"><h3>Shelves</h3><button id="md12xx-add" type="button">Add shelf</button></div>
+    <div id="md12xx-shelves"></div>
+  </section>
+
+  <section class="md12xx-panel">
+    <h3>Auto curve</h3>
+    <div id="md12xx-curve" class="md12xx-curve"></div>
+    <label class="md12xx-inline"><span>Downshift hysteresis</span><input id="md12xx-hysteresis" type="number" min="0" max="10" step="0.5"><em>°C</em></label>
+  </section>
+
+  <footer class="md12xx-actions">
+    <button id="md12xx-refresh" type="button">Refresh discovery</button>
+    <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
+  </footer>
+</section>
+
+<script>
+window.MD12xxBootstrap = <?=json_encode([
+    'version' => '@@VERSION@@',
+    'endpoint' => $webRoot . '/include/api.php',
+    'config' => $config,
+], JSON_UNESCAPED_SLASHES)?>;
+</script>
+<script src="<?=$webRoot?>/assets/js/settings.js?v=<?=$jsVersion?>"></script>
