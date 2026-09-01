@@ -163,4 +163,3 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
-

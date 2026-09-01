@@ -678,4 +678,3 @@
   resumeCommissionJobs();
   window.setInterval(refreshStatus, 5000);
 }());
-
