@@ -8,6 +8,18 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
 <CHANGES>
+### 0.4.1 Beta
+- Uses Unraid's stock Disk Settings icon metadata for a reliable Settings tile across themes.
+- Makes the Auto curve point count resize after typing or changing the requested count.
+- Makes Refresh discovery save only discovery options and run one guarded pass immediately.
+- Shows controller fault details, target reasons, telemetry state, and command state in the app.
+- Prevents duplicate hardware assignments and blocks configuration or control writes during Identify &amp; test.
+- Stops tests safely during update/uninstall and avoids rebuilding the form from completed jobs.
+- Fixes archive downloads, strengthens diagnostic redaction, and hardens inline configuration encoding.
+- Saves commissioning RPM calibration, verifies later commands against SES telemetry, and detects response drift.
+- Uses fail-safe speed for incomplete or changed disk mappings and recovers stale commissioning locks.
+- Keeps Settings open while downloading local diagnostic and test archives.
+
 ### 0.4.0 Beta
 - Adds fully app-driven Identify &amp; test with live progress and safe server-side continuation.
 - Adds a packaged Settings icon and fixes shelf-name editing so refreshes do not steal focus.
@@ -62,7 +74,7 @@ RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 
 if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
-  "$RUNTIME_DIR/scripts/stop.sh" || true
+  "$RUNTIME_DIR/scripts/stop.sh"
 fi
 rm -rf "$RUNTIME_DIR"
 mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
@@ -84,10 +96,7 @@ chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIM
 chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php"
 chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
 
-php -l "$RUNTIME_DIR/include/common.php" >/dev/null
-php -l "$RUNTIME_DIR/include/controller.php" >/dev/null
-php -l "$RUNTIME_DIR/include/discovery.php" >/dev/null
-php -l "$RUNTIME_DIR/include/api.php" >/dev/null
+for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
 
 if [ ! -f "$CONFIG_FILE" ]; then
   cat > "$CONFIG_FILE" <<'MD12XX_CONFIG'
@@ -148,10 +157,11 @@ echo "Version @@VERSION@@ installed. Configure it under Settings → Utilities."
 <FILE Run="/bin/bash" Method="remove">
 <INLINE>
 <![CDATA[
+set -e
 RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
-  "$RUNTIME_DIR/scripts/stop.sh" || true
+  "$RUNTIME_DIR/scripts/stop.sh"
 fi
 rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"
 rm -f "/boot/config/plugins/md12xx.fancontrol.plg"

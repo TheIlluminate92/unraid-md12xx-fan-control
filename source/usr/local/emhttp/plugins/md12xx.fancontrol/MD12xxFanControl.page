@@ -1,7 +1,8 @@
 Menu="Utilities"
 Title="MD12xx Fan Control"
 Type="xmenu"
-Icon="icon.svg"
+Icon="icon-disks"
+Tag="icon-disk"
 Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0','>=')"
 
 ---
@@ -20,7 +21,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   <header class="md12xx-hero">
     <div>
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
-      <p>Standalone temperature-based control with independent SES fan telemetry.</p>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version @@VERSION@@</span></p>
     </div>
     <div class="md12xx-hero-actions">
       <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
@@ -29,6 +30,8 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   </header>
 
   <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
+
+  <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
 
   <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
     <h3>Safe setup</h3>
@@ -94,6 +97,6 @@ window.MD12xxBootstrap = <?=json_encode([
     'version' => '@@VERSION@@',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
-], JSON_UNESCAPED_SLASHES)?>;
+], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
 </script>
 <script src="<?=$webRoot?>/assets/js/settings.js?v=<?=$jsVersion?>"></script>

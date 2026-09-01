@@ -22,6 +22,7 @@ Reports from different HBAs, firmware revisions, serial adapters, and Unraid rel
 - Auto mode controls each shelf from its assigned disks independently.
 - Manual choices from 20% through 100% in 10% increments.
 - Reads independent fan RPM telemetry through `sg_ses`.
+- Saves each shelf's commissioned 20%/50% RPM response and verifies later control commands against independent SES telemetry.
 - Uses stable SCSI addresses and `/dev/serial/by-id` paths.
 - Uses carriage-return-only BlueDress `set_speed` command framing confirmed on MD1200 hardware.
 - Blocks writes while the legacy `MD1200-Fan-Controller` Docker is running.
@@ -39,7 +40,7 @@ Reports from different HBAs, firmware revisions, serial adapters, and Unraid rel
 | 50°C or hotter | 50% |
 | Active disk without valid temperature | 50% fail-safe |
 
-The controller polls every 30 seconds, uses 1°C downshift hysteresis, and reasserts the target every 15 minutes.
+The controller polls every 5 seconds, uses 1°C downshift hysteresis, and reasserts the target every 15 minutes. Saved control changes wake the controller immediately rather than waiting for the next telemetry poll. After a command, the controller waits for independent SES telemetry to match the commissioned response; failure becomes a visible fault and triggers a guarded retry. Continued telemetry drift is also detected. Commands above 50% can prove at least the commissioned 50% response, but their exact RPM remains uncalibrated.
 
 The Settings page supports between 2 and 10 Auto-curve points. Temperatures must increase, and fan speeds may stay level or increase as temperature rises.
 
@@ -47,7 +48,7 @@ The Settings page supports between 2 and 10 Auto-curve points. Temperatures must
 
 The normal setup asks for one verified persistent serial adapter. The guarded identification test first repeats the read-only MD12xx console check, then measures every candidate SES enclosure at 20% and 50%. It accepts the pairing only when exactly one enclosure shows a clear RPM response, automatically maps that enclosure's Linux block devices to the current Unraid disk names, and refuses to commission until independent SES telemetry proves the final 20% restoration. Mapping uses standard enclosure-slot links when available and otherwise requires the disks to share the verified SES device's exact SAS expander. If neither relationship is available, the Settings page retains an explicit Manual mapping fallback.
 
-The plugin does not treat a matching model name, USB vendor, prompt string, or drive count as proof of a serial-to-SES pairing. Ambiguous RPM results and empty automatic disk assignments are not commissioned.
+The plugin does not treat a matching model name, USB vendor, prompt string, or drive count as proof of a serial-to-SES pairing. Ambiguous RPM results and empty automatic disk assignments are not commissioned. If the commissioned disk mapping changes or assigned disks disappear from Unraid's inventory, Auto mode selects the configured fail-safe speed instead of assuming the disks are asleep. Changing a shelf's model, serial adapter, SES pairing, assignment mode, or disk list clears commissioning and requires a new test.
 
 Active connection discovery is off by default and automatically turns off once every configured shelf has passed commissioning. It can be enabled again manually for troubleshooting. When enabled, it considers a console verified only when the structured MD12xx `_who` response and the primary/active EMM role are both present. `BlueDress` is recorded when seen but is not required, because prompt wording may differ by firmware. Discovery never sends `set_speed` and pauses whenever this or another fan controller is active.
 
@@ -64,7 +65,7 @@ wget -O /tmp/md12xx.fancontrol.plg \
 plugin install /tmp/md12xx.fancontrol.plg
 ```
 
-Open **Settings → Utilities → MD12xx Fan Control**, expand **Setup directions**, and leave the controller disabled until every shelf passes **Identify & test**. The app shows live progress for the guarded 20% → 50% → 20% test and continues the server-side safety workflow if the page is closed. Active FTDI testing is a temporary setup tool and turns off after every configured shelf is commissioned.
+Open **Settings → Utilities → MD12xx Fan Control**, expand **Setup directions**, and leave the controller disabled until every shelf passes **Identify & test**. The app shows live progress for the guarded 20% → 50% → 20% test and continues the server-side safety workflow if the page is closed. **Refresh discovery** saves only the discovery options and runs one guarded inventory pass immediately. Active FTDI testing is a temporary setup tool and turns off after every configured shelf is commissioned.
 
 Normal updates keep configuration. Uninstall is a complete reset: it removes `/boot/config/plugins/md12xx.fancontrol`, including saved shelf mappings, local diagnostics, and commissioning results, as well as runtime files and state. Copy anything you want to retain before uninstalling.
 

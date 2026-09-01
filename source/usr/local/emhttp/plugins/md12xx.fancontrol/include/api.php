@@ -20,11 +20,25 @@ function md12xx_commission_paths(string $id): array
     ];
 }
 
-function md12xx_pid_running(int $pid, string $marker): bool
+function md12xx_discovery_payload(): array
 {
-    if ($pid <= 1 || !is_readable('/proc/' . $pid . '/cmdline')) return false;
-    $raw = @file_get_contents('/proc/' . $pid . '/cmdline');
-    return is_string($raw) && str_contains(str_replace("\0", ' ', $raw), $marker);
+    $background = md12xx_read_discovery();
+    $config = md12xx_read_config();
+    $generatedAt = is_numeric($background['generatedAt'] ?? null) ? (int) $background['generatedAt'] : null;
+    $discoveryInterval = (int) ($config['discovery']['intervalSeconds'] ?? 300);
+    return [
+        'generatedAt' => $generatedAt,
+        'generationId' => $background['generationId'] ?? null,
+        'stale' => $generatedAt === null || (time() - $generatedAt) > max(120, ($discoveryInterval * 3) + 30),
+        'error' => $background['error'] ?? null,
+        'autoProbeKnownFtdi' => $background['autoProbeKnownFtdi'] ?? false,
+        'activeProbeAllowed' => $background['activeProbeAllowed'] ?? false,
+        'blockedBy' => $background['blockedBy'] ?? [],
+        'serialPorts' => $background['serialPorts'] ?? md12xx_serial_port_details(),
+        'sesDevices' => $background['sesDevices'] ?? md12xx_discover_ses(),
+        'disks' => md12xx_discover_disks(),
+        'pairingPolicy' => $background['pairingPolicy'] ?? 'Explicit operator pairing is required.',
+    ];
 }
 
 function md12xx_commission_status(string $id): array
@@ -33,12 +47,17 @@ function md12xx_commission_status(string $id): array
     $pid = is_file($paths['pid']) ? (int) trim((string) @file_get_contents($paths['pid'])) : 0;
     $running = md12xx_pid_running($pid, 'commission-job.sh');
     $hasExit = is_file($paths['exit']);
+    $activeId = is_file(MD12XX_RUNTIME_DIR . '/commissioning.active') ? trim((string) @file_get_contents(MD12XX_RUNTIME_DIR . '/commissioning.active')) : '';
+    // Do not let a stale marker make a crashed job appear to run forever.
+    // The shared lifecycle check verifies a live wrapper/child and expires an
+    // orphaned marker after its short launch grace period.
+    if (!$running && !$hasExit && $pid > 1 && $activeId === $id && md12xx_commission_active()) $running = true;
     $exitCode = $hasExit ? (int) trim((string) @file_get_contents($paths['exit'])) : null;
     $output = is_file($paths['log']) ? (string) @file_get_contents($paths['log']) : '';
     if (strlen($output) > 65536) $output = substr($output, -65536);
     $startedAt = is_file($paths['started']) ? (int) trim((string) @file_get_contents($paths['started'])) : null;
     $resultFile = null;
-    if (preg_match('/^Results:\s+(.+\.zip)\s*$/mi', $output, $match)) $resultFile = basename(trim($match[1]));
+    if (preg_match('/^Results:\s+(.+\.(?:zip|tar\.gz))\s*$/mi', $output, $match)) $resultFile = basename(trim($match[1]));
 
     $phase = 'not-started';
     if ($hasExit) $phase = $exitCode === 0 ? 'passed' : 'failed';
@@ -73,17 +92,7 @@ try {
 
     if ($method === 'GET') {
         if ($action === 'discover') {
-            $background = md12xx_read_discovery();
-            echo json_encode([
-                'generatedAt' => $background['generatedAt'] ?? null,
-                'autoProbeKnownFtdi' => $background['autoProbeKnownFtdi'] ?? false,
-                'activeProbeAllowed' => $background['activeProbeAllowed'] ?? false,
-                'blockedBy' => $background['blockedBy'] ?? [],
-                'serialPorts' => $background['serialPorts'] ?? md12xx_serial_port_details(),
-                'sesDevices' => $background['sesDevices'] ?? md12xx_discover_ses(),
-                'disks' => md12xx_discover_disks(),
-                'pairingPolicy' => $background['pairingPolicy'] ?? 'Explicit operator pairing is required.',
-            ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            echo json_encode(md12xx_discovery_payload(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         } elseif ($action === 'config') {
             echo json_encode(['config' => md12xx_read_config()], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         } elseif ($action === 'commission') {
@@ -102,6 +111,23 @@ try {
         throw new RuntimeException('Method not allowed');
     }
 
+    if ($action === 'refresh-discovery') {
+        if (md12xx_commission_active()) throw new RuntimeException('Wait for Identify & test to finish before refreshing discovery');
+        $requested = json_decode((string) ($_POST['discovery'] ?? ''), true, 16, JSON_THROW_ON_ERROR);
+        if (!is_array($requested)) throw new InvalidArgumentException('Invalid discovery settings');
+        $current = md12xx_read_config();
+        $current['discovery'] = $requested;
+        $saved = md12xx_write_config($current);
+        $script = dirname(__DIR__) . '/include/discovery.php';
+        if (!is_file($script)) throw new RuntimeException('Discovery service is unavailable');
+        $previousGenerationId = md12xx_read_discovery()['generationId'] ?? null;
+        $command = 'nohup /usr/bin/php ' . escapeshellarg($script) . ' --once >/dev/null 2>&1 & echo $!';
+        $pid = (int) trim((string) @shell_exec($command));
+        if ($pid <= 1) throw new RuntimeException('Unable to start discovery refresh');
+        echo json_encode(['ok' => true, 'config' => $saved, 'previousGenerationId' => $previousGenerationId], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
     if ($action === 'commission') {
         $rawId = trim((string) ($_POST['id'] ?? ''));
         if ($rawId === '') throw new InvalidArgumentException('Shelf id is required');
@@ -115,12 +141,7 @@ try {
         if ((bool) $config['enabled']) throw new RuntimeException('Disable this controller before running Identify & test');
         if (trim((string) ($shelf['serialPort'] ?? '')) === '') throw new InvalidArgumentException('Select and save a persistent serial adapter first');
         if (md12xx_competing_controllers($config)) throw new RuntimeException('Another fan controller is active. Disable it, then retry');
-        if (is_file(MD12XX_RUNTIME_DIR . '/commissioning.active')) throw new RuntimeException('Another shelf test is already running');
-
-        foreach (glob(MD12XX_COMMISSION_JOB_DIR . '/*/pid') ?: [] as $pidFile) {
-            $pid = (int) trim((string) @file_get_contents($pidFile));
-            if (md12xx_pid_running($pid, 'commission-job.sh')) throw new RuntimeException('Another shelf test is already running');
-        }
+        if (md12xx_commission_active()) throw new RuntimeException('Another shelf test is already running');
 
         $paths = md12xx_commission_paths($id);
         if (!is_dir($paths['directory']) && !@mkdir($paths['directory'], 0755, true) && !is_dir($paths['directory'])) {
@@ -129,15 +150,25 @@ try {
         foreach (['pid', 'log', 'exit', 'started'] as $key) @unlink($paths[$key]);
         $runner = dirname(__DIR__) . '/scripts/commission-job.sh';
         if (!is_file($runner) || !is_executable($runner)) throw new RuntimeException('Commissioning service is unavailable');
+        if (!is_dir(MD12XX_RUNTIME_DIR) && !@mkdir(MD12XX_RUNTIME_DIR, 0755, true) && !is_dir(MD12XX_RUNTIME_DIR)) {
+            throw new RuntimeException('Unable to create commissioning state');
+        }
+        if (@file_put_contents(MD12XX_RUNTIME_DIR . '/commissioning.active', $id . "\n", LOCK_EX) === false) {
+            throw new RuntimeException('Unable to lock commissioning state');
+        }
         $command = 'nohup ' . escapeshellarg($runner) . ' ' . escapeshellarg($id) . ' ' . escapeshellarg($paths['directory']) . ' >/dev/null 2>&1 & echo $!';
         $pid = (int) trim((string) @shell_exec($command));
-        if ($pid <= 1) throw new RuntimeException('Unable to start commissioning');
+        if ($pid <= 1) {
+            @unlink(MD12XX_RUNTIME_DIR . '/commissioning.active');
+            throw new RuntimeException('Unable to start commissioning');
+        }
         @file_put_contents($paths['pid'], $pid . "\n", LOCK_EX);
         echo json_encode(['ok' => true, 'job' => md12xx_commission_status($id)], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         exit;
     }
 
     if ($action === 'control') {
+        if (md12xx_commission_active()) throw new RuntimeException('Control changes are blocked while Identify & test is running');
         $current = md12xx_read_config();
         $mode = strtolower(trim((string) ($_POST['mode'] ?? '')));
         if (!in_array($mode, ['auto', 'manual'], true)) throw new InvalidArgumentException('Mode must be Auto or Manual');
@@ -168,6 +199,7 @@ try {
     }
 
     if ($action !== 'save') throw new InvalidArgumentException('Unsupported action');
+    if (md12xx_commission_active()) throw new RuntimeException('Configuration changes are blocked while Identify & test is running');
     $decoded = json_decode((string) ($_POST['config'] ?? ''), true, 64, JSON_THROW_ON_ERROR);
     if (!is_array($decoded)) throw new InvalidArgumentException('Invalid configuration payload');
 
@@ -190,11 +222,21 @@ try {
             $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
             $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
         }
+        $oldDisks = is_array($old['disks'] ?? null) ? array_values($old['disks']) : [];
+        $newDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
+        sort($oldDisks, SORT_NATURAL | SORT_FLAG_CASE);
+        sort($newDisks, SORT_NATURAL | SORT_FLAG_CASE);
         $sameHardware = is_array($old)
             && strtoupper((string) ($old['model'] ?? '')) === strtoupper((string) ($shelf['model'] ?? ''))
             && (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '')
-            && (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '');
+            && (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
+            && strtolower((string) ($old['diskAssignment'] ?? 'automatic')) === strtolower((string) ($shelf['diskAssignment'] ?? 'automatic'))
+            && $oldDisks === $newDisks;
         $shelf['commissioned'] = $sameHardware && (bool) ($old['commissioned'] ?? false);
+        if ($sameHardware && empty($shelf['calibration']) && is_array($old['calibration'] ?? null)) {
+            $shelf['calibration'] = $old['calibration'];
+        }
+        if (!$sameHardware) $shelf['calibration'] = [];
     }
     unset($shelf);
 

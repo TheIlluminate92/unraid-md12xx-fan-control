@@ -9,7 +9,7 @@ $roots = [
     'commissioning' => '/boot/config/plugins/md12xx.fancontrol/commissioning',
 ];
 
-if (!isset($roots[$type]) || !preg_match('/^[a-zA-Z0-9._-]+\.zip$/', $file)) {
+if (!isset($roots[$type]) || !preg_match('/^[a-zA-Z0-9._-]+\.(?:zip|tar\.gz)$/', $file)) {
     http_response_code(400);
     exit('Invalid download request');
 }
@@ -21,7 +21,7 @@ if ($root === false || $path === false || !str_starts_with($path, $root . DIRECT
     exit('Archive not found');
 }
 
-header('Content-Type: application/zip');
+header('Content-Type: ' . (str_ends_with($file, '.tar.gz') ? 'application/gzip' : 'application/zip'));
 header('Content-Disposition: attachment; filename="' . addcslashes($file, "\"\\") . '"');
 header('Content-Length: ' . filesize($path));
 header('Cache-Control: no-store');

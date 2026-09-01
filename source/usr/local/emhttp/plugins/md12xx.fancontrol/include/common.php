@@ -117,6 +117,10 @@ function md12xx_validate_config(array $input): array
     $shelves = is_array($input['shelves'] ?? null) ? array_values($input['shelves']) : [];
     if (count($shelves) > 16) throw new InvalidArgumentException('At most 16 shelves are supported');
     $ids = [];
+    $serialPorts = [];
+    $sesAddresses = [];
+    $sesDevices = [];
+    $diskOwners = [];
     $validatedShelves = [];
     foreach ($shelves as $index => $shelf) {
         if (!is_array($shelf)) throw new InvalidArgumentException('Invalid shelf configuration');
@@ -130,10 +134,16 @@ function md12xx_validate_config(array $input): array
         if ($port !== '' && (!str_starts_with($port, '/dev/serial/by-id/') || str_contains($port, "\0"))) {
             throw new InvalidArgumentException('Serial adapters must use a persistent /dev/serial/by-id path');
         }
+        if ($port !== '' && isset($serialPorts[$port])) throw new InvalidArgumentException('A serial adapter cannot be assigned to more than one shelf');
+        if ($port !== '') $serialPorts[$port] = $id;
         $sesDevice = trim((string) ($shelf['sesDevice'] ?? ''));
         if ($sesDevice !== '' && !preg_match('#^/dev/sg[0-9]+$#', $sesDevice)) throw new InvalidArgumentException('Invalid SES device');
+        if ($sesDevice !== '' && isset($sesDevices[$sesDevice])) throw new InvalidArgumentException('An SES device cannot be assigned to more than one shelf');
+        if ($sesDevice !== '') $sesDevices[$sesDevice] = $id;
         $sesAddress = trim((string) ($shelf['sesAddress'] ?? ''));
         if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid stable SCSI address');
+        if ($sesAddress !== '' && isset($sesAddresses[$sesAddress])) throw new InvalidArgumentException('An SES enclosure cannot be assigned to more than one shelf');
+        if ($sesAddress !== '') $sesAddresses[$sesAddress] = $id;
 
         $diskAssignment = strtolower(trim((string) ($shelf['diskAssignment'] ?? '')));
         if ($diskAssignment === '') {
@@ -150,6 +160,17 @@ function md12xx_validate_config(array $input): array
             $name = strtolower(trim((string) $disk));
             return preg_match('/^(parity2?|disk[0-9]+|cache|[a-z0-9][a-z0-9_-]{0,31})$/', $name) ? $name : '';
         }, $disks))));
+        foreach ($disks as $disk) {
+            if (isset($diskOwners[$disk])) throw new InvalidArgumentException('An Unraid disk cannot be assigned to more than one shelf: ' . $disk);
+            $diskOwners[$disk] = $id;
+        }
+
+        $calibrationInput = is_array($shelf['calibration'] ?? null) ? $shelf['calibration'] : [];
+        $rpmAt20 = max(0, min(30000, (int) ($calibrationInput['rpmAt20'] ?? 0)));
+        $rpmAt50 = max(0, min(30000, (int) ($calibrationInput['rpmAt50'] ?? 0)));
+        $calibration = ($rpmAt20 > 0 && $rpmAt50 >= ($rpmAt20 + 250))
+            ? ['rpmAt20' => $rpmAt20, 'rpmAt50' => $rpmAt50]
+            : [];
 
         $validatedShelves[] = [
             'id' => $id,
@@ -162,6 +183,7 @@ function md12xx_validate_config(array $input): array
             'sesAddress' => $sesAddress,
             'diskAssignment' => $diskAssignment,
             'disks' => $disks,
+            'calibration' => $calibration,
         ];
     }
     $config['shelves'] = $validatedShelves;
@@ -178,6 +200,41 @@ function md12xx_disable_active_discovery_after_setup(array $config): array
     if (!is_array($config['discovery'] ?? null)) $config['discovery'] = [];
     $config['discovery']['autoProbeKnownFtdi'] = false;
     return $config;
+}
+
+function md12xx_controller_calibration(array $shelf): ?array
+{
+    $calibration = is_array($shelf['calibration'] ?? null) ? $shelf['calibration'] : [];
+    $low = (int) ($calibration['rpmAt20'] ?? 0);
+    $high = (int) ($calibration['rpmAt50'] ?? 0);
+    return $low > 0 && $high >= ($low + 250) ? ['rpmAt20' => $low, 'rpmAt50' => $high] : null;
+}
+
+function md12xx_controller_verify_target(int $target, int $rpm, array $calibration): array
+{
+    $low = (int) $calibration['rpmAt20'];
+    $high = (int) $calibration['rpmAt50'];
+    $span = $high - $low;
+    if ($target <= 20) {
+        $tolerance = max(300, (int) round($low * 0.15));
+        $passed = abs($rpm - $low) <= $tolerance && ($high - $rpm) >= 250;
+        return ['passed' => $passed, 'expected' => 'near the commissioned 20% baseline of ' . $low . ' RPM'];
+    }
+    if ($target >= 50) {
+        $minimum = $high - max(350, (int) round($span * 0.30));
+        return ['passed' => $rpm >= $minimum, 'minimumOnly' => $target > 50, 'expected' => 'at least ' . $minimum . ' RPM from the commissioned 50% response'];
+    }
+    $progress = ($target - 20) / 30;
+    $expected = (int) round($low + ($span * $progress));
+    $tolerance = max(350, (int) round($span * 0.30));
+    // A wide interpolation tolerance accommodates nonlinear MD12xx fan
+    // curves, but it must never be wide enough to accept the unchanged 20%
+    // baseline as proof of a higher command.
+    $minimum = $low + max(150, (int) round($span * $progress * 0.40));
+    return [
+        'passed' => $rpm >= $minimum && abs($rpm - $expected) <= $tolerance,
+        'expected' => 'about ' . $expected . ' RPM (±' . $tolerance . '), with at least ' . $minimum . ' RPM',
+    ];
 }
 
 function md12xx_write_config(array $input, ?string $path = null): array
@@ -218,6 +275,34 @@ function md12xx_read_discovery(?string $path = null): array
     return md12xx_read_json($path ?: MD12XX_DISCOVERY_FILE);
 }
 
+function md12xx_pid_running(int $pid, string $marker): bool
+{
+    if ($pid <= 1 || !is_readable('/proc/' . $pid . '/cmdline')) return false;
+    $raw = @file_get_contents('/proc/' . $pid . '/cmdline');
+    return is_string($raw) && str_contains(str_replace("\0", ' ', $raw), $marker);
+}
+
+function md12xx_commission_active(): bool
+{
+    $marker = MD12XX_RUNTIME_DIR . '/commissioning.active';
+    foreach (glob(MD12XX_COMMISSION_JOB_DIR . '/*/pid') ?: [] as $pidFile) {
+        $pid = (int) trim((string) @file_get_contents($pidFile));
+        if (md12xx_pid_running($pid, 'commission-job.sh')) return true;
+    }
+    // The app and the commissioning script both create this marker before
+    // hardware work begins. Avoid walking every process on each five-second
+    // control poll when no test is even pending.
+    if (!is_file($marker)) return false;
+    foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $cmdline) {
+        $raw = @file_get_contents($cmdline);
+        if (is_string($raw) && str_contains(str_replace("\0", ' ', $raw), '/md12xx.fancontrol/scripts/commission.sh')) return true;
+    }
+    $modified = @filemtime($marker);
+    if (is_int($modified) && (time() - $modified) < 30) return true;
+    @unlink($marker);
+    return false;
+}
+
 function md12xx_competing_controllers(array $config): array
 {
     $detected = false;
@@ -244,12 +329,18 @@ function md12xx_competing_controllers(array $config): array
 
 function md12xx_serial_busy(string $port): bool
 {
-    $binary = trim((string) @shell_exec('command -v fuser 2>/dev/null'));
-    if ($binary === '') return false;
+    $binary = md12xx_fuser_binary();
+    if ($binary === null) return true;
     $target = @realpath($port);
     $exitCode = 1;
     @exec(escapeshellarg($binary) . ' ' . escapeshellarg($target !== false ? $target : $port) . ' >/dev/null 2>&1', $unused, $exitCode);
     return $exitCode === 0;
+}
+
+function md12xx_fuser_binary(): ?string
+{
+    $binary = trim((string) @shell_exec('command -v fuser 2>/dev/null'));
+    return $binary !== '' ? $binary : null;
 }
 
 function md12xx_public_status(): array
@@ -402,11 +493,19 @@ function md12xx_ses_disk_mapping(
     $byDevice = [];
     foreach (md12xx_discover_disks($disksPath) as $disk) {
         $device = basename(trim((string) ($disk['device'] ?? '')));
-        if ($device !== '') $byDevice[strtolower($device)] = (string) $disk['name'];
+        if ($device === '') continue;
+        $name = (string) $disk['name'];
+        $score = is_numeric($disk['temperatureC'] ?? null) ? 50 : 0;
+        if (preg_match('/^(parity2?|disk[0-9]+)$/', $name)) $score += 100;
+        if (preg_match('/^flash[0-9]*$/', $name)) $score -= 100;
+        $key = strtolower($device);
+        if (!isset($byDevice[$key]) || $score > $byDevice[$key]['score']) {
+            $byDevice[$key] = ['name' => $name, 'score' => $score];
+        }
     }
     $disks = [];
     foreach ($blockDevices as $device) {
-        $name = $byDevice[strtolower($device)] ?? '';
+        $name = $byDevice[strtolower($device)]['name'] ?? '';
         if ($name !== '') $disks[] = $name;
     }
     $disks = array_values(array_unique($disks));
