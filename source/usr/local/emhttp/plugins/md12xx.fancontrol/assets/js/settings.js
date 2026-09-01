@@ -332,7 +332,11 @@
       input.addEventListener("change", function () { config = collect(); syncHardwareOptions(); updateMappingPreview(input.closest(".md12xx-shelf")); });
     });
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-port"), function (input) {
-      input.addEventListener("change", function () { config = collect(); syncHardwareOptions(); updateCommissionCard(input.closest(".md12xx-shelf").getAttribute("data-id")); });
+      input.addEventListener("change", function () {
+        config = collect();
+        syncHardwareOptions({ refreshSerialPorts: true });
+        updateCommissionCard(input.closest(".md12xx-shelf").getAttribute("data-id"));
+      });
     });
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-name"), function (input) {
       var timer = null;
@@ -467,7 +471,8 @@
     return payload;
   }
 
-  function syncHardwareOptions() {
+  function syncHardwareOptions(options) {
+    options = options || {};
     config = collect();
     Array.prototype.forEach.call(document.querySelectorAll(".md12xx-shelf"), function (card, index) {
       var shelf = config.shelves[index];
@@ -475,7 +480,7 @@
       var port = card.querySelector(".md12xx-port");
       var ses = card.querySelector(".md12xx-ses");
       var disks = card.querySelector(".md12xx-disks");
-      if (document.activeElement !== port) { port.innerHTML = serialOptions(shelf.serialPort, shelf.id); port.value = shelf.serialPort; }
+      if (options.refreshSerialPorts || document.activeElement !== port) { port.innerHTML = serialOptions(shelf.serialPort, shelf.id); port.value = shelf.serialPort; }
       if (document.activeElement !== ses) { ses.innerHTML = sesOptions(shelf); ses.value = (shelf.sesAddress || "") + "|" + (shelf.sesDevice || ""); }
       if (document.activeElement !== disks) disks.innerHTML = diskOptions(shelf.disks, shelf.id);
       updateMappingPreview(card);
@@ -673,3 +678,4 @@
   resumeCommissionJobs();
   window.setInterval(refreshStatus, 5000);
 }());
+

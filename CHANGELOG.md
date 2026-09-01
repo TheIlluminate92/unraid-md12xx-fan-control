@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 - 2026-09-01
+
+- Refreshes every shelf's serial-adapter choices immediately after a selection so adapters already used elsewhere are disabled without reloading the page.
+
 ## 0.4.1 - 2026-09-01
 
 - Uses Unraid's stock Disk Settings icon metadata for a reliable Settings tile across themes.

@@ -134,6 +134,7 @@ grep -Fq 'scheduleCurveResize' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'window.setTimeout(apply, 300)' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Apply these live fan-control changes now?' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'liveControlSignature' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'syncHardwareOptions({ refreshSerialPorts: true })' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq "'pollSeconds' => 5" "$PLUGIN_DIR/include/common.php"
 grep -Fq 'max(5, min(300' "$PLUGIN_DIR/include/common.php"
 grep -Fq "'state' => 'blocked'" "$PLUGIN_DIR/include/controller.php"
@@ -212,3 +213,4 @@ if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP
 fi
 
 echo "MD12xx runtime verification passed."
+

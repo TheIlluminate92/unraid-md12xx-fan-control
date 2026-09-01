@@ -91,6 +91,7 @@ foreach ($marker in 'refresh-discovery', 'Only the discovery options were saved'
 foreach ($marker in 'liveControlSignature', 'Apply these live fan-control changes now?') {
     if (-not $settingsSource.Contains($marker)) { throw "Live-control confirmation marker is missing: $marker" }
 }
+if (-not $settingsSource.Contains('syncHardwareOptions({ refreshSerialPorts: true })')) { throw 'Serial assignment options do not refresh immediately.' }
 foreach ($marker in 'payload.stale ? "fault"', 'Controller status is stale', 'Discovery data is stale', 'calibrationSummary') {
     if (-not $settingsSource.Contains($marker)) { throw "Stale-state or calibration UI marker is missing: $marker" }
 }
@@ -162,3 +163,4 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
+

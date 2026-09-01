@@ -8,6 +8,9 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
 <CHANGES>
+### 0.4.2 Beta
+- Disables serial adapters already selected by another shelf immediately, without a page refresh.
+
 ### 0.4.1 Beta
 - Uses Unraid's stock Disk Settings icon metadata for a reliable Settings tile across themes.
 - Makes the Auto curve point count resize after typing or changing the requested count.
@@ -170,3 +173,4 @@ echo "MD12xx Fan Control removed. Configuration, commissioning results, and runt
 </INLINE>
 </FILE>
 </PLUGIN>
+
