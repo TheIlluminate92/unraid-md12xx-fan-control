@@ -3,11 +3,23 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 RUNTIME_DIR="$PROJECT_DIR/source/usr/local/emhttp/plugins/md12xx.fancontrol"
+ALLOWED_SUPPORT_URL="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml"
 
-if find "$RUNTIME_DIR" -type f ! -name '*.svg' -print0 | xargs -0 grep -n -E 'https?://|\b(curl|wget|socat|telnet|ssh|scp)\b|fsockopen|stream_socket_client|curl_[a-z_]+'; then
-  echo "Outbound network primitive found in installed runtime." >&2
-  exit 1
-fi
+while IFS= read -r -d '' SOURCE_FILE; do
+  LINE_NUMBER=0
+  while IFS= read -r LINE || [ -n "$LINE" ]; do
+    LINE_NUMBER=$((LINE_NUMBER + 1))
+    SANITIZED="${LINE//$ALLOWED_SUPPORT_URL/}"
+    if printf '%s\n' "$SANITIZED" | grep -qE 'https?://|\b(curl|wget|socat|telnet|ssh|scp)\b|fsockopen|stream_socket_client|curl_[a-z_]+'; then
+      printf '%s:%s:%s\n' "$SOURCE_FILE" "$LINE_NUMBER" "$LINE" >&2
+      echo "Outbound network primitive found in installed runtime." >&2
+      exit 1
+    fi
+  done < "$SOURCE_FILE"
+done < <(find "$RUNTIME_DIR" -type f ! -name '*.svg' -print0)
+
+grep -Fq "href=\"$ALLOWED_SUPPORT_URL\"" "$RUNTIME_DIR/MD12xxFanControl.page"
+grep -Fq 'target="_blank" rel="noopener noreferrer"' "$RUNTIME_DIR/MD12xxFanControl.page"
 
 if grep -R -n -E '/mnt(/|$)|/root(/|$)|/home(/|$)|docker\.sock' "$RUNTIME_DIR"; then
   echo "Broad filesystem or Docker socket access found in installed runtime." >&2

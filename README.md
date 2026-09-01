@@ -77,7 +77,13 @@ Run `bash tests/verify.sh` on Linux before publishing. The suite builds the pack
 
 ## Privacy and diagnostics
 
-**Export local diagnostics** creates a redacted archive under `/boot/config/plugins/md12xx.fancontrol/diagnostics`. It does not upload anything. Review the archive before sharing it. See [SECURITY.md](SECURITY.md) for the exact read/write and network boundaries.
+**Export local diagnostics** creates and downloads a redacted archive from `/boot/config/plugins/md12xx.fancontrol/diagnostics`. It does not upload anything. Review the archive before sharing it, then use **Report issue on GitHub** to open the public issue form and attach the archive yourself. Files attached to this public repository can be accessed without authentication. See [SECURITY.md](SECURITY.md) for the exact read/write and network boundaries.
+
+The plugin intentionally does not authenticate to GitHub or upload diagnostics automatically. That keeps repository credentials off the server and leaves the final privacy decision with the operator.
+
+## Development transparency
+
+This is an AI-assisted open-source project. Erik Boettcher / TheIlluminate92 owns the project and provides product direction, the original Docker prototype, hardware access, safety decisions, physical testing, and release approval. OpenAI Codex (GPT-5) provided primary implementation assistance for the standalone plugin, including architecture, code generation, tests, documentation, packaging, and debugging, under Erik's direction and review. See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for the complete credits.
 
 ## Status integration
 

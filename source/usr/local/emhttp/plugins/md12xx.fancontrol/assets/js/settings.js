@@ -590,7 +590,7 @@
       var body = new URLSearchParams({ action: "diagnostics", csrf_token: token });
       var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
       var payload = await readJson(response, "Diagnostics failed");
-      message("Local redacted diagnostics created and downloaded. Nothing was uploaded.", false);
+      message("Local redacted diagnostics created and downloaded. Nothing was uploaded. Review the archive before attaching it to a public GitHub issue.", false);
       downloadLocalArchive("diagnostics", payload.file);
     } catch (error) { message(error.message || String(error), true); }
   }

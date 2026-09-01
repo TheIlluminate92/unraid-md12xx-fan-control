@@ -6,7 +6,7 @@
   <Project>https://github.com/TheIlluminate92/unraid-md12xx-fan-control</Project>
   <ReadMe>https://github.com/TheIlluminate92/unraid-md12xx-fan-control#readme</ReadMe>
   <Icon>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/icon.svg</Icon>
-  <Overview>Beta local fan control for Dell PowerVault MD1200 and MD1220 shelves with guarded discovery, automatic disk mapping, RPM-proven commissioning, and independent SES telemetry. No automatic uploads or cloud services.</Overview>
+  <Overview>Beta local fan control for Dell PowerVault MD1200 and MD1220 shelves with guarded discovery, automatic disk mapping, RPM-proven commissioning, and independent SES telemetry. No automatic uploads or cloud services. AI-assisted development by OpenAI Codex under project-owner direction, hardware validation, and release approval.</Overview>
   <Category>Tools:Utilities</Category>
   <Beta>true</Beta>
   <License>MIT</License>

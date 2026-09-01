@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.3 - 2026-09-01
+
+- Adds a separate, user-initiated GitHub issue link beside the local diagnostics exporter.
+- Warns that attachments to the public repository are public and requires users to confirm that they reviewed diagnostic archives before submission.
+- Adds optional `.zip`, `.gz`, and `.tar.gz` diagnostic upload fields to the bug and hardware-report issue forms.
+- Adds explicit AI-assisted development credits to Settings, the README, acknowledgements, and Community Apps metadata.
+- Retains the local-only controller contract: no GitHub credentials, API calls, automatic uploads, analytics, or telemetry.
+
 ## 0.4.2 - 2026-09-01
 
 - Refreshes every shelf's serial-adapter choices immediately after a selection so adapters already used elsewhere are disabled without reloading the page.

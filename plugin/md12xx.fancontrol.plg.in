@@ -8,6 +8,11 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
 <CHANGES>
+### 0.4.3 Beta
+- Adds a privacy-first support flow: export diagnostics locally, review them, then open a public GitHub issue and attach them manually.
+- Adds optional diagnostic archive upload fields and mandatory privacy confirmations to the GitHub issue forms.
+- Documents AI-assisted development roles in Settings, project documentation, and Community Apps metadata.
+
 ### 0.4.2 Beta
 - Disables serial adapters already selected by another shelf immediately, without a page refresh.
 

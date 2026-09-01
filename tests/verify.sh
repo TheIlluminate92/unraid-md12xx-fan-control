@@ -29,6 +29,11 @@ grep -Fq '<PluginURL>https://raw.githubusercontent.com/TheIlluminate92/unraid-md
 for FIELD in 'Shelf model' 'Unraid version' 'HBA and driver' 'EMM and cabling arrangement' 'Commissioning result' 'Discovery summary' 'Disk mapping' 'Competing fan controller state during testing' 'Optional redacted diagnostics'; do
   grep -Fq "$FIELD" "$PROJECT_DIR/.github/ISSUE_TEMPLATE/hardware-report.yml"
 done
+for FORM in bug-report.yml hardware-report.yml; do
+  grep -Fq 'type: upload' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+  grep -Fq 'accept: ".zip,.gz,.tar.gz"' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+  grep -Fq 'can be accessed without authentication' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+done
 
 mkdir -p "$TMP_DIR/sys/class/enclosure/0:0:99:0/Slot 00/device/block/sda"
 php -r '
@@ -129,6 +134,8 @@ grep -Fq 'link.download = file' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Icon="icon-disks"' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'Tag="icon-disk"' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'Version @@VERSION@@' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'Report issue on GitHub' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'Development transparency:' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'JSON_HEX_TAG' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'scheduleCurveResize' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'window.setTimeout(apply, 300)' "$PLUGIN_DIR/assets/js/settings.js"

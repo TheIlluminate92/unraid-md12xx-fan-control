@@ -85,8 +85,17 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <label class="md12xx-inline"><span>Downshift hysteresis</span><input id="md12xx-hysteresis" type="number" min="0" max="10" step="0.5"><em>°C</em></label>
   </section>
 
+  <section class="md12xx-panel md12xx-support">
+    <h3>Support and transparency</h3>
+    <p><b>Diagnostics stay local until you choose to share them.</b> Export and inspect the redacted archive first. Files attached to an issue in this public repository are publicly accessible.</p>
+    <div class="md12xx-support-actions">
+      <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
+      <a class="md12xx-button-link" href="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml" target="_blank" rel="noopener noreferrer">Report issue on GitHub</a>
+    </div>
+    <p class="md12xx-credit"><b>Development transparency:</b> Erik Boettcher / TheIlluminate92 owns and directs the project, supplies hardware validation, and approves releases. OpenAI Codex (GPT-5) provided primary implementation, testing, documentation, packaging, and debugging assistance under that direction and review.</p>
+  </section>
+
   <footer class="md12xx-actions">
-    <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
     <button id="md12xx-refresh" type="button">Refresh discovery</button>
     <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
   </footer>

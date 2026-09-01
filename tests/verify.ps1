@@ -39,8 +39,13 @@ $wrapperText = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugins/md
 if (-not $wrapperText.Contains('<Beta>true</Beta>')) { throw 'Community Apps beta marker is missing.' }
 if (-not $wrapperText.Contains('<PluginURL>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg</PluginURL>')) { throw 'Community Apps PluginURL is incorrect.' }
 $hardwareForm = [System.IO.File]::ReadAllText((Join-Path $projectRoot '.github/ISSUE_TEMPLATE/hardware-report.yml'))
+$bugForm = [System.IO.File]::ReadAllText((Join-Path $projectRoot '.github/ISSUE_TEMPLATE/bug-report.yml'))
 foreach ($field in 'Shelf model', 'Unraid version', 'HBA and driver', 'EMM and cabling arrangement', 'Commissioning result', 'Discovery summary', 'Disk mapping', 'Competing fan controller state during testing', 'Optional redacted diagnostics') {
     if (-not $hardwareForm.Contains($field)) { throw "Hardware issue form is missing: $field" }
+}
+foreach ($form in $bugForm, $hardwareForm) {
+    if (-not $form.Contains('type: upload') -or -not $form.Contains('accept: ".zip,.gz,.tar.gz"')) { throw 'Issue form diagnostic archive upload field is missing.' }
+    if (-not $form.Contains('can be accessed without authentication')) { throw 'Issue form public-attachment warning is missing.' }
 }
 
 foreach ($forbidden in @(
@@ -66,6 +71,7 @@ if ($pageSource -match 'require_once\s+__DIR__') { throw 'Settings page relies o
 if (-not $pageSource.Contains("`$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';")) { throw 'Settings page explicit plugin root is missing.' }
 if (-not $pageSource.Contains('id="md12xx-help-toggle"') -or -not $pageSource.Contains('id="md12xx-curve-points"')) { throw 'Beta setup help or variable Auto curve control is missing.' }
 if (-not $pageSource.Contains('Version @@VERSION@@')) { throw 'Visible Settings version is missing.' }
+if (-not $pageSource.Contains('Report issue on GitHub') -or -not $pageSource.Contains('Development transparency:')) { throw 'Support or development-transparency UI is missing.' }
 if (-not $pageSource.Contains('Icon="icon-disks"') -or -not $pageSource.Contains('Tag="icon-disk"')) { throw 'Built-in Settings tile icon is not configured.' }
 if (-not $pageSource.Contains('JSON_HEX_TAG') -or -not $pageSource.Contains('JSON_HEX_AMP')) { throw 'Settings bootstrap JSON is not safe for inline script embedding.' }
 if ($pageSource -match '(?i)terminal') { throw 'Terminal-only wording remains in Settings.' }
@@ -146,7 +152,9 @@ if (-not (Test-Path (Join-Path $projectRoot 'tests/fixtures/disks-duplicates.ini
 $runtimeRoot = Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol'
 $runtimeFiles = Get-ChildItem $runtimeRoot -Recurse -File | Where-Object { $_.Extension -ne '.svg' }
 $runtimeText = ($runtimeFiles | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName) }) -join "`n"
-if ($runtimeText -match 'https?://|\b(curl|wget|socat|telnet|ssh|scp)\b|fsockopen|stream_socket_client|curl_[a-z_]+') { throw 'Outbound network primitive found in installed runtime.' }
+$allowedSupportUrl = 'https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml'
+if (-not $pageSource.Contains("href=`"$allowedSupportUrl`"") -or -not $pageSource.Contains('target="_blank" rel="noopener noreferrer"')) { throw 'User-activated GitHub support link is missing or unsafe.' }
+if ($runtimeText.Replace($allowedSupportUrl, '') -match 'https?://|\b(curl|wget|socat|telnet|ssh|scp)\b|fsockopen|stream_socket_client|curl_[a-z_]+') { throw 'Outbound network primitive found in installed runtime.' }
 if ($runtimeText -match '/mnt(/|$)|/root(/|$)|/home(/|$)|docker\.sock') { throw 'Broad filesystem or Docker socket access found in installed runtime.' }
 $diagnosticsSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'scripts/diagnose.sh'))
 foreach ($marker in 'config.redacted.json', 'status.redacted.json', 'discovery.redacted.json', 'uname -rmo') {
