@@ -31,6 +31,11 @@ grep -Fq 'config.redacted.json' "$DIAGNOSTICS"
 grep -Fq 'status.redacted.json' "$DIAGNOSTICS"
 grep -Fq 'discovery.redacted.json' "$DIAGNOSTICS"
 grep -Fq 'uname -rmo' "$DIAGNOSTICS"
+grep -Fq '.assignedDisks = ' "$DIAGNOSTICS"
+grep -Fq '.missingDisks = ' "$DIAGNOSTICS"
+grep -Fq '.temperatureSource = "mapped-disk"' "$DIAGNOSTICS"
+grep -Fq '.sesAddress = ' "$DIAGNOSTICS"
+grep -Fq 'enclosure-${ENCLOSURE_INDEX}-ses.txt' "$DIAGNOSTICS"
 if grep -Fq 'cp -f "$CONFIG_DIR/config.json"' "$DIAGNOSTICS"; then
   echo "Diagnostics copies raw configuration." >&2
   exit 1
@@ -42,5 +47,6 @@ grep -Fq 'credentials: "same-origin"' "$RUNTIME_DIR/assets/js/settings.js"
 grep -Fq 'window.csrf_token' "$RUNTIME_DIR/assets/js/settings.js"
 grep -Fq 'basename(' "$RUNTIME_DIR/include/download.php"
 grep -Fq 'realpath(' "$RUNTIME_DIR/include/download.php"
+grep -Fq 'application/gzip' "$RUNTIME_DIR/include/download.php"
 
 echo "MD12xx local-only security policy passed."

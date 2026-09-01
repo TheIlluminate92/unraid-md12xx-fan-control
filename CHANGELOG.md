@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1 - 2026-09-01
+
+- Uses Unraid's stock Disk Settings icon metadata for a reliable Settings tile across themes.
+- Makes the Auto curve point count resize after typing or changing the requested count.
+- Makes Refresh discovery save only discovery options and run one guarded pass immediately.
+- Shows controller fault details, target reasons, telemetry state, and command state in the app.
+- Prevents duplicate serial, SES, and disk assignments across shelf definitions.
+- Blocks configuration and controller writes while Identify & test is running and stops tests safely during update or uninstall.
+- Fixes completed test jobs rebuilding the form on later page loads.
+- Supports both ZIP and tar.gz result downloads and removes hardware identifiers from redacted diagnostics.
+- Hardens inline configuration encoding and session-expiry error handling.
+- Treats stale controller state as a visible fault and recovers abandoned commissioning locks.
+- Keeps the commissioning lock through the final mapping write and saves the measured 20%/50% RPM calibration.
+- Verifies normal control commands against independent SES telemetry, detects later RPM drift, and retries failed responses.
+- Selects fail-safe speed for incomplete or changed disk mappings and clears commissioning after control-critical mapping edits.
+- Covers duplicate Unraid names for one block device without selecting a flash alias as a shelf temperature source.
+
 ## 0.4.0 - 2026-09-01
 
 - Adds fully app-driven per-shelf Identify & test with live progress and server-side continuation.

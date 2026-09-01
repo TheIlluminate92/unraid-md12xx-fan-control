@@ -37,6 +37,12 @@ php -r '
 ' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys" > "$TMP_DIR/disk-mapping.json"
 jq -e '.state == "verified" and .blockDevices == ["sda"] and .disks == ["disk1"]' "$TMP_DIR/disk-mapping.json" >/dev/null
 
+php -r '
+  require $argv[1];
+  echo json_encode(md12xx_ses_disk_mapping("0:0:99:0", $argv[2], $argv[3]), JSON_UNESCAPED_SLASHES);
+' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks-duplicates.ini" "$TMP_DIR/sys" > "$TMP_DIR/duplicate-name-mapping.json"
+jq -e '.state == "verified" and .blockDevices == ["sda"] and .disks == ["disk1"]' "$TMP_DIR/duplicate-name-mapping.json" >/dev/null
+
 mkdir -p \
   "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:11/end_device-9:1:11/target9:0:11/9:0:11:0" \
   "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:0/end_device-9:1:0/target9:0:0/9:0:0:0/block/sda" \
@@ -91,22 +97,52 @@ grep -Fq '$reader = @fopen($port, '\''r'\'');' "$PLUGIN_DIR/include/controller.p
 grep -Fq '$writer = @fopen($port, '\''w'\'');' "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'Final 20% restoration: PASS' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq '$shelf["calibration"]=[' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'RESULT_DIR_FILE' "$PLUGIN_DIR/scripts/commission-job.sh"
+grep -Fq 'MD12XX_JOB_DIR=' "$PLUGIN_DIR/scripts/commission-job.sh"
+grep -Fq 'Results: %s' "$PLUGIN_DIR/scripts/commission-job.sh"
+grep -Fq 'md12xx_controller_verify_target' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'assigned disk inventory incomplete; fail-safe' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'automatic disk mapping changed; fail-safe' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'Controller status is stale' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq "'stale' =>" "$PLUGIN_DIR/include/api.php"
+grep -Fq 'md12xx_commission_active' "$PLUGIN_DIR/include/common.php"
+grep -Fq 'md12xx_fuser_binary' "$PLUGIN_DIR/include/common.php"
+MARKER_LINE="$(grep -nF 'if (!is_file($marker)) return false;' "$PLUGIN_DIR/include/common.php" | head -1 | cut -d: -f1)"
+PROC_SCAN_LINE="$(grep -nF "glob('/proc/[0-9]*/cmdline')" "$PLUGIN_DIR/include/common.php" | head -1 | cut -d: -f1)"
+[ -n "$MARKER_LINE" ] && [ -n "$PROC_SCAN_LINE" ] && [ "$MARKER_LINE" -lt "$PROC_SCAN_LINE" ]
+grep -Fq 'jq flock fuser sg_ses' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq '$oldDisks === $newDisks' "$PLUGIN_DIR/include/api.php"
+grep -Fq 'if (!$sameHardware) $shelf['\''calibration'\''] = [];' "$PLUGIN_DIR/include/api.php"
+grep -Fq '$activeId === $id && md12xx_commission_active()' "$PLUGIN_DIR/include/api.php"
+grep -Fq '$write['\''state'\''] === '\''pending'\''' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'no assigned disks; using fail-safe' "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'flock -w 15 9' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq 'commissioning.active' "$PLUGIN_DIR/include/discovery.php"
+grep -Fq 'md12xx_commission_active' "$PLUGIN_DIR/include/discovery.php"
 grep -Fq 'md12xx-commission-start' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'pollCommission' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Download test results' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'type=diagnostics' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'window.setTimeout(updateTitle, 400)' "$PLUGIN_DIR/assets/js/settings.js"
-grep -Fq 'Icon="icon.svg"' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'Icon="icon-disks"' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'Tag="icon-disk"' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'Version @@VERSION@@' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'JSON_HEX_TAG' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'scheduleCurveResize' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'window.setTimeout(apply, 300)' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq "'pollSeconds' => 5" "$PLUGIN_DIR/include/common.php"
 grep -Fq 'max(5, min(300' "$PLUGIN_DIR/include/common.php"
 grep -Fq "'state' => 'blocked'" "$PLUGIN_DIR/include/controller.php"
+grep -Fq "'timeout 10 '" "$PLUGIN_DIR/include/controller.php"
+grep -Fq "unset(\$controlConfig['discovery'], \$controlConfig['pollSeconds'])" "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'Setup is complete; turn off Test likely FTDI adapters' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Setup is already complete; active connection testing was turned off.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'Configuration, commissioning results, and runtime state were deleted.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
-grep -Fq 'Content-Type: application/zip' "$PLUGIN_DIR/include/download.php"
+grep -Fq 'application/zip' "$PLUGIN_DIR/include/download.php"
+grep -Fq 'application/gzip' "$PLUGIN_DIR/include/download.php"
+grep -Fq 'diagnostics.pid' "$PLUGIN_DIR/scripts/diagnose.sh"
+grep -Fq 'diagnostics.pid' "$PLUGIN_DIR/scripts/stop.sh"
 grep -Fq 'basename(' "$PLUGIN_DIR/include/download.php"
 
 php -r '
@@ -122,6 +158,24 @@ php -r '
   $config["shelves"][] = ["id" => "shelf-b", "commissioned" => false];
   $retained = md12xx_disable_active_discovery_after_setup($config);
   if ($retained["discovery"]["autoProbeKnownFtdi"] !== true) exit(1);
+
+  foreach (["serialPort", "sesAddress", "sesDevice", "disks"] as $duplicate) {
+    $test = md12xx_defaults();
+    $base = ["id" => "shelf-a", "serialPort" => "/dev/serial/by-id/a", "sesAddress" => "1:0:1:0", "sesDevice" => "/dev/sg1", "disks" => ["disk1"]];
+    $other = ["id" => "shelf-b", "serialPort" => "/dev/serial/by-id/b", "sesAddress" => "1:0:2:0", "sesDevice" => "/dev/sg2", "disks" => ["disk2"]];
+    $other[$duplicate] = $base[$duplicate];
+    $test["shelves"] = [$base, $other];
+    try { md12xx_validate_config($test); exit(1); } catch (InvalidArgumentException $expected) {}
+  }
+  $test = md12xx_defaults();
+  $test["shelves"] = [["id" => "shelf-a", "calibration" => ["rpmAt20" => 3500, "rpmAt50" => 6300]]];
+  $validated = md12xx_validate_config($test);
+  if (($validated["shelves"][0]["calibration"]["rpmAt20"] ?? 0) !== 3500) exit(1);
+  $calibration = ["rpmAt20" => 3500, "rpmAt50" => 6300];
+  if (!md12xx_controller_verify_target(20, 3500, $calibration)["passed"]) exit(1);
+  if (md12xx_controller_verify_target(20, 5200, $calibration)["passed"]) exit(1);
+  if (!md12xx_controller_verify_target(50, 6300, $calibration)["passed"]) exit(1);
+  if (md12xx_controller_verify_target(50, 3500, $calibration)["passed"]) exit(1);
 ' "$PLUGIN_DIR/include/common.php"
 
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
@@ -130,6 +184,14 @@ php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --fixture-dir="$PROJECT_DIR/tests/fixtures/ses" \
   --state="$TMP_DIR/auto-state.json"
 jq -e '.controller.state == "normal" and .shelves[0].targetPercent == 30 and .shelves[0].averageRpm == 3500 and .shelves[0].fanCount == 4 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/auto-state.json" >/dev/null
+
+jq '.shelves[0].disks = ["disk1", "disk2"]' "$PROJECT_DIR/tests/fixtures/auto.json" > "$TMP_DIR/incomplete.json"
+php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+  --config="$TMP_DIR/incomplete.json" \
+  --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+  --fixture-dir="$PROJECT_DIR/tests/fixtures/ses" \
+  --state="$TMP_DIR/incomplete-state.json"
+jq -e '.shelves[0].targetPercent == 50 and .shelves[0].targetReason == "assigned disk inventory incomplete; fail-safe" and .shelves[0].missingDisks == ["disk2"]' "$TMP_DIR/incomplete-state.json" >/dev/null
 
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$PROJECT_DIR/tests/fixtures/manual.json" \

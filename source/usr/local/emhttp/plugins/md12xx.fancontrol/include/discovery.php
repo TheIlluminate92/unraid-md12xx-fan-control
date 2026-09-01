@@ -14,6 +14,8 @@ $runOnce = array_key_exists('once', $options);
 $configPath = isset($options['config']) ? (string) $options['config'] : MD12XX_CONFIG_FILE;
 $statePath = isset($options['state']) ? (string) $options['state'] : MD12XX_DISCOVERY_FILE;
 $running = true;
+if (!is_dir(MD12XX_RUNTIME_DIR)) @mkdir(MD12XX_RUNTIME_DIR, 0755, true);
+$cycleLock = @fopen(MD12XX_RUNTIME_DIR . '/discovery-cycle.lock', 'c+');
 
 if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
     pcntl_async_signals(true);
@@ -63,6 +65,9 @@ function md12xx_discovery_probe(string $port, int $responseSeconds): array
     ];
     if ($port === '' || !str_starts_with($port, '/dev/serial/by-id/') || !file_exists($port)) {
         return array_replace($base, ['probeState' => 'missing', 'message' => 'Persistent serial device is missing']);
+    }
+    if (md12xx_fuser_binary() === null) {
+        return array_replace($base, ['probeState' => 'fault', 'message' => 'Serial ownership check is unavailable; probe skipped']);
     }
     if (md12xx_serial_busy($port)) {
         return array_replace($base, ['probeState' => 'busy', 'message' => 'Serial adapter is open in another process; probe skipped']);
@@ -140,14 +145,17 @@ function md12xx_discovery_probe(string $port, int $responseSeconds): array
 }
 
 while ($running) {
+    if (is_resource($cycleLock)) @flock($cycleLock, LOCK_EX);
+    $generationId = sprintf('%.6f-%d', microtime(true), getmypid());
     try {
         $config = md12xx_validate_config(md12xx_read_config($configPath));
         $probeConfig = $config['discovery'];
         $conflicts = md12xx_competing_controllers($config);
-        $commissioningActive = is_file(MD12XX_RUNTIME_DIR . '/commissioning.active');
+        $commissioningActive = md12xx_commission_active();
         $activeAllowed = !(bool) $config['enabled'] && !$conflicts && !$commissioningActive;
         $ports = [];
         foreach (md12xx_serial_port_details() as $port) {
+            if (!$running) break;
             $result = [
                 'probeState' => 'passive-only',
                 'blueDressPrompt' => false,
@@ -168,6 +176,7 @@ while ($running) {
         }
         md12xx_discovery_write_state($statePath, [
             'generatedAt' => time(),
+            'generationId' => $generationId,
             'autoProbeKnownFtdi' => (bool) $probeConfig['autoProbeKnownFtdi'],
             'activeProbeAllowed' => $activeAllowed,
             'commissioningActive' => $commissioningActive,
@@ -178,8 +187,10 @@ while ($running) {
         ]);
         $interval = (int) $probeConfig['intervalSeconds'];
     } catch (Throwable $error) {
-        md12xx_discovery_write_state($statePath, ['generatedAt' => time(), 'error' => $error->getMessage(), 'serialPorts' => [], 'sesDevices' => []]);
+        md12xx_discovery_write_state($statePath, ['generatedAt' => time(), 'generationId' => $generationId, 'error' => $error->getMessage(), 'serialPorts' => [], 'sesDevices' => []]);
         $interval = 60;
+    } finally {
+        if (is_resource($cycleLock)) @flock($cycleLock, LOCK_UN);
     }
     if ($runOnce) break;
     for ($second = 0; $running && $second < $interval; $second++) sleep(1);

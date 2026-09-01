@@ -46,12 +46,14 @@ function md12xx_controller_spun_down(array $disk): bool
 
 function md12xx_controller_temperature(array $assigned, array $disks): array
 {
+    $assigned = array_values(array_unique(array_map(static fn($name): string => strtolower((string) $name), $assigned)));
     $temperatures = [];
     $seen = 0;
     $active = 0;
+    $missing = [];
     foreach ($assigned as $name) {
         $disk = $disks[strtolower((string) $name)] ?? null;
-        if (!is_array($disk)) continue;
+        if (!is_array($disk)) { $missing[] = (string) $name; continue; }
         $seen++;
         if (!md12xx_controller_spun_down($disk)) $active++;
         $raw = trim((string) ($disk['temp'] ?? ''));
@@ -62,9 +64,11 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
     return [
         'temperatureC' => $source === null ? null : round((float) $temperatures[$source], 1),
         'temperatureSource' => $source,
+        'assignedCount' => count($assigned),
         'assignedSeen' => $seen,
+        'missingDisks' => $missing,
         'activeDisks' => $active,
-        'allSpunDown' => $seen > 0 && $active === 0,
+        'allSpunDown' => count($assigned) > 0 && $seen === count($assigned) && $active === 0,
     ];
 }
 
@@ -72,6 +76,15 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
 {
     $curve = $config['curve'];
     $cool = (int) $curve[0]['speed'];
+    if (($thermal['assignedCount'] ?? 0) === 0) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'no assigned disks; fail-safe'];
+    }
+    if (!empty($thermal['mappingChanged'])) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'automatic disk mapping changed; fail-safe'];
+    }
+    if (!empty($thermal['missingDisks'])) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'assigned disk inventory incomplete; fail-safe'];
+    }
     if ($thermal['allSpunDown']) return ['speed' => $cool, 'reason' => 'assigned disks spun down'];
     if ($thermal['temperatureC'] === null) {
         return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'temperature unavailable; fail-safe'];
@@ -109,6 +122,7 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
     if ($port === '' || !str_starts_with($port, '/dev/serial/by-id/') || !file_exists($port)) {
         return ['state' => 'fault', 'message' => 'Persistent serial adapter is missing'];
     }
+    if (md12xx_fuser_binary() === null) return ['state' => 'fault', 'message' => 'Serial ownership check is unavailable'];
     if (md12xx_serial_busy($port)) return ['state' => 'fault', 'message' => 'Serial adapter is open in another process'];
     if (!is_dir(MD12XX_RUNTIME_DIR)) @mkdir(MD12XX_RUNTIME_DIR, 0755, true);
     $lockPath = MD12XX_RUNTIME_DIR . '/serial-' . substr(sha1($port), 0, 12) . '.lock';
@@ -173,7 +187,7 @@ function md12xx_controller_rpm(string $id, string $device, string $fixtureDirect
         if ($binary === '') return ['state' => 'unavailable', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'sg_ses is unavailable'];
         $lines = [];
         $exitCode = 1;
-        @exec(escapeshellarg($binary) . ' -p es ' . escapeshellarg($device) . ' 2>/dev/null', $lines, $exitCode);
+        @exec('timeout 10 ' . escapeshellarg($binary) . ' -p es ' . escapeshellarg($device) . ' 2>/dev/null', $lines, $exitCode);
         if ($exitCode !== 0) return ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'SES telemetry read failed'];
         $output = implode("\n", $lines);
     }
@@ -201,6 +215,11 @@ $lastCommands = [];
 $previousMode = null;
 $nextPollAt = 0;
 $lastConfigSignature = '';
+$lastControlSignature = '';
+$pendingVerifications = [];
+$lastVerifications = [];
+$verificationFaults = [];
+$driftCounts = [];
 
 while ($running) {
     clearstatcache(true, $configPath);
@@ -218,10 +237,18 @@ while ($running) {
     if (!$runOnce && !$configChanged && time() < $nextPollAt) { sleep(1); continue; }
     $lastConfigSignature = $signature;
     $nextPollAt = time() + $pollSeconds;
+    $controlConfig = $config;
+    unset($controlConfig['discovery'], $controlConfig['pollSeconds']);
+    foreach ($controlConfig['shelves'] as &$controlShelf) unset($controlShelf['name']);
+    unset($controlShelf);
+    $controlSignature = sha1((string) json_encode($controlConfig, JSON_UNESCAPED_SLASHES));
+    $controlChanged = $controlSignature !== $lastControlSignature;
+    $lastControlSignature = $controlSignature;
 
     $enabled = (bool) $config['enabled'];
     $mode = (string) $config['mode'];
     $manualSpeed = (int) $config['manualSpeed'];
+    $commissioningActive = md12xx_commission_active();
     $conflicts = $enabled ? md12xx_competing_controllers($config) : [];
     $disks = md12xx_controller_disks($disksPath);
     $controllerState = 'normal';
@@ -231,11 +258,14 @@ while ($running) {
     if (!$enabled) $messages[] = 'Controller disabled';
     if ($enabled && !$config['shelves']) { $controllerState = 'attention'; $messages[] = 'No shelves configured'; }
     if ($conflicts) { $controllerState = 'fault'; $messages[] = 'Another fan controller is active'; }
+    if ($enabled && $commissioningActive) { $controllerState = 'fault'; $messages[] = 'Identify & test is active; control writes are blocked'; }
 
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
         $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
-        $assignedDisks = is_array($shelf['disks'] ?? null) ? $shelf['disks'] : [];
+        $assignedDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
+        $savedAssignedDisks = $assignedDisks;
+        $mappingChanged = false;
         $diskMapping = [
             'state' => $assignmentMode === 'automatic' ? 'unavailable' : 'manual',
             'disks' => $assignedDisks,
@@ -245,28 +275,103 @@ while ($running) {
             $diskMapping = md12xx_ses_disk_mapping((string) $shelf['sesAddress'], $disksPath);
             // Keep the last hardware-confirmed snapshot if sysfs is temporarily
             // unavailable. A successful current mapping always wins.
-            if (!empty($diskMapping['disks'])) $assignedDisks = $diskMapping['disks'];
+            if (!empty($diskMapping['disks'])) {
+                $currentDisks = array_values(array_unique($diskMapping['disks']));
+                $savedComparison = $savedAssignedDisks;
+                $currentComparison = $currentDisks;
+                sort($savedComparison, SORT_NATURAL | SORT_FLAG_CASE);
+                sort($currentComparison, SORT_NATURAL | SORT_FLAG_CASE);
+                $mappingChanged = $savedComparison !== [] && $savedComparison !== $currentComparison;
+                $assignedDisks = $mappingChanged
+                    ? array_values(array_unique(array_merge($savedAssignedDisks, $currentDisks)))
+                    : $currentDisks;
+                if ($mappingChanged) {
+                    $diskMapping['state'] = 'changed';
+                    $diskMapping['message'] = 'The current SES-to-disk mapping differs from the commissioned snapshot';
+                }
+            }
         }
         $thermal = md12xx_controller_temperature($assignedDisks, $disks);
+        $thermal['mappingChanged'] = $mappingChanged;
         $auto = md12xx_controller_auto_target($config, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
         $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
         $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
+        if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {
+            unset($pendingVerifications[$id]);
+        }
         $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
         $lastCommand = $lastCommands[$id] ?? null;
-        $commandDue = $operable && !$conflicts && ($configChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
-        if ($conflicts) {
+        $commandDue = $operable && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
+        if ($commissioningActive) {
+            $write = ['state' => 'blocked', 'message' => 'Identify & test is active'];
+        } elseif ($conflicts) {
             $write = ['state' => 'blocked', 'message' => 'Another fan controller is active'];
         } else {
             $write = ['state' => $operable ? 'idle' : 'disabled', 'message' => $operable ? 'No command due' : ((bool) $shelf['commissioned'] ? 'Shelf or controller disabled' : 'Shelf not commissioned')];
         }
         if ($commandDue) {
             $write = md12xx_controller_send((string) $shelf['serialPort'], $target, $dryRun);
-            if (in_array($write['state'], ['sent', 'dry-run'], true)) $lastCommands[$id] = time();
+            if (in_array($write['state'], ['sent', 'unconfirmed', 'dry-run'], true)) $lastCommands[$id] = time();
+            if (in_array($write['state'], ['sent', 'unconfirmed'], true)) {
+                $calibration = md12xx_controller_calibration($shelf);
+                if ($calibration === null) {
+                    $lastVerifications[$id] = ['target' => $target, 'state' => 'unverified', 'message' => 'Telemetry calibration is missing; run Identify & test again'];
+                    $write = $lastVerifications[$id];
+                } else {
+                    $pendingVerifications[$id] = ['target' => $target, 'sentAt' => time(), 'calibration' => $calibration];
+                    unset($verificationFaults[$id]);
+                }
+            }
         }
 
         $sesDevice = md12xx_controller_resolve_ses((string) $shelf['sesDevice'], (string) $shelf['sesAddress']);
         $telemetry = md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
+        $pending = $pendingVerifications[$id] ?? null;
+        if (is_array($pending) && (int) $pending['target'] === $target) {
+            $elapsed = time() - (int) $pending['sentAt'];
+            $verification = $telemetry['state'] === 'normal'
+                ? md12xx_controller_verify_target($target, (int) $telemetry['averageRpm'], $pending['calibration'])
+                : ['passed' => false, 'expected' => 'normal SES fan telemetry'];
+            if ((bool) $verification['passed']) {
+                $minimumOnly = !empty($verification['minimumOnly']);
+                $lastVerifications[$id] = [
+                    'target' => $target,
+                    'state' => $minimumOnly ? 'minimum-verified' : 'verified',
+                    'message' => $minimumOnly
+                        ? 'Independent SES telemetry verified at least the commissioned 50% response at ' . $telemetry['averageRpm'] . ' RPM; the exact ' . $target . '% RPM is not calibrated'
+                        : 'Independent SES telemetry verified the response to ' . $target . '% at ' . $telemetry['averageRpm'] . ' RPM',
+                ];
+                $driftCounts[$id] = 0;
+                unset($pendingVerifications[$id], $verificationFaults[$id]);
+            } elseif ($elapsed >= 45) {
+                $verificationFaults[$id] = ['target' => $target, 'state' => 'fault', 'message' => 'Fan response to ' . $target . '% was not verified after 45 seconds; expected ' . $verification['expected']];
+                unset($pendingVerifications[$id], $lastCommands[$id], $lastVerifications[$id]);
+            } else {
+                $write = ['state' => 'pending', 'message' => 'Waiting for independent SES telemetry to verify ' . $target . '% (' . $elapsed . 's)'];
+            }
+        }
+        $lastVerified = $lastVerifications[$id] ?? null;
+        if (!isset($pendingVerifications[$id]) && is_array($lastVerified) && (int) ($lastVerified['target'] ?? -1) === $target
+            && in_array((string) ($lastVerified['state'] ?? ''), ['verified', 'minimum-verified'], true) && $telemetry['state'] === 'normal') {
+            $calibration = md12xx_controller_calibration($shelf);
+            $drift = $calibration === null ? ['passed' => true] : md12xx_controller_verify_target($target, (int) $telemetry['averageRpm'], $calibration);
+            $driftCounts[$id] = !empty($drift['passed']) ? 0 : (($driftCounts[$id] ?? 0) + 1);
+            if ($driftCounts[$id] >= 3) {
+                $verificationFaults[$id] = ['target' => $target, 'state' => 'fault', 'message' => 'Fan telemetry no longer matches the ' . $target . '% target; expected ' . ($drift['expected'] ?? 'the commissioned response')];
+                unset($lastVerifications[$id], $lastCommands[$id]);
+            }
+        }
+        if (($verificationFaults[$id]['target'] ?? null) === $target) {
+            $write = $verificationFaults[$id];
+        } elseif (($lastVerifications[$id]['target'] ?? null) === $target && !isset($pendingVerifications[$id]) && in_array($write['state'], ['idle', 'sent', 'unconfirmed'], true)) {
+            $write = $lastVerifications[$id];
+        }
         if ($operable && $write['state'] === 'fault') { $controllerState = 'fault'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
+        elseif ($operable && $write['state'] === 'unverified' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
+        elseif ($operable && $write['state'] === 'pending' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
+        elseif ($operable && $mappingChanged && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': automatic disk mapping changed'; }
+        elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
+        elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }
         elseif ($enabled && (bool) $shelf['enabled'] && !(bool) $shelf['commissioned'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': commissioning required'; }
         elseif ($enabled && (bool) $shelf['enabled'] && $telemetry['state'] !== 'normal' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $telemetry['message']; }
 
@@ -283,7 +388,9 @@ while ($running) {
             'diskMappingState' => $diskMapping['state'],
             'diskMappingMessage' => $diskMapping['message'],
             'assignedDisks' => $assignedDisks,
+            'assignedCount' => $thermal['assignedCount'],
             'assignedSeen' => $thermal['assignedSeen'],
+            'missingDisks' => $thermal['missingDisks'],
             'activeDisks' => $thermal['activeDisks'],
             'temperatureC' => $thermal['temperatureC'],
             'temperatureSource' => $thermal['temperatureSource'],

@@ -14,7 +14,7 @@ RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "The commissioning service requires administrator privileges." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
-for REQUIRED in jq flock sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
+for REQUIRED in jq flock fuser sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
 [ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
 
 if jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
@@ -45,16 +45,19 @@ fi
 STAMP="$(date +%Y%m%d-%H%M%S)"
 RESULT_DIR="$RESULT_ROOT/${STAMP}-${SHELF_ID}"
 mkdir -p "$RESULT_DIR" "$STATE_DIR"
+if [ -n "${MD12XX_JOB_DIR:-}" ] && [[ "$MD12XX_JOB_DIR" == "$STATE_DIR/commission-jobs/"* ]]; then
+  printf '%s\n' "$RESULT_DIR" > "$MD12XX_JOB_DIR/result-directory"
+fi
 HASH="$(printf '%s' "$PORT" | sha1sum | cut -c1-12)"
 LOCK_FILE="$STATE_DIR/serial-${HASH}.lock"
 IDENTITY_CAPTURE="$RESULT_DIR/identity.txt"
-: > "$COMMISSION_MARKER"
+printf '%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"
 trap 'rm -f "$COMMISSION_MARKER"' EXIT
 
 verify_console() {
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
-    if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
+    if fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
     fi
@@ -85,7 +88,7 @@ send_speed() {
   CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
-    if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
+    if fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
     fi
@@ -235,8 +238,11 @@ if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM";
 fi
 
 echo "Final 20% restoration: PASS ($FINAL_RPM RPM)."
-trap - EXIT INT TERM
-rm -f "$COMMISSION_MARKER"
+# The hardware is safely back at 20%, but keep the commissioning marker until
+# the verified mapping and calibration are durably saved. This prevents a
+# Settings save from racing the final configuration write.
+trap 'rm -f "$COMMISSION_MARKER"' EXIT
+trap 'exit 130' INT TERM
 
 MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
 AUTO_DISKS="$(jq -c '.disks // []' <<< "$MAPPING_JSON")"
@@ -258,12 +264,13 @@ php -r '
     $shelf["sesDevice"]=$argv[5];
     $assignment=$shelf["diskAssignment"] ?? (!empty($shelf["disks"]) ? "manual" : "automatic");
     if ($assignment === "automatic") $shelf["disks"]=$automaticDisks;
+    $shelf["calibration"]=["rpmAt20"=>(int)$argv[8], "rpmAt50"=>(int)$argv[9]];
     $shelf["commissioned"]=$argv[7] === "true";
   }
   unset($shelf);
   $config=md12xx_disable_active_discovery_after_setup($config);
   md12xx_write_config($config, $argv[2]);
-' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY"
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY" "$RPM_20" "$RPM_50"
 
 {
   echo "MD12xx fan control identification and commissioning"

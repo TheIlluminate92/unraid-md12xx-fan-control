@@ -4,6 +4,8 @@
 .md12xx-hero h2, .md12xx-panel h3 { margin: 0; }
 .md12xx-hero p { margin: 5px 0 0; opacity: .72; }
 .md12xx-beta { margin: 14px 0 0; padding: 10px 12px; color: #ffd166; background: rgba(255,209,102,.08); border-left: 3px solid #ffd166; }
+.md12xx-controller-detail { margin: 12px 0 0; padding: 10px 12px; color: #ffb3b3; background: rgba(255,107,107,.08); border-left: 3px solid #ff6b6b; }
+.md12xx-controller-detail.is-attention { color: #ffd166; background: rgba(255,209,102,.08); border-left-color: #ffd166; }
 .md12xx-help { margin-top: 12px; }
 .md12xx-help ol { margin: 14px 0 0 22px; padding: 0; line-height: 1.55; }
 .md12xx-help li + li { margin-top: 7px; }
@@ -32,7 +34,7 @@
 .md12xx-assignment-summary { line-height: 1.45; }
 .md12xx-mapped-disks { margin-top: 12px; padding: 10px 12px; background: rgba(75,179,253,.08); border-left: 3px solid #4bb3fd; line-height: 1.45; }
 .md12xx-mapped-disks strong { display: block; margin-bottom: 3px; }
-.md12xx-status { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.md12xx-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 12px; }
 .md12xx-status span { padding: 8px; background: #1c2024; font-size: 12px; }
 .md12xx-status b { display: block; margin-top: 3px; font-size: 15px; }
 .md12xx-commission { margin-top: 12px; padding: 12px; background: #090a0b; border: 1px solid #343a40; }
