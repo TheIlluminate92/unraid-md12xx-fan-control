@@ -17,6 +17,7 @@
 - [x] Fresh discovery and commissioning pass on both MD1200 shelves.
 - [x] Standalone Auto control owns both shelves with normal SES telemetry and no competing writer.
 - [x] Manual 50% mode is verified simultaneously on both shelves and both return to Auto/20% with independent SES telemetry.
+- [x] Forced controller-process death produces a local failure alert, restarts under supervision, restores both 20% targets, verifies both shelves through independent SES telemetry, and produces a recovery alert after 60 healthy seconds.
 - [ ] Controller survives an Unraid reboot and array stop/start without racing another fan writer.
 - [ ] 24–48 hour Auto-mode soak test completes without stale telemetry or unexplained writes.
 
@@ -27,4 +28,3 @@
 - [ ] Public Unraid forum support thread exists and replaces the temporary GitHub-only support link where appropriate.
 - [ ] Community Apps Validate and Scan both pass.
 - [ ] Listing screenshots are captured from the final Settings page.
-
