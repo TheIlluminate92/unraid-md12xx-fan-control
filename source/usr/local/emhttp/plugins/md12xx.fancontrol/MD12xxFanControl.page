@@ -31,7 +31,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
   <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
 
-  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), its active EMM console connected through a persistent <code>/dev/serial/by-id</code> adapter, SES access through <code>/dev/sg*</code> with <code>sg_ses</code>, and no other process controlling the same fans.</p>
+  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), a compatible SAS HBA/controller exposing the shelf as <code>/dev/sg*</code>, <code>sg_ses</code>, and the active EMM console on a persistent <code>/dev/serial/by-id</code> path. The tested MD1200 serial path uses a Dell-compatible six-pin service/password-reset cable and an FTDI USB-to-serial adapter. MD1400, MD1420, and other shelves are unsupported.</p>
 
   <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
 
@@ -39,12 +39,14 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <h3>Safe setup</h3>
     <ol>
       <li>Keep this controller disabled and stop every other process that controls the same shelf.</li>
+      <li>Connect the Dell-compatible service/password-reset cable to the active/primary EMM, then connect its FTDI USB-to-serial adapter to Unraid. Matching firmware on both EMMs is strongly recommended.</li>
       <li>Confirm Unraid can see both the shelf's persistent serial adapter and its SES enclosure before adding it.</li>
       <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
       <li>Select <b>Identify &amp; test</b>. The app verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
       <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>
       <li>Active connection testing turns off automatically when setup completes. Passive inventory remains available. Enable this controller only after every competing fan writer is disabled.</li>
     </ol>
+    <p><b>Separate safety paths:</b> fan commands travel only through USB serial. The SAS HBA is used read-only for topology and independent SES RPM telemetry; the plugin does not configure or flash it.</p>
     <p class="md12xx-warning"><b>Recovery:</b> if a test cannot prove the final 20% state, keep every controller stopped and follow the on-screen recovery message before continuing.</p>
   </section>
 
