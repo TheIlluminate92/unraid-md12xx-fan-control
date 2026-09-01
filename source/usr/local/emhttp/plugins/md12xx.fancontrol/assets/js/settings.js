@@ -41,6 +41,30 @@
     var result = String(value || "shelf").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
     return (result || "shelf").slice(0, 48);
   }
+  function liveControlSignature(value) {
+    var shelves = Array.isArray(value.shelves) ? value.shelves : [];
+    return JSON.stringify({
+      mode: value.mode,
+      manualSpeed: value.manualSpeed,
+      reassertSeconds: value.reassertSeconds,
+      sensorFailureSpeed: value.sensorFailureSpeed,
+      hysteresisC: value.hysteresisC,
+      curve: value.curve,
+      shelves: shelves.map(function (shelf) {
+        return {
+          id: shelf.id,
+          enabled: shelf.enabled,
+          commissioned: shelf.commissioned,
+          model: shelf.model,
+          serialPort: shelf.serialPort,
+          sesAddress: shelf.sesAddress,
+          sesDevice: shelf.sesDevice,
+          diskAssignment: shelf.diskAssignment,
+          disks: shelf.disks
+        };
+      })
+    });
+  }
 
   function valuesUsedByOtherShelves(key, shelfId) {
     var used = {};
@@ -536,6 +560,8 @@
     try {
       var next = collect();
       if (next.enabled && !persistedConfig.enabled && !window.confirm("Enable MD12xx fan control now? Every enabled, commissioned shelf may receive its current target command immediately.")) return false;
+      if (next.enabled && persistedConfig.enabled && liveControlSignature(next) !== liveControlSignature(persistedConfig)
+          && !window.confirm("Apply these live fan-control changes now? An enabled, commissioned shelf may receive a new target command immediately.")) return false;
       var token = String(window.csrf_token || "");
       if (!token) throw new Error("The current Unraid session token is unavailable; reload this page");
       var body = new URLSearchParams({ action: "save", csrf_token: token, config: JSON.stringify(next) });

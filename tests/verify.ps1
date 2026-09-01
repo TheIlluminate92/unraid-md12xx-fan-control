@@ -88,6 +88,9 @@ if ($settingsSource.Contains('window.location.assign(downloadEndpoint')) { throw
 foreach ($marker in 'refresh-discovery', 'Only the discovery options were saved', 'commissioningRunning', 'Wait for Identify & test to finish before saving configuration', 'md12xx-controller-detail', 'data-status="reason"', 'readJson', 'Enable MD12xx fan control now?') {
     if (-not ($settingsSource.Contains($marker) -or $pageSource.Contains($marker))) { throw "No-terminal UI safety marker is missing: $marker" }
 }
+foreach ($marker in 'liveControlSignature', 'Apply these live fan-control changes now?') {
+    if (-not $settingsSource.Contains($marker)) { throw "Live-control confirmation marker is missing: $marker" }
+}
 foreach ($marker in 'payload.stale ? "fault"', 'Controller status is stale', 'Discovery data is stale', 'calibrationSummary') {
     if (-not $settingsSource.Contains($marker)) { throw "Stale-state or calibration UI marker is missing: $marker" }
 }
