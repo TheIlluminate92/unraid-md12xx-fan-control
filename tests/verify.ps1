@@ -23,6 +23,7 @@ $required = @(
     '/usr/local/emhttp/plugins/md12xx.fancontrol/assets/css/settings.css',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/start.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stop.sh',
+    '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/controller-supervisor.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission-job.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh'
@@ -38,6 +39,11 @@ if (-not $profileText.Contains('<Profile>')) { throw 'Community Apps profile is 
 $wrapperText = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugins/md12xx.fancontrol.xml'))
 if (-not $wrapperText.Contains('<Beta>true</Beta>')) { throw 'Community Apps beta marker is missing.' }
 if (-not $wrapperText.Contains('<PluginURL>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg</PluginURL>')) { throw 'Community Apps PluginURL is incorrect.' }
+if (-not $wrapperText.Contains('<MinVer>7.3.2</MinVer>')) { throw 'Community Apps minimum Unraid version is not the tested 7.3.2 baseline.' }
+foreach ($screenshot in 'controller-and-discovery.png', 'connection-discovery.png', 'auto-curve.png') {
+    if (-not $wrapperText.Contains("/screenshots/$screenshot</Screenshot>")) { throw "Community Apps screenshot is missing: $screenshot" }
+    if (-not (Test-Path (Join-Path $projectRoot "screenshots/$screenshot"))) { throw "Screenshot file is missing: $screenshot" }
+}
 $hardwareForm = [System.IO.File]::ReadAllText((Join-Path $projectRoot '.github/ISSUE_TEMPLATE/hardware-report.yml'))
 $bugForm = [System.IO.File]::ReadAllText((Join-Path $projectRoot '.github/ISSUE_TEMPLATE/bug-report.yml'))
 foreach ($field in 'Shelf model', 'Unraid version', 'HBA and driver', 'EMM and cabling arrangement', 'Commissioning result', 'Discovery summary', 'Disk mapping', 'Competing fan controller state during testing', 'Optional redacted diagnostics') {
@@ -73,6 +79,7 @@ if (-not $pageSource.Contains('id="md12xx-help-toggle"') -or -not $pageSource.Co
 if (-not $pageSource.Contains('Version @@VERSION@@')) { throw 'Visible Settings version is missing.' }
 if (-not $pageSource.Contains('Report issue on GitHub') -or -not $pageSource.Contains('Development transparency:')) { throw 'Support or development-transparency UI is missing.' }
 if (-not $pageSource.Contains('Icon="icon-disks"') -or -not $pageSource.Contains('Tag="icon-disk"')) { throw 'Built-in Settings tile icon is not configured.' }
+if (-not $pageSource.Contains("'7.3.2','>='") -or -not $pageSource.Contains('<b>Requirements:</b>')) { throw 'Tested Unraid minimum or hardware requirements are missing from Settings.' }
 if (-not $pageSource.Contains('JSON_HEX_TAG') -or -not $pageSource.Contains('JSON_HEX_AMP')) { throw 'Settings bootstrap JSON is not safe for inline script embedding.' }
 if ($pageSource -match '(?i)terminal') { throw 'Terminal-only wording remains in Settings.' }
 $discoverySource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/discovery.php'))
@@ -157,7 +164,7 @@ if (-not $pageSource.Contains("href=`"$allowedSupportUrl`"") -or -not $pageSourc
 if ($runtimeText.Replace($allowedSupportUrl, '') -match 'https?://|\b(curl|wget|socat|telnet|ssh|scp)\b|fsockopen|stream_socket_client|curl_[a-z_]+') { throw 'Outbound network primitive found in installed runtime.' }
 if ($runtimeText -match '/mnt(/|$)|/root(/|$)|/home(/|$)|docker\.sock') { throw 'Broad filesystem or Docker socket access found in installed runtime.' }
 $diagnosticsSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'scripts/diagnose.sh'))
-foreach ($marker in 'config.redacted.json', 'status.redacted.json', 'discovery.redacted.json', 'uname -rmo') {
+foreach ($marker in 'config.redacted.json', 'status.redacted.json', 'discovery.redacted.json', 'watchdog.json', 'uname -rmo') {
     if (-not $diagnosticsSource.Contains($marker)) { throw "Diagnostics privacy marker is missing: $marker" }
 }
 foreach ($marker in 'diagnostics.lock', 'diagnostics.pid', 'flock -n 9') {
@@ -165,6 +172,17 @@ foreach ($marker in 'diagnostics.lock', 'diagnostics.pid', 'flock -n 9') {
 }
 if ($diagnosticsSource.Contains('cp -f "$CONFIG_DIR/config.json"')) { throw 'Diagnostics copies raw configuration.' }
 if (-not $diagnosticsSource.Contains('.missingDisks = ')) { throw 'Missing-disk diagnostics redaction is absent.' }
+$supervisorSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'scripts/controller-supervisor.sh'))
+foreach ($marker in '/usr/local/emhttp/webGui/scripts/notify', 'Controller stopped unexpectedly', 'Controller recovered', 'Controller restarted; monitoring recovery', 'ALERT_INTERVAL=900', 'delay=60', 'controller.log') {
+    if (-not $supervisorSource.Contains($marker)) { throw "Controller supervision marker is missing: $marker" }
+}
+$startSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'scripts/start.sh'))
+$stopSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'scripts/stop.sh'))
+if (-not $startSource.Contains('controller-supervisor.sh')) { throw 'Startup does not launch the controller supervisor.' }
+if (-not $startSource.Contains('refusing to start a second writer')) { throw 'Startup does not fail closed when an orphan controller cannot stop.' }
+if ($stopSource.IndexOf('controller-supervisor.sh') -gt $stopSource.IndexOf("'/md12xx.fancontrol/include/controller.php'")) { throw 'Shutdown does not stop the supervisor before the controller.' }
+$templateSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugin/md12xx.fancontrol.plg.in'))
+if (-not $templateSource.Contains('min="7.3.2"') -or -not $templateSource.Contains('controller-supervisor.sh')) { throw 'Package minimum version or supervisor permissions are missing.' }
 $downloadSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'include/download.php'))
 if (-not $downloadSource.Contains('basename(') -or -not $downloadSource.Contains('realpath(') -or -not $downloadSource.Contains('application/zip') -or -not $downloadSource.Contains('application/gzip')) { throw 'Local archive download validation is incomplete.' }
 if ($text.Contains('@@')) { throw 'An unexpanded build placeholder remains.' }

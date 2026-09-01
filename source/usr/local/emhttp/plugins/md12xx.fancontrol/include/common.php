@@ -5,6 +5,8 @@ declare(strict_types=1);
 const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';
 const MD12XX_STATE_FILE = '/var/run/md12xx.fancontrol/status.json';
 const MD12XX_PID_FILE = '/var/run/md12xx.fancontrol/controller.pid';
+const MD12XX_SUPERVISOR_PID_FILE = '/var/run/md12xx.fancontrol/supervisor.pid';
+const MD12XX_WATCHDOG_FILE = '/var/run/md12xx.fancontrol/watchdog.json';
 const MD12XX_DISCOVERY_FILE = '/var/run/md12xx.fancontrol/discovery.json';
 const MD12XX_DISCOVERY_PID_FILE = '/var/run/md12xx.fancontrol/discovery.pid';
 const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';
@@ -426,6 +428,7 @@ function md12xx_public_status(): array
         'stale' => $generatedAt === null || (time() - $generatedAt) > $staleAfter,
         'generatedAt' => $generatedAt,
         'controller' => is_array($state['controller'] ?? null) ? $state['controller'] : [],
+        'watchdog' => md12xx_read_json(MD12XX_WATCHDOG_FILE),
         'shelves' => is_array($state['shelves'] ?? null) ? array_values($state['shelves']) : [],
     ];
 }

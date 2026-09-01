@@ -42,6 +42,7 @@ fi
 grep -Fq 'config.redacted.json' "$DIAGNOSTICS"
 grep -Fq 'status.redacted.json' "$DIAGNOSTICS"
 grep -Fq 'discovery.redacted.json' "$DIAGNOSTICS"
+grep -Fq 'watchdog.json' "$DIAGNOSTICS"
 grep -Fq 'uname -rmo' "$DIAGNOSTICS"
 grep -Fq '.assignedDisks = ' "$DIAGNOSTICS"
 grep -Fq '.missingDisks = ' "$DIAGNOSTICS"
@@ -55,6 +56,7 @@ fi
 
 grep -Fq "const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';" "$RUNTIME_DIR/include/common.php"
 grep -Fq "const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';" "$RUNTIME_DIR/include/common.php"
+grep -Fq "const MD12XX_WATCHDOG_FILE = '/var/run/md12xx.fancontrol/watchdog.json';" "$RUNTIME_DIR/include/common.php"
 grep -Fq 'credentials: "same-origin"' "$RUNTIME_DIR/assets/js/settings.js"
 grep -Fq 'window.csrf_token' "$RUNTIME_DIR/assets/js/settings.js"
 grep -Fq 'basename(' "$RUNTIME_DIR/include/download.php"

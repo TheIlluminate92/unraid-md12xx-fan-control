@@ -6,10 +6,13 @@
   <Project>https://github.com/TheIlluminate92/unraid-md12xx-fan-control</Project>
   <ReadMe>https://github.com/TheIlluminate92/unraid-md12xx-fan-control#readme</ReadMe>
   <Icon>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/icon.svg</Icon>
-  <Overview>Beta local fan control for Dell PowerVault MD1200 and MD1220 shelves with guarded discovery, automatic disk mapping, RPM-proven commissioning, and independent SES telemetry. No automatic uploads or cloud services. AI-assisted development by OpenAI Codex under project-owner direction, hardware validation, and release approval.</Overview>
+  <Overview>Beta local fan control for Dell PowerVault MD1200 and experimental MD1220 shelves with guarded discovery, automatic disk mapping, RPM-proven commissioning, independent SES telemetry, and local controller supervision. Requires an active EMM serial console, persistent serial adapter path, SES access through sg_ses, and no competing fan writer. No automatic uploads or cloud services. AI-assisted development by OpenAI Codex under project-owner direction, hardware validation, and release approval.</Overview>
   <Category>Tools:Utilities</Category>
   <Beta>true</Beta>
   <License>MIT</License>
-  <MinVer>6.12.0</MinVer>
+  <MinVer>7.3.2</MinVer>
+  <Screenshot>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/screenshots/controller-and-discovery.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/screenshots/connection-discovery.png</Screenshot>
+  <Screenshot>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/screenshots/auto-curve.png</Screenshot>
   <ExtraSearchTerms>Dell PowerVault MD1200 MD1220 JBOD disk shelf fan cooling SES BlueDress</ExtraSearchTerms>
 </Plugin>

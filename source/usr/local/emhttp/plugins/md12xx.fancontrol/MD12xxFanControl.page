@@ -3,7 +3,7 @@ Title="MD12xx Fan Control"
 Type="xmenu"
 Icon="icon-disks"
 Tag="icon-disk"
-Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0','>=')"
+Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'7.3.2','>=')"
 
 ---
 
@@ -31,12 +31,15 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
   <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
 
+  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), its active EMM console connected through a persistent <code>/dev/serial/by-id</code> adapter, SES access through <code>/dev/sg*</code> with <code>sg_ses</code>, and no other process controlling the same fans.</p>
+
   <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
 
   <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
     <h3>Safe setup</h3>
     <ol>
       <li>Keep this controller disabled and stop every other process that controls the same shelf.</li>
+      <li>Confirm Unraid can see both the shelf's persistent serial adapter and its SES enclosure before adding it.</li>
       <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
       <li>Select <b>Identify &amp; test</b>. The app verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
       <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>

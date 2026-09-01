@@ -540,14 +540,18 @@
       stateById = {};
       (payload.shelves || []).forEach(function (shelf) { stateById[shelf.id] = shelf; });
       var controller = payload.controller || {};
+      var watchdog = payload.watchdog || {};
       controllerState = controller;
       var health = byId("md12xx-health");
-      var state = payload.stale ? "fault" : (payload.enabled ? (controller.state || "normal") : "disabled");
+      var watchdogFault = watchdog.state === "restarting" || watchdog.state === "recovering" || watchdog.state === "fault";
+      var state = watchdogFault ? "fault" : (payload.stale ? "fault" : (payload.enabled ? (controller.state || "normal") : "disabled"));
       health.className = "md12xx-pill is-" + (state === "normal" ? "normal" : state === "fault" ? "fault" : "attention");
       health.textContent = String(state).toUpperCase();
-      health.title = controller.message || "";
+      health.title = watchdogFault ? (watchdog.message || "Controller restart in progress") : (controller.message || "");
       var detail = byId("md12xx-controller-detail");
-      var detailText = payload.stale
+      var detailText = watchdogFault
+        ? (watchdog.message || "The controller stopped unexpectedly and the local supervisor is restarting it.")
+        : payload.stale
         ? "Controller status is stale; the background service may not be running."
         : (controller.message && controller.message !== "Controller disabled" ? controller.message : "");
       detail.hidden = !detailText;
