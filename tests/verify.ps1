@@ -42,6 +42,9 @@ if ($text -notmatch 'Actual\\s\+speed') { throw 'RPM parsing expression is missi
 if ($text -notmatch '\$payload = ''set_speed '' \. \$speed \. "\\r";') { throw 'Controller is not using carriage-return-only framing.' }
 if ($text -match '\$payload = ''set_speed '' \. \$speed \. "\\r\\n";') { throw 'CRLF framing was reintroduced.' }
 if ($text -match 'rm -rf\s+"/boot/config/plugins/md12xx\.fancontrol"') { throw 'Uninstall removes persistent settings.' }
+$pageSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/MD12xxFanControl.page'))
+if ($pageSource -match 'require_once\s+__DIR__') { throw 'Settings page relies on the page builder __DIR__ context.' }
+if (-not $pageSource.Contains("`$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';")) { throw 'Settings page explicit plugin root is missing.' }
 $discoverySource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/discovery.php'))
 if ($discoverySource -match 'set_speed') { throw 'Read-only discovery contains a fan-speed command.' }
 if ($text.Contains('@@')) { throw 'An unexpanded build placeholder remains.' }

@@ -6,11 +6,12 @@ Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0',
 ---
 
 <?php
-require_once __DIR__ . '/include/common.php';
+$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';
+require_once $pluginRoot . '/include/common.php';
 $config = md12xx_read_config();
 $webRoot = '/plugins/md12xx.fancontrol';
-$cssVersion = @filemtime(__DIR__ . '/assets/css/settings.css') ?: 0;
-$jsVersion = @filemtime(__DIR__ . '/assets/js/settings.js') ?: 0;
+$cssVersion = @filemtime($pluginRoot . '/assets/css/settings.css') ?: 0;
+$jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 ?>
 <link rel="stylesheet" href="<?=$webRoot?>/assets/css/settings.css?v=<?=$cssVersion?>">
 

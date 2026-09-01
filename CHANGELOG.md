@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3 — 2026-09-01
+
+- Fixed the blank Unraid Settings page by resolving runtime files from the explicit plugin root rather than the page builder's `__DIR__` context.
+- Added a packaging regression check for the Settings page loader path.
+
 ## 0.1.2 — 2026-09-01
 
 - Moved development to the dedicated `TheIlluminate92/unraid-md12xx-fan-control` repository.

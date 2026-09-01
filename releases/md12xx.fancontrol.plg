@@ -2,12 +2,15 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.1.2">
+  <!ENTITY version "0.1.3">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.1.3
+- Fixes the blank Unraid Settings page caused by page-builder path resolution.
+
 ### 0.1.2
 - Moves updates and support to the dedicated standalone repository.
 
@@ -638,7 +641,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(75, ((int) $config['pollSeconds'] * 2) + 15);
     return [
-        'version' => '0.1.2',
+        'version' => '0.1.3',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -1219,11 +1222,12 @@ Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0',
 ---
 
 <?php
-require_once __DIR__ . '/include/common.php';
+$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';
+require_once $pluginRoot . '/include/common.php';
 $config = md12xx_read_config();
 $webRoot = '/plugins/md12xx.fancontrol';
-$cssVersion = @filemtime(__DIR__ . '/assets/css/settings.css') ?: 0;
-$jsVersion = @filemtime(__DIR__ . '/assets/js/settings.js') ?: 0;
+$cssVersion = @filemtime($pluginRoot . '/assets/css/settings.css') ?: 0;
+$jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 ?>
 <link rel="stylesheet" href="<?=$webRoot?>/assets/css/settings.css?v=<?=$cssVersion?>">
 
@@ -1281,7 +1285,7 @@ $jsVersion = @filemtime(__DIR__ . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.1.2',
+    'version' => '0.1.3',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES)?>;
@@ -1603,7 +1607,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.1.2 installed. Configure it under Settings → Utilities."
+echo "Version 0.1.3 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>
