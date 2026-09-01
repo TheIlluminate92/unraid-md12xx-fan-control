@@ -75,12 +75,16 @@ if (-not $discoverySource.Contains('md12xx_commission_active')) { throw 'Discove
 $settingsSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js'))
 if (-not $settingsSource.Contains('Setup is complete; turn off Test likely FTDI adapters')) { throw 'Completed-setup discovery reminder is missing.' }
 if (-not $settingsSource.Contains('Associated Unraid disks') -or -not $pageSource.Contains('Export local diagnostics')) { throw 'Shelf mapping or local diagnostics UI is missing.' }
-foreach ($marker in 'md12xx-commission-start', 'startCommission', 'pollCommission', 'It continues safely even if this page is closed', 'window.setTimeout(updateTitle, 400)', 'updateShelfStatus', 'Download test results', 'type=diagnostics') {
+foreach ($marker in 'md12xx-commission-start', 'startCommission', 'pollCommission', 'It continues safely even if this page is closed', 'window.setTimeout(updateTitle, 400)', 'updateShelfStatus', 'Download test results') {
     if (-not $settingsSource.Contains($marker)) { throw "App commissioning or focus-safe refresh marker is missing: $marker" }
 }
 foreach ($marker in 'scheduleCurveResize', 'window.setTimeout(apply, 300)', 'addEventListener("input"', 'addEventListener("change"') {
     if (-not $settingsSource.Contains($marker)) { throw "Dynamic curve resize marker is missing: $marker" }
 }
+foreach ($marker in 'downloadLocalArchive', 'link.download = file', 'downloadLocalArchive("diagnostics", payload.file)') {
+    if (-not $settingsSource.Contains($marker)) { throw "Non-navigating archive download marker is missing: $marker" }
+}
+if ($settingsSource.Contains('window.location.assign(downloadEndpoint')) { throw 'Archive download still navigates away from Settings.' }
 foreach ($marker in 'refresh-discovery', 'Only the discovery options were saved', 'commissioningRunning', 'Wait for Identify & test to finish before saving configuration', 'md12xx-controller-detail', 'data-status="reason"', 'readJson', 'Enable MD12xx fan control now?') {
     if (-not ($settingsSource.Contains($marker) -or $pageSource.Contains($marker))) { throw "No-terminal UI safety marker is missing: $marker" }
 }

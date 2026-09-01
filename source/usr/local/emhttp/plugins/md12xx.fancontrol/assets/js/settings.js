@@ -28,6 +28,15 @@
   function option(value, label, selected, disabled) {
     return '<option value="' + esc(value) + '"' + (selected ? " selected" : "") + (disabled ? " disabled" : "") + ">" + esc(label) + "</option>";
   }
+  function downloadLocalArchive(type, file) {
+    var link = document.createElement("a");
+    link.href = downloadEndpoint + "?type=" + encodeURIComponent(type) + "&file=" + encodeURIComponent(file);
+    link.download = file;
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+    window.setTimeout(function () { link.remove(); }, 0);
+  }
   function slug(value) {
     var result = String(value || "shelf").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
     return (result || "shelf").slice(0, 48);
@@ -204,7 +213,10 @@
     output.hidden = !job.output;
     if (!output.hidden) output.scrollTop = output.scrollHeight;
     result.hidden = !job.resultFile;
-    if (job.resultFile) result.href = downloadEndpoint + "?type=commissioning&file=" + encodeURIComponent(job.resultFile);
+    if (job.resultFile) {
+      result.href = downloadEndpoint + "?type=commissioning&file=" + encodeURIComponent(job.resultFile);
+      result.setAttribute("download", job.resultFile);
+    }
     updateActionAvailability();
   }
 
@@ -545,7 +557,7 @@
       var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
       var payload = await readJson(response, "Diagnostics failed");
       message("Local redacted diagnostics created and downloaded. Nothing was uploaded.", false);
-      window.location.assign(downloadEndpoint + "?type=diagnostics&file=" + encodeURIComponent(payload.file));
+      downloadLocalArchive("diagnostics", payload.file);
     } catch (error) { message(error.message || String(error), true); }
   }
 

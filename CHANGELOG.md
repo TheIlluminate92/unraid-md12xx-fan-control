@@ -16,6 +16,7 @@
 - Verifies normal control commands against independent SES telemetry, detects later RPM drift, and retries failed responses.
 - Selects fail-safe speed for incomplete or changed disk mappings and clears commissioning after control-critical mapping edits.
 - Covers duplicate Unraid names for one block device without selecting a flash alias as a shelf temperature source.
+- Keeps Settings open when downloading diagnostics or commissioning results.
 
 ## 0.4.0 - 2026-09-01
 

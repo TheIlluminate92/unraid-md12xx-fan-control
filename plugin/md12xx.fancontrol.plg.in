@@ -18,6 +18,7 @@
 - Fixes archive downloads, strengthens diagnostic redaction, and hardens inline configuration encoding.
 - Saves commissioning RPM calibration, verifies later commands against SES telemetry, and detects response drift.
 - Uses fail-safe speed for incomplete or changed disk mappings and recovers stale commissioning locks.
+- Keeps Settings open while downloading local diagnostic and test archives.
 
 ### 0.4.0 Beta
 - Adds fully app-driven Identify &amp; test with live progress and safe server-side continuation.
