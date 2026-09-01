@@ -98,4 +98,3 @@
 - Preserved Auto, Manual, hysteresis, fail-safe, locking, RPM telemetry, and command reassertion behavior.
 - Added a guarded per-shelf 20%/50% commissioning test.
 - Defaults to disabled and blocks writes when a known legacy Docker controller is running.
-
