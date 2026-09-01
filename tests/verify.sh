@@ -35,8 +35,9 @@ for FIELD in 'Shelf model' 'Unraid version' 'HBA and driver' 'EMM and cabling ar
   grep -Fq "$FIELD" "$PROJECT_DIR/.github/ISSUE_TEMPLATE/hardware-report.yml"
 done
 for FORM in bug-report.yml hardware-report.yml; do
-  grep -Fq 'type: upload' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
-  grep -Fq 'accept: ".zip,.gz,.tar.gz"' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+  ! grep -Fq 'type: upload' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+  grep -Fq 'id: diagnostics' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+  grep -Fq "drag the ZIP into this box or use GitHub's attachment button" "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
   grep -Fq 'can be accessed without authentication' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
 done
 
