@@ -48,8 +48,8 @@ body:
   - type: input
     id: serial
     attributes:
-      label: USB serial adapter chipset
-      placeholder: "For example FTDI FT232; do not include its unique serial number"
+      label: Service cable and USB serial adapter
+      placeholder: "For example Dell-compatible password-reset cable and FTDI FT232; omit unique serial numbers"
   - type: textarea
     id: result
     attributes:
