@@ -2,12 +2,16 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.2.2">
+  <!ENTITY version "0.2.3">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.2.3
+- Uses the hardware-proven reader-first serial session for every speed command.
+- Requires independent SES RPM proof of the final 20% restoration before commissioning succeeds.
+
 ### 0.2.2
 - Maps disks through the verified SES device's SAS expander when enclosure-class links are unavailable.
 - Prevents discovery from racing the commissioning test's final 20% safety restore.
@@ -715,7 +719,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(75, ((int) $config['pollSeconds'] * 2) + 15);
     return [
-        'version' => '0.2.2',
+        'version' => '0.2.3',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -1059,30 +1063,33 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
         $exitCode = 1;
         @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1 2>/dev/null', $unused, $exitCode);
         if ($exitCode !== 0) return ['state' => 'fault', 'message' => 'Unable to configure serial adapter'];
-        // Real MD1200 testing showed that opening the tty write-only can echo
-        // nothing and leave set_speed unapplied. Keep a read/write session,
-        // drain stale console output, and consume command replies.
-        $handle = @fopen($port, 'r+');
-        if ($handle === false) return ['state' => 'fault', 'message' => 'Unable to open serial adapter'];
-        stream_set_blocking($handle, false);
-        stream_set_write_buffer($handle, 0);
-        $drainUntil = microtime(true) + 0.2;
-        while (microtime(true) < $drainUntil) { @fread($handle, 4096); usleep(25000); }
+        // Real MD1200 testing proved the console reader must already be open
+        // before the writer sends set_speed. A single read/write descriptor
+        // could acknowledge 50% and then silently miss the following 20%.
+        $reader = @fopen($port, 'r');
+        if ($reader === false) return ['state' => 'fault', 'message' => 'Unable to open serial response reader'];
+        stream_set_blocking($reader, false);
+        $readerReadyAt = microtime(true) + 0.3;
+        while (microtime(true) < $readerReadyAt) { @fread($reader, 4096); usleep(25000); }
+        $writer = @fopen($port, 'w');
+        if ($writer === false) { fclose($reader); return ['state' => 'fault', 'message' => 'Unable to open serial command writer']; }
+        stream_set_write_buffer($writer, 0);
         $payload = 'set_speed ' . $speed . "\r";
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            $written = @fwrite($handle, $payload);
-            @fflush($handle);
-            if ($written !== strlen($payload)) { fclose($handle); return ['state' => 'fault', 'message' => 'Serial command write failed']; }
+            $written = @fwrite($writer, $payload);
+            @fflush($writer);
+            if ($written !== strlen($payload)) { fclose($writer); fclose($reader); return ['state' => 'fault', 'message' => 'Serial command write failed']; }
             usleep(100000);
         }
+        fclose($writer);
         $reply = '';
         $replyUntil = microtime(true) + 1.0;
         while (microtime(true) < $replyUntil && strlen($reply) < 8192) {
-            $chunk = @fread($handle, 1024);
+            $chunk = @fread($reader, 1024);
             if (is_string($chunk) && $chunk !== '') $reply .= $chunk;
             usleep(25000);
         }
-        fclose($handle);
+        fclose($reader);
         $acknowledged = preg_match('/set_speed\s+' . preg_quote((string) $speed, '/') . '/i', $reply) === 1;
         return [
             'state' => $acknowledged ? 'sent' : 'unconfirmed',
@@ -1520,7 +1527,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.2.2',
+    'version' => '0.2.3',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES)?>;
@@ -1544,6 +1551,8 @@ COMMISSION_MARKER="$STATE_DIR/commissioning.active"
 SHELF_ID="${1:-}"
 WAIT_SECONDS="${MD12XX_TEST_WAIT_SECONDS:-10}"
 RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
+SPEED_RESPONSE_SECONDS="${MD12XX_SPEED_RESPONSE_SECONDS:-4}"
+RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "Run this test as root from the Unraid terminal." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
@@ -1621,19 +1630,27 @@ verify_console() {
 }
 
 send_speed() {
-  local SPEED="$1"
+  local SPEED="$1" CAPTURE
+  CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
     if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
     fi
-    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1
-    exec 8<>"$PORT"
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 1 time 0
+    timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT" > "$CAPTURE" &
+    local READER=$!
+    sleep 0.3
+    exec 8>"$PORT"
     for _ in 1 2 3 4 5; do printf 'set_speed %s\r' "$SPEED" >&8; sleep 0.1; done
-    timeout 1 cat <&8 >/dev/null 2>&1 || true
     exec 8>&-
+    wait "$READER" 2>/dev/null || true
   ) 9>"$LOCK_FILE"
+  if ! grep -Eqi "set_speed[[:space:]]+$SPEED" "$CAPTURE"; then
+    echo "The console did not acknowledge set_speed $SPEED." >&2
+    return 1
+  fi
 }
 
 sample_device_rpm() {
@@ -1648,6 +1665,15 @@ sample_device_rpm() {
   printf '%s\t%s\n' "$AVERAGE" "$COUNT"
 }
 
+restoration_proven() {
+  local LOW_RPM="$1" HIGH_RPM="$2" FINAL_RPM="$3"
+  awk -v low="$LOW_RPM" -v high="$HIGH_RPM" -v final="$FINAL_RPM" 'BEGIN {
+    tolerance=low*0.15;
+    if (tolerance < 300) tolerance=300;
+    exit !((final <= low+tolerance) && (high-final >= 250));
+  }'
+}
+
 candidate_ses() {
   php -r '
     require $argv[1];
@@ -1659,17 +1685,31 @@ candidate_ses() {
 
 restore_safe() {
   echo "Returning the selected MD12xx console to 20%..."
-  send_speed 20 || echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+  if send_speed 20; then return 0; fi
+  echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+  return 1
 }
 
 restore_and_cleanup() {
-  restore_safe
+  restore_safe || true
   rm -f "$COMMISSION_MARKER"
 }
 
 echo "Verifying the selected serial console with a read-only identity query..."
 verify_console
 echo "Primary, active MD12xx console verified."
+
+# A shelf is never left commissioned while a new control test is in progress.
+# Only telemetry-proven restoration at the end may set this back to true.
+php -r '
+  require $argv[1];
+  $config=md12xx_read_config($argv[2]);
+  foreach ($config["shelves"] as &$shelf) {
+    if ($shelf["id"] === $argv[3]) $shelf["commissioned"]=false;
+  }
+  unset($shelf);
+  md12xx_write_config($config, $argv[2]);
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID"
 
 CANDIDATES="$RESULT_DIR/candidates.tsv"
 candidate_ses > "$CANDIDATES"
@@ -1702,9 +1742,8 @@ while IFS=$'\t' read -r ADDRESS DEVICE; do
   if SAMPLE="$(sample_device_rpm "$DEVICE" 50-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$HIGH"; fi
 done < "$CANDIDATES"
 
-restore_safe
-trap - EXIT INT TERM
-rm -f "$COMMISSION_MARKER"
+RESTORE_SENT=true
+restore_safe || RESTORE_SENT=false
 
 MATCHES="$RESULT_DIR/matches.tsv"
 awk -F '\t' '
@@ -1718,12 +1757,36 @@ awk -F '\t' '
 MATCH_COUNT="$(wc -l < "$MATCHES" | tr -d ' ')"
 if [ "$MATCH_COUNT" -ne 1 ]; then
   echo "Identification was ambiguous: expected exactly one responding SES enclosure, found $MATCH_COUNT." >&2
-  echo "The 20% command was restored and no hardware mapping was saved." >&2
+  echo "A 20% restore was attempted, but no unique enclosure was available for independent restoration proof." >&2
   echo "Use Manual mapping only after checking the captured results in $RESULT_DIR." >&2
   exit 1
 fi
 
 IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_50 DELTA PERCENT < "$MATCHES"
+
+echo "Waiting ${RESTORE_WAIT_SECONDS}s to prove the selected enclosure returned to 20%..."
+sleep "$RESTORE_WAIT_SECONDS"
+FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore || true)"
+FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
+
+if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+  echo "The first 20% restore was not proven by SES telemetry (${FINAL_RPM:-no RPM} RPM); retrying once." >&2
+  restore_safe || true
+  sleep "$RESTORE_WAIT_SECONDS"
+  FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore-retry || true)"
+  FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
+fi
+
+if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+  echo "SAFETY FAILURE: the enclosure did not prove a return to its 20% RPM range." >&2
+  echo "The shelf remains uncommissioned. Keep other controllers stopped and restore 20% manually." >&2
+  exit 1
+fi
+
+echo "Final 20% restoration: PASS ($FINAL_RPM RPM)."
+trap - EXIT INT TERM
+rm -f "$COMMISSION_MARKER"
+
 MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
 AUTO_DISKS="$(jq -c '.disks // []' <<< "$MAPPING_JSON")"
 AUTO_COUNT="$(jq '(.disks // []) | length' <<< "$MAPPING_JSON")"
@@ -1761,7 +1824,7 @@ php -r '
   echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
   echo "Disk assignment: $ASSIGNMENT"
   echo "Automatic disks: $(jq -r 'if length then join(", ") else "none" end' <<< "$AUTO_DISKS")"
-  echo "Final command: 20%"
+  echo "Final restore: PASS ($FINAL_RPM RPM after ${RESTORE_WAIT_SECONDS}s)"
 } | tee "$RESULT_DIR/result.txt"
 
 if [ "$READY" = true ]; then
@@ -1949,7 +2012,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.2.2 installed. Configure it under Settings → Utilities."
+echo "Version 0.2.3 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>

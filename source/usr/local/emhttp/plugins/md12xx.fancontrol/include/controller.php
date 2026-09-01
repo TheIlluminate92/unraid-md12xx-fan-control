@@ -121,30 +121,33 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
         $exitCode = 1;
         @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1 2>/dev/null', $unused, $exitCode);
         if ($exitCode !== 0) return ['state' => 'fault', 'message' => 'Unable to configure serial adapter'];
-        // Real MD1200 testing showed that opening the tty write-only can echo
-        // nothing and leave set_speed unapplied. Keep a read/write session,
-        // drain stale console output, and consume command replies.
-        $handle = @fopen($port, 'r+');
-        if ($handle === false) return ['state' => 'fault', 'message' => 'Unable to open serial adapter'];
-        stream_set_blocking($handle, false);
-        stream_set_write_buffer($handle, 0);
-        $drainUntil = microtime(true) + 0.2;
-        while (microtime(true) < $drainUntil) { @fread($handle, 4096); usleep(25000); }
+        // Real MD1200 testing proved the console reader must already be open
+        // before the writer sends set_speed. A single read/write descriptor
+        // could acknowledge 50% and then silently miss the following 20%.
+        $reader = @fopen($port, 'r');
+        if ($reader === false) return ['state' => 'fault', 'message' => 'Unable to open serial response reader'];
+        stream_set_blocking($reader, false);
+        $readerReadyAt = microtime(true) + 0.3;
+        while (microtime(true) < $readerReadyAt) { @fread($reader, 4096); usleep(25000); }
+        $writer = @fopen($port, 'w');
+        if ($writer === false) { fclose($reader); return ['state' => 'fault', 'message' => 'Unable to open serial command writer']; }
+        stream_set_write_buffer($writer, 0);
         $payload = 'set_speed ' . $speed . "\r";
         for ($attempt = 0; $attempt < 5; $attempt++) {
-            $written = @fwrite($handle, $payload);
-            @fflush($handle);
-            if ($written !== strlen($payload)) { fclose($handle); return ['state' => 'fault', 'message' => 'Serial command write failed']; }
+            $written = @fwrite($writer, $payload);
+            @fflush($writer);
+            if ($written !== strlen($payload)) { fclose($writer); fclose($reader); return ['state' => 'fault', 'message' => 'Serial command write failed']; }
             usleep(100000);
         }
+        fclose($writer);
         $reply = '';
         $replyUntil = microtime(true) + 1.0;
         while (microtime(true) < $replyUntil && strlen($reply) < 8192) {
-            $chunk = @fread($handle, 1024);
+            $chunk = @fread($reader, 1024);
             if (is_string($chunk) && $chunk !== '') $reply .= $chunk;
             usleep(25000);
         }
-        fclose($handle);
+        fclose($reader);
         $acknowledged = preg_match('/set_speed\s+' . preg_quote((string) $speed, '/') . '/i', $reply) === 1;
         return [
             'state' => $acknowledged ? 'sent' : 'unconfirmed',

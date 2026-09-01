@@ -8,6 +8,10 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.2.3
+- Uses the hardware-proven reader-first serial session for every speed command.
+- Requires independent SES RPM proof of the final 20% restoration before commissioning succeeds.
+
 ### 0.2.2
 - Maps disks through the verified SES device's SAS expander when enclosure-class links are unavailable.
 - Prevents discovery from racing the commissioning test's final 20% safety restore.

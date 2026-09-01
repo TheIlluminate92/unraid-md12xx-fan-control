@@ -9,6 +9,8 @@ COMMISSION_MARKER="$STATE_DIR/commissioning.active"
 SHELF_ID="${1:-}"
 WAIT_SECONDS="${MD12XX_TEST_WAIT_SECONDS:-10}"
 RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
+SPEED_RESPONSE_SECONDS="${MD12XX_SPEED_RESPONSE_SECONDS:-4}"
+RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "Run this test as root from the Unraid terminal." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
@@ -86,19 +88,27 @@ verify_console() {
 }
 
 send_speed() {
-  local SPEED="$1"
+  local SPEED="$1" CAPTURE
+  CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
     if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
     fi
-    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1
-    exec 8<>"$PORT"
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 1 time 0
+    timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT" > "$CAPTURE" &
+    local READER=$!
+    sleep 0.3
+    exec 8>"$PORT"
     for _ in 1 2 3 4 5; do printf 'set_speed %s\r' "$SPEED" >&8; sleep 0.1; done
-    timeout 1 cat <&8 >/dev/null 2>&1 || true
     exec 8>&-
+    wait "$READER" 2>/dev/null || true
   ) 9>"$LOCK_FILE"
+  if ! grep -Eqi "set_speed[[:space:]]+$SPEED" "$CAPTURE"; then
+    echo "The console did not acknowledge set_speed $SPEED." >&2
+    return 1
+  fi
 }
 
 sample_device_rpm() {
@@ -113,6 +123,15 @@ sample_device_rpm() {
   printf '%s\t%s\n' "$AVERAGE" "$COUNT"
 }
 
+restoration_proven() {
+  local LOW_RPM="$1" HIGH_RPM="$2" FINAL_RPM="$3"
+  awk -v low="$LOW_RPM" -v high="$HIGH_RPM" -v final="$FINAL_RPM" 'BEGIN {
+    tolerance=low*0.15;
+    if (tolerance < 300) tolerance=300;
+    exit !((final <= low+tolerance) && (high-final >= 250));
+  }'
+}
+
 candidate_ses() {
   php -r '
     require $argv[1];
@@ -124,17 +143,31 @@ candidate_ses() {
 
 restore_safe() {
   echo "Returning the selected MD12xx console to 20%..."
-  send_speed 20 || echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+  if send_speed 20; then return 0; fi
+  echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+  return 1
 }
 
 restore_and_cleanup() {
-  restore_safe
+  restore_safe || true
   rm -f "$COMMISSION_MARKER"
 }
 
 echo "Verifying the selected serial console with a read-only identity query..."
 verify_console
 echo "Primary, active MD12xx console verified."
+
+# A shelf is never left commissioned while a new control test is in progress.
+# Only telemetry-proven restoration at the end may set this back to true.
+php -r '
+  require $argv[1];
+  $config=md12xx_read_config($argv[2]);
+  foreach ($config["shelves"] as &$shelf) {
+    if ($shelf["id"] === $argv[3]) $shelf["commissioned"]=false;
+  }
+  unset($shelf);
+  md12xx_write_config($config, $argv[2]);
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID"
 
 CANDIDATES="$RESULT_DIR/candidates.tsv"
 candidate_ses > "$CANDIDATES"
@@ -167,9 +200,8 @@ while IFS=$'\t' read -r ADDRESS DEVICE; do
   if SAMPLE="$(sample_device_rpm "$DEVICE" 50-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$HIGH"; fi
 done < "$CANDIDATES"
 
-restore_safe
-trap - EXIT INT TERM
-rm -f "$COMMISSION_MARKER"
+RESTORE_SENT=true
+restore_safe || RESTORE_SENT=false
 
 MATCHES="$RESULT_DIR/matches.tsv"
 awk -F '\t' '
@@ -183,12 +215,36 @@ awk -F '\t' '
 MATCH_COUNT="$(wc -l < "$MATCHES" | tr -d ' ')"
 if [ "$MATCH_COUNT" -ne 1 ]; then
   echo "Identification was ambiguous: expected exactly one responding SES enclosure, found $MATCH_COUNT." >&2
-  echo "The 20% command was restored and no hardware mapping was saved." >&2
+  echo "A 20% restore was attempted, but no unique enclosure was available for independent restoration proof." >&2
   echo "Use Manual mapping only after checking the captured results in $RESULT_DIR." >&2
   exit 1
 fi
 
 IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_50 DELTA PERCENT < "$MATCHES"
+
+echo "Waiting ${RESTORE_WAIT_SECONDS}s to prove the selected enclosure returned to 20%..."
+sleep "$RESTORE_WAIT_SECONDS"
+FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore || true)"
+FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
+
+if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+  echo "The first 20% restore was not proven by SES telemetry (${FINAL_RPM:-no RPM} RPM); retrying once." >&2
+  restore_safe || true
+  sleep "$RESTORE_WAIT_SECONDS"
+  FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore-retry || true)"
+  FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
+fi
+
+if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+  echo "SAFETY FAILURE: the enclosure did not prove a return to its 20% RPM range." >&2
+  echo "The shelf remains uncommissioned. Keep other controllers stopped and restore 20% manually." >&2
+  exit 1
+fi
+
+echo "Final 20% restoration: PASS ($FINAL_RPM RPM)."
+trap - EXIT INT TERM
+rm -f "$COMMISSION_MARKER"
+
 MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
 AUTO_DISKS="$(jq -c '.disks // []' <<< "$MAPPING_JSON")"
 AUTO_COUNT="$(jq '(.disks // []) | length' <<< "$MAPPING_JSON")"
@@ -226,7 +282,7 @@ php -r '
   echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
   echo "Disk assignment: $ASSIGNMENT"
   echo "Automatic disks: $(jq -r 'if length then join(", ") else "none" end' <<< "$AUTO_DISKS")"
-  echo "Final command: 20%"
+  echo "Final restore: PASS ($FINAL_RPM RPM after ${RESTORE_WAIT_SECONDS}s)"
 } | tee "$RESULT_DIR/result.txt"
 
 if [ "$READY" = true ]; then

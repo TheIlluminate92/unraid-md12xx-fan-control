@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 — 2026-09-01
+
+- Opens the serial response reader before the command writer, matching the only session pattern that repeatedly applied both 50% and the following 20% on real MD1200 hardware.
+- Marks a shelf uncommissioned when its test begins and refuses to restore commissioned status until independent SES telemetry proves RPM returned to the 20% range.
+- Retries the 20% restoration once after a failed telemetry check and leaves the shelf uncommissioned on any remaining safety failure.
+
 ## 0.2.2 — 2026-09-01
 
 - Adds a safe SES-to-disk mapping fallback for SAS HBAs that expose per-expander topology but no `/sys/class/enclosure` links.

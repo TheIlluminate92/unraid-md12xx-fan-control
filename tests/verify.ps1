@@ -50,6 +50,10 @@ if ($discoverySource -match 'set_speed') { throw 'Read-only discovery contains a
 if (-not $discoverySource.Contains('commissioning.active')) { throw 'Discovery does not yield to commissioning.' }
 $commissionSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh'))
 if (-not $commissionSource.Contains('flock -w 15 9')) { throw 'Commissioning lock wait is missing.' }
+if (-not $commissionSource.Contains('timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT"')) { throw 'Commissioning does not open its response reader before writing.' }
+if (-not $commissionSource.Contains('Final 20% restoration: PASS')) { throw 'Commissioning does not require final RPM restoration proof.' }
+$controllerSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php'))
+if (-not $controllerSource.Contains('$reader = @fopen($port, ''r'');') -or -not $controllerSource.Contains('$writer = @fopen($port, ''w'');')) { throw 'Controller reader-first serial session is missing.' }
 if (-not $text.Contains("'sas-expander'")) { throw 'SAS expander disk mapping fallback is missing.' }
 if ($text.Contains('@@')) { throw 'An unexpanded build placeholder remains.' }
 
