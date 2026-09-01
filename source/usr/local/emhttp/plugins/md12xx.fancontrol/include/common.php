@@ -202,6 +202,74 @@ function md12xx_disable_active_discovery_after_setup(array $config): array
     return $config;
 }
 
+function md12xx_merge_settings_config(array $current, array $requested): array
+{
+    $existing = [];
+    foreach (($current['shelves'] ?? []) as $shelf) {
+        if (!is_array($shelf)) continue;
+        $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] = $shelf;
+    }
+
+    $shelves = is_array($requested['shelves'] ?? null) ? $requested['shelves'] : [];
+    foreach ($shelves as &$shelf) {
+        if (!is_array($shelf)) continue;
+        $old = $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] ?? null;
+        if (!is_array($old)) {
+            $shelf['commissioned'] = false;
+            $shelf['calibration'] = [];
+            continue;
+        }
+
+        $oldAutomatic = strtolower((string) ($old['diskAssignment'] ?? 'automatic')) === 'automatic';
+        $newAutomatic = strtolower((string) ($shelf['diskAssignment'] ?? 'automatic')) === 'automatic';
+        $sameModel = strtoupper((string) ($old['model'] ?? '')) === strtoupper((string) ($shelf['model'] ?? ''));
+        $sameSerial = (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '');
+
+        // An automatic pairing is established only by Identify & test. Keep its
+        // SES enclosure, disk list, commissioning state, and RPM calibration
+        // server-authoritative so a stale Settings page cannot erase or replace
+        // proven hardware while saving an unrelated option.
+        if ($oldAutomatic && $newAutomatic && $sameModel && $sameSerial) {
+            $shelf['sesAddress'] = (string) ($old['sesAddress'] ?? '');
+            $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
+            $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
+            $shelf['commissioned'] = (bool) ($old['commissioned'] ?? false);
+            $shelf['calibration'] = is_array($old['calibration'] ?? null) ? $old['calibration'] : [];
+            continue;
+        }
+
+        // Changing the identity of an automatic shelf invalidates every value
+        // derived by its previous hardware test. The next test will repopulate
+        // these fields from observed hardware, never from the browser.
+        if ($newAutomatic) {
+            $shelf['sesAddress'] = '';
+            $shelf['sesDevice'] = '';
+            $shelf['disks'] = [];
+            $shelf['commissioned'] = false;
+            $shelf['calibration'] = [];
+            continue;
+        }
+
+        $oldDisks = is_array($old['disks'] ?? null) ? array_values($old['disks']) : [];
+        $newDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
+        sort($oldDisks, SORT_NATURAL | SORT_FLAG_CASE);
+        sort($newDisks, SORT_NATURAL | SORT_FLAG_CASE);
+        $sameManualHardware = !$oldAutomatic
+            && $sameModel
+            && $sameSerial
+            && (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
+            && $oldDisks === $newDisks;
+        $shelf['commissioned'] = $sameManualHardware && (bool) ($old['commissioned'] ?? false);
+        $shelf['calibration'] = $sameManualHardware && is_array($old['calibration'] ?? null)
+            ? $old['calibration']
+            : [];
+    }
+    unset($shelf);
+
+    $requested['shelves'] = $shelves;
+    return $requested;
+}
+
 function md12xx_controller_calibration(array $shelf): ?array
 {
     $calibration = is_array($shelf['calibration'] ?? null) ? $shelf['calibration'] : [];
@@ -572,3 +640,4 @@ function md12xx_discover_disks(string $path = '/var/local/emhttp/disks.ini'): ar
     usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
     return $result;
 }
+

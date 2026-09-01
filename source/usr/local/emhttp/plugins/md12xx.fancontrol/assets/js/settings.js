@@ -440,6 +440,10 @@
       var name = card.querySelector(".md12xx-name").value.trim();
       var shelfId = card.getAttribute("data-id") || slug(name || "shelf-" + (index + 1));
       var existing = (Array.isArray(config.shelves) ? config.shelves : []).find(function (shelf) { return shelf.id === shelfId; }) || {};
+      var persisted = (Array.isArray(persistedConfig.shelves) ? persistedConfig.shelves : []).find(function (shelf) { return shelf.id === shelfId; }) || {};
+      var calibration = existing.calibration && typeof existing.calibration === "object" && Object.keys(existing.calibration).length
+        ? existing.calibration
+        : (persisted.calibration && typeof persisted.calibration === "object" ? persisted.calibration : {});
       next.shelves.push({
         id: shelfId,
         name: name,
@@ -451,7 +455,7 @@
         sesDevice: ses[1] || "",
         diskAssignment: card.querySelector(".md12xx-assignment").value,
         disks: disks,
-        calibration: existing.calibration && typeof existing.calibration === "object" ? existing.calibration : {}
+        calibration: calibration
       });
     });
     return next;
@@ -549,7 +553,6 @@
       detail.hidden = !detailText;
       detail.textContent = detailText;
       detail.className = "md12xx-controller-detail is-" + (state === "attention" ? "attention" : "fault");
-      config = collect();
       updateShelfStatus();
     } catch (error) {
       byId("md12xx-health").className = "md12xx-pill is-fault";
@@ -678,3 +681,4 @@
   resumeCommissionJobs();
   window.setInterval(refreshStatus, 5000);
 }());
+

@@ -135,6 +135,9 @@ grep -Fq 'window.setTimeout(apply, 300)' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Apply these live fan-control changes now?' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'liveControlSignature' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'syncHardwareOptions({ refreshSerialPorts: true })' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'persisted.calibration && typeof persisted.calibration === "object"' "$PLUGIN_DIR/assets/js/settings.js"
+grep -Fq 'md12xx_merge_settings_config($current, $decoded)' "$PLUGIN_DIR/include/api.php"
+grep -Fq 'server-authoritative' "$PLUGIN_DIR/include/common.php"
 grep -Fq "'pollSeconds' => 5" "$PLUGIN_DIR/include/common.php"
 grep -Fq 'max(5, min(300' "$PLUGIN_DIR/include/common.php"
 grep -Fq "'state' => 'blocked'" "$PLUGIN_DIR/include/controller.php"
@@ -183,6 +186,50 @@ php -r '
   if (md12xx_controller_verify_target(30, 3500, $calibration)["passed"]) exit(1);
   if (!md12xx_controller_verify_target(50, 6300, $calibration)["passed"]) exit(1);
   if (md12xx_controller_verify_target(50, 3500, $calibration)["passed"]) exit(1);
+
+  $current = md12xx_defaults();
+  $current["enabled"] = true;
+  $current["discovery"]["autoProbeKnownFtdi"] = true;
+  $current["shelves"] = [
+    [
+      "id" => "shelf-a", "name" => "Shelf A", "model" => "MD1200", "enabled" => true,
+      "commissioned" => true, "serialPort" => "/dev/serial/by-id/adapter-a",
+      "sesAddress" => "0:0:11:0", "sesDevice" => "/dev/sg11", "diskAssignment" => "automatic",
+      "disks" => ["disk5", "disk6"], "calibration" => ["rpmAt20" => 3542, "rpmAt50" => 6345]
+    ],
+    [
+      "id" => "shelf-b", "name" => "Shelf B", "model" => "MD1200", "enabled" => true,
+      "commissioned" => true, "serialPort" => "/dev/serial/by-id/adapter-b",
+      "sesAddress" => "0:0:18:0", "sesDevice" => "/dev/sg18", "diskAssignment" => "automatic",
+      "disks" => ["disk1"], "calibration" => ["rpmAt20" => 3500, "rpmAt50" => 6315]
+    ]
+  ];
+  $stale = $current;
+  $stale["shelves"][0]["name"] = "Renamed Shelf A";
+  $stale["shelves"][0]["sesAddress"] = "";
+  $stale["shelves"][0]["sesDevice"] = "";
+  $stale["shelves"][0]["disks"] = [];
+  $stale["shelves"][0]["calibration"] = [];
+  $merged = md12xx_merge_settings_config($current, $stale);
+  if (($merged["shelves"][0]["name"] ?? "") !== "Renamed Shelf A") exit(1);
+  if (($merged["shelves"][0]["sesDevice"] ?? "") !== "/dev/sg11") exit(1);
+  if (($merged["shelves"][0]["disks"] ?? []) !== ["disk5", "disk6"]) exit(1);
+  if (($merged["shelves"][0]["calibration"]["rpmAt50"] ?? 0) !== 6345) exit(1);
+  if (!($merged["shelves"][0]["commissioned"] ?? false)) exit(1);
+
+  $remapped = $current;
+  $remapped["shelves"][0]["serialPort"] = "/dev/serial/by-id/adapter-c";
+  $cleared = md12xx_merge_settings_config($current, $remapped);
+  if (($cleared["shelves"][0]["commissioned"] ?? true) !== false) exit(1);
+  if (($cleared["shelves"][0]["sesDevice"] ?? "not-empty") !== "") exit(1);
+  if (($cleared["shelves"][0]["disks"] ?? ["not-empty"]) !== []) exit(1);
+  if (($cleared["shelves"][0]["calibration"] ?? ["not-empty"]) !== []) exit(1);
+
+  $upgraded = md12xx_validate_config(md12xx_disable_active_discovery_after_setup($current));
+  if ($upgraded["enabled"] !== true) exit(1);
+  if ($upgraded["discovery"]["autoProbeKnownFtdi"] !== false) exit(1);
+  if (($upgraded["shelves"][0]["calibration"]["rpmAt20"] ?? 0) !== 3542) exit(1);
+  if (($upgraded["shelves"][1]["calibration"]["rpmAt50"] ?? 0) !== 6315) exit(1);
 ' "$PLUGIN_DIR/include/common.php"
 
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
@@ -213,3 +260,4 @@ if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP
 fi
 
 echo "MD12xx runtime verification passed."
+

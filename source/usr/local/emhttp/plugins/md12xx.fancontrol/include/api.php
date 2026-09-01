@@ -203,44 +203,8 @@ try {
     $decoded = json_decode((string) ($_POST['config'] ?? ''), true, 64, JSON_THROW_ON_ERROR);
     if (!is_array($decoded)) throw new InvalidArgumentException('Invalid configuration payload');
 
-    // Commissioning cannot be granted by configuration input. Preserve it only when the
-    // hardware identity is unchanged; any remapping requires a new hardware test.
     $current = md12xx_read_config();
-    $existing = [];
-    foreach ($current['shelves'] as $shelf) $existing[(string) $shelf['id']] = $shelf;
-    foreach ($decoded['shelves'] ?? [] as &$shelf) {
-        if (!is_array($shelf)) continue;
-        $old = $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] ?? null;
-        // An identification test can update the SES mapping while an
-        // older Settings page is still open. Do not let that stale page erase
-        // a proven automatic pairing when it later saves unrelated settings.
-        $automatic = strtolower((string) ($shelf['diskAssignment'] ?? 'automatic')) === 'automatic';
-        $sameSerial = is_array($old) && (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '');
-        if ($automatic && $sameSerial && (bool) ($old['commissioned'] ?? false)
-            && trim((string) ($shelf['sesAddress'] ?? '')) === '' && trim((string) ($shelf['sesDevice'] ?? '')) === '') {
-            $shelf['sesAddress'] = (string) ($old['sesAddress'] ?? '');
-            $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
-            $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
-        }
-        $oldDisks = is_array($old['disks'] ?? null) ? array_values($old['disks']) : [];
-        $newDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
-        sort($oldDisks, SORT_NATURAL | SORT_FLAG_CASE);
-        sort($newDisks, SORT_NATURAL | SORT_FLAG_CASE);
-        $sameHardware = is_array($old)
-            && strtoupper((string) ($old['model'] ?? '')) === strtoupper((string) ($shelf['model'] ?? ''))
-            && (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '')
-            && (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
-            && strtolower((string) ($old['diskAssignment'] ?? 'automatic')) === strtolower((string) ($shelf['diskAssignment'] ?? 'automatic'))
-            && $oldDisks === $newDisks;
-        $shelf['commissioned'] = $sameHardware && (bool) ($old['commissioned'] ?? false);
-        if ($sameHardware && empty($shelf['calibration']) && is_array($old['calibration'] ?? null)) {
-            $shelf['calibration'] = $old['calibration'];
-        }
-        if (!$sameHardware) $shelf['calibration'] = [];
-    }
-    unset($shelf);
-
-    $saved = md12xx_write_config($decoded);
+    $saved = md12xx_write_config(md12xx_merge_settings_config($current, $decoded));
     echo json_encode(['ok' => true, 'config' => $saved], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 } catch (JsonException | InvalidArgumentException $error) {
     http_response_code(422);
@@ -249,3 +213,4 @@ try {
     if (http_response_code() < 400) http_response_code(500);
     echo json_encode(['error' => $error->getMessage()], JSON_UNESCAPED_SLASHES);
 }
+

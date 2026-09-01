@@ -95,6 +95,7 @@ if (-not $settingsSource.Contains('syncHardwareOptions({ refreshSerialPorts: tru
 foreach ($marker in 'payload.stale ? "fault"', 'Controller status is stale', 'Discovery data is stale', 'calibrationSummary') {
     if (-not $settingsSource.Contains($marker)) { throw "Stale-state or calibration UI marker is missing: $marker" }
 }
+if (-not $settingsSource.Contains('persisted.calibration && typeof persisted.calibration === "object"')) { throw 'Form collection does not fall back to the last saved calibration.' }
 $commissionSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh'))
 if (-not $commissionSource.Contains('flock -w 15 9')) { throw 'Commissioning lock wait is missing.' }
 if (-not $commissionSource.Contains('timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT"')) { throw 'Commissioning does not open its response reader before writing.' }
@@ -119,12 +120,13 @@ foreach ($marker in 'A serial adapter cannot be assigned to more than one shelf'
 foreach ($marker in 'md12xx_commission_active', 'time() - $modified', "'calibration' => `$calibration") {
     if (-not $commonSource.Contains($marker)) { throw "Commissioning recovery or calibration validation marker is missing: $marker" }
 }
+foreach ($marker in 'md12xx_merge_settings_config', 'server-authoritative', "`$shelf['sesAddress'] = ''", "`$shelf['calibration'] = []") {
+    if (-not $commonSource.Contains($marker)) { throw "Server-authoritative shelf merge marker is missing: $marker" }
+}
 if ($commonSource.IndexOf('if (!is_file($marker)) return false;') -gt $commonSource.IndexOf("glob('/proc/[0-9]*/cmdline')")) { throw 'Idle controller still scans every process for commissioning.' }
 if (-not $commonSource.Contains('md12xx_fuser_binary')) { throw 'Fail-closed serial ownership check is missing.' }
 $apiSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/api.php'))
-foreach ($marker in '$oldDisks === $newDisks', "diskAssignment']", 'if (!$sameHardware) $shelf[''calibration''] = [];') {
-    if (-not $apiSource.Contains($marker)) { throw "Commissioning invalidation marker is missing: $marker" }
-}
+if (-not $apiSource.Contains('md12xx_merge_settings_config($current, $decoded)')) { throw 'Settings saves do not use the server-authoritative shelf merge.' }
 if (-not $apiSource.Contains('$activeId === $id && md12xx_commission_active()')) { throw 'Stale commissioning jobs can still appear to run forever.' }
 foreach ($speed in 20, 30, 40, 50, 60, 70, 80, 90, 100) {
     if (-not $pageSource.Contains("value=`"$speed`">$speed%</option>")) { throw "Manual speed $speed% is missing from Settings." }
@@ -163,3 +165,4 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
+

@@ -3,6 +3,8 @@
 ## 0.4.2 - 2026-09-01
 
 - Refreshes every shelf's serial-adapter choices immediately after a selection so adapters already used elsewhere are disabled without reloading the page.
+- Keeps automatic SES mappings, disk assignments, commissioning state, and RPM calibration server-authoritative so a stale Settings page cannot erase proven hardware while saving unrelated changes.
+- Keeps five-second status refreshes read-only with respect to the page's configuration draft and falls back to the last saved calibration when collecting a form submission.
 
 ## 0.4.1 - 2026-09-01
 
@@ -96,3 +98,4 @@
 - Preserved Auto, Manual, hysteresis, fail-safe, locking, RPM telemetry, and command reassertion behavior.
 - Added a guarded per-shelf 20%/50% commissioning test.
 - Defaults to disabled and blocks writes when a known legacy Docker controller is running.
+
