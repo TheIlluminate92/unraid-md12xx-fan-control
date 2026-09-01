@@ -35,6 +35,8 @@ grep -Fq "printf '_who\\r'" "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'expected exactly one responding SES enclosure' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'Returning the selected MD12xx console to 20%' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'md12xx_ses_disk_mapping' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq '@fopen($port, '\''r+'\'')' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'exec 8<>"$PORT"' "$PLUGIN_DIR/scripts/commission.sh"
 
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$PROJECT_DIR/tests/fixtures/auto.json" \

@@ -90,9 +90,10 @@ send_speed() {
       echo "Serial adapter is open in another process." >&2
       exit 1
     fi
-    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb
-    exec 8>"$PORT"
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1
+    exec 8<>"$PORT"
     for _ in 1 2 3 4 5; do printf 'set_speed %s\r' "$SPEED" >&8; sleep 0.1; done
+    timeout 1 cat <&8 >/dev/null 2>&1 || true
     exec 8>&-
   ) 9>"$LOCK_FILE"
 }

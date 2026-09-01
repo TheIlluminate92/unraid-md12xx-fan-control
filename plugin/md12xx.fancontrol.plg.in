@@ -8,6 +8,9 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.2.1
+- Fixes BlueDress speed writes by keeping the serial console open read/write and consuming its replies.
+
 ### 0.2.0
 - Adds RPM-proven automatic serial-to-SES identification and automatic Unraid disk assignment.
 - Keeps a manual mapping fallback and refuses ambiguous or empty automatic mappings.

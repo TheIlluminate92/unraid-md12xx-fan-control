@@ -2,12 +2,15 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.2.0">
+  <!ENTITY version "0.2.1">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.2.1
+- Fixes BlueDress speed writes by keeping the serial console open read/write and consuming its replies.
+
 ### 0.2.0
 - Adds RPM-proven automatic serial-to-SES identification and automatic Unraid disk assignment.
 - Keeps a manual mapping fallback and refuses ambiguous or empty automatic mappings.
@@ -708,7 +711,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(75, ((int) $config['pollSeconds'] * 2) + 15);
     return [
-        'version' => '0.2.0',
+        'version' => '0.2.1',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -1007,10 +1010,17 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
     }
     try {
         $exitCode = 1;
-        @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb 2>/dev/null', $unused, $exitCode);
+        @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1 2>/dev/null', $unused, $exitCode);
         if ($exitCode !== 0) return ['state' => 'fault', 'message' => 'Unable to configure serial adapter'];
-        $handle = @fopen($port, 'w');
+        // Real MD1200 testing showed that opening the tty write-only can echo
+        // nothing and leave set_speed unapplied. Keep a read/write session,
+        // drain stale console output, and consume command replies.
+        $handle = @fopen($port, 'r+');
         if ($handle === false) return ['state' => 'fault', 'message' => 'Unable to open serial adapter'];
+        stream_set_blocking($handle, false);
+        stream_set_write_buffer($handle, 0);
+        $drainUntil = microtime(true) + 0.2;
+        while (microtime(true) < $drainUntil) { @fread($handle, 4096); usleep(25000); }
         $payload = 'set_speed ' . $speed . "\r";
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $written = @fwrite($handle, $payload);
@@ -1018,8 +1028,21 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
             if ($written !== strlen($payload)) { fclose($handle); return ['state' => 'fault', 'message' => 'Serial command write failed']; }
             usleep(100000);
         }
+        $reply = '';
+        $replyUntil = microtime(true) + 1.0;
+        while (microtime(true) < $replyUntil && strlen($reply) < 8192) {
+            $chunk = @fread($handle, 1024);
+            if (is_string($chunk) && $chunk !== '') $reply .= $chunk;
+            usleep(25000);
+        }
         fclose($handle);
-        return ['state' => 'sent', 'message' => 'Command sent; awaiting independent fan telemetry'];
+        $acknowledged = preg_match('/set_speed\s+' . preg_quote((string) $speed, '/') . '/i', $reply) === 1;
+        return [
+            'state' => $acknowledged ? 'sent' : 'unconfirmed',
+            'message' => $acknowledged
+                ? 'Command acknowledged; awaiting independent fan telemetry'
+                : 'Command written without a console acknowledgement; independent telemetry required',
+        ];
     } finally {
         flock($lock, LOCK_UN);
         fclose($lock);
@@ -1446,7 +1469,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.2.0',
+    'version' => '0.2.1',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES)?>;
@@ -1551,9 +1574,10 @@ send_speed() {
       echo "Serial adapter is open in another process." >&2
       exit 1
     fi
-    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb
-    exec 8>"$PORT"
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1
+    exec 8<>"$PORT"
     for _ in 1 2 3 4 5; do printf 'set_speed %s\r' "$SPEED" >&8; sleep 0.1; done
+    timeout 1 cat <&8 >/dev/null 2>&1 || true
     exec 8>&-
   ) 9>"$LOCK_FILE"
 }
@@ -1865,7 +1889,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.2.0 installed. Configure it under Settings → Utilities."
+echo "Version 0.2.1 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>

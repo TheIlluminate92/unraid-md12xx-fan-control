@@ -119,10 +119,17 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
     }
     try {
         $exitCode = 1;
-        @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb 2>/dev/null', $unused, $exitCode);
+        @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1 2>/dev/null', $unused, $exitCode);
         if ($exitCode !== 0) return ['state' => 'fault', 'message' => 'Unable to configure serial adapter'];
-        $handle = @fopen($port, 'w');
+        // Real MD1200 testing showed that opening the tty write-only can echo
+        // nothing and leave set_speed unapplied. Keep a read/write session,
+        // drain stale console output, and consume command replies.
+        $handle = @fopen($port, 'r+');
         if ($handle === false) return ['state' => 'fault', 'message' => 'Unable to open serial adapter'];
+        stream_set_blocking($handle, false);
+        stream_set_write_buffer($handle, 0);
+        $drainUntil = microtime(true) + 0.2;
+        while (microtime(true) < $drainUntil) { @fread($handle, 4096); usleep(25000); }
         $payload = 'set_speed ' . $speed . "\r";
         for ($attempt = 0; $attempt < 5; $attempt++) {
             $written = @fwrite($handle, $payload);
@@ -130,8 +137,21 @@ function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
             if ($written !== strlen($payload)) { fclose($handle); return ['state' => 'fault', 'message' => 'Serial command write failed']; }
             usleep(100000);
         }
+        $reply = '';
+        $replyUntil = microtime(true) + 1.0;
+        while (microtime(true) < $replyUntil && strlen($reply) < 8192) {
+            $chunk = @fread($handle, 1024);
+            if (is_string($chunk) && $chunk !== '') $reply .= $chunk;
+            usleep(25000);
+        }
         fclose($handle);
-        return ['state' => 'sent', 'message' => 'Command sent; awaiting independent fan telemetry'];
+        $acknowledged = preg_match('/set_speed\s+' . preg_quote((string) $speed, '/') . '/i', $reply) === 1;
+        return [
+            'state' => $acknowledged ? 'sent' : 'unconfirmed',
+            'message' => $acknowledged
+                ? 'Command acknowledged; awaiting independent fan telemetry'
+                : 'Command written without a console acknowledgement; independent telemetry required',
+        ];
     } finally {
         flock($lock, LOCK_UN);
         fclose($lock);

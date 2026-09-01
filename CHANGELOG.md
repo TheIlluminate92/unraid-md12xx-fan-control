@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — 2026-09-01
+
+- Opens the BlueDress serial console read/write and drains command replies; real-hardware testing showed that write-only sessions could leave `set_speed` unapplied.
+- Reports whether the console echoed the requested speed while retaining independent SES RPM telemetry as the proof of fan response.
+
 ## 0.2.0 — 2026-09-01
 
 - Replaced the normal multi-select disk workflow with automatic SES-to-Unraid disk mapping.
