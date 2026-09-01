@@ -112,8 +112,8 @@ MARKER_LINE="$(grep -nF 'if (!is_file($marker)) return false;' "$PLUGIN_DIR/incl
 PROC_SCAN_LINE="$(grep -nF "glob('/proc/[0-9]*/cmdline')" "$PLUGIN_DIR/include/common.php" | head -1 | cut -d: -f1)"
 [ -n "$MARKER_LINE" ] && [ -n "$PROC_SCAN_LINE" ] && [ "$MARKER_LINE" -lt "$PROC_SCAN_LINE" ]
 grep -Fq 'jq flock fuser sg_ses' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq '$oldDisks === $newDisks' "$PLUGIN_DIR/include/api.php"
-grep -Fq 'if (!$sameHardware) $shelf['\''calibration'\''] = [];' "$PLUGIN_DIR/include/api.php"
+grep -Fq '$oldDisks === $newDisks' "$PLUGIN_DIR/include/common.php"
+grep -Fq '$shelf['\''calibration'\''] = [];' "$PLUGIN_DIR/include/common.php"
 grep -Fq '$activeId === $id && md12xx_commission_active()' "$PLUGIN_DIR/include/api.php"
 grep -Fq '$write['\''state'\''] === '\''pending'\''' "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'no assigned disks; using fail-safe' "$PLUGIN_DIR/include/controller.php"
