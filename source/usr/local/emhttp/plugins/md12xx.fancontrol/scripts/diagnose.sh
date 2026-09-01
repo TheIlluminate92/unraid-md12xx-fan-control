@@ -50,6 +50,11 @@ if [ -f /var/run/md12xx.fancontrol/status.json ]; then
   ' /var/run/md12xx.fancontrol/status.json > "$RESULT_DIR/status.redacted.json"
 fi
 
+if [ -f /var/run/md12xx.fancontrol/watchdog.json ]; then
+  jq '{generatedAt, state, message, restartCount, restartDelaySeconds}' \
+    /var/run/md12xx.fancontrol/watchdog.json > "$RESULT_DIR/watchdog.json"
+fi
+
 if [ -f /var/run/md12xx.fancontrol/discovery.json ]; then
   jq '
     .serialPorts = ((.serialPorts // []) | map({

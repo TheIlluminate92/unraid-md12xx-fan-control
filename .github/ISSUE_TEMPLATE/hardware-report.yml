@@ -78,15 +78,18 @@ body:
       options: [Other fan controllers were stopped, Plugin correctly blocked the test, No other fan controller is installed, Other]
     validations:
       required: true
-  - type: textarea
+  - type: upload
     id: diagnostics
     attributes:
       label: Optional redacted diagnostics
-      description: Drag in the archive created by Export local diagnostics only after inspecting it.
+      description: Attach the archive created by Export local diagnostics only after inspecting it. Attachments to this public repository are public.
+    validations:
+      required: false
+      accept: ".zip,.gz,.tar.gz"
   - type: checkboxes
     id: privacy
     attributes:
       label: Privacy check
       options:
-        - label: I reviewed the report and removed private or unique identifiers.
+        - label: I reviewed the report and every attached file, removed private or unique identifiers, and understand that public-repository attachments can be accessed without authentication.
           required: true

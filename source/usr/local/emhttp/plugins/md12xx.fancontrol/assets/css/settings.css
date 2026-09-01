@@ -15,8 +15,9 @@
 .md12xx-grid small, .md12xx-shelf small { opacity: .65; }
 .md12xx-page input, .md12xx-page select { box-sizing: border-box; min-height: 34px; padding: 6px 9px; color: #eee; background: #0e1012; border: 1px solid #424850; }
 .md12xx-page input[type="checkbox"] { width: 22px; min-height: 22px; }
-.md12xx-page button { padding: 8px 14px; color: #f2f2f2; background: #292e34; border: 1px solid #555d66; cursor: pointer; }
-.md12xx-page button:hover { border-color: #f15a2b; }
+.md12xx-page button, .md12xx-button-link { box-sizing: border-box; padding: 8px 14px; color: #f2f2f2; background: #292e34; border: 1px solid #555d66; cursor: pointer; }
+.md12xx-page button:hover, .md12xx-button-link:hover { border-color: #f15a2b; }
+.md12xx-button-link { display: inline-block; text-decoration: none; }
 .md12xx-page .md12xx-primary { background: #cf4a20; border-color: #f15a2b; }
 .md12xx-pill { padding: 5px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; letter-spacing: .08em; background: #343a40; }
 .md12xx-pill.is-normal { color: #70df9b; }.md12xx-pill.is-attention { color: #ffd166; }.md12xx-pill.is-fault { color: #ff6b6b; }
@@ -53,5 +54,8 @@
 .md12xx-curve-step { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #111316; border: 1px solid #343a40; }
 .md12xx-curve-step label { display: flex; flex-direction: column; gap: 5px; }
 .md12xx-inline { display: flex; align-items: center; gap: 8px; margin-top: 14px; }.md12xx-inline input { width: 90px; }
+.md12xx-support p { line-height: 1.5; }
+.md12xx-support-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.md12xx-credit { margin: 14px 0 0; opacity: .78; }
 .md12xx-actions { margin-top: 18px; justify-content: flex-end; }
 @media (max-width: 850px) { .md12xx-grid, .md12xx-shelf-grid { grid-template-columns: 1fr; }.md12xx-curve { grid-template-columns: repeat(2, 1fr); }.md12xx-status { grid-template-columns: repeat(2, 1fr); }.md12xx-title-row { align-items: flex-start; }.md12xx-hero { align-items: flex-start; }.md12xx-hero-actions { flex-direction: column-reverse; align-items: flex-end; } }

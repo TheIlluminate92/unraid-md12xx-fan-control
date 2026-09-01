@@ -13,6 +13,16 @@ Standalone, host-native fan control for Dell PowerVault MD1200 and MD1220 disk s
 
 Reports from different HBAs, firmware revisions, serial adapters, and Unraid releases are wanted. Use the repository's **Beta hardware report** issue form and remove unique identifiers before posting.
 
+## Requirements
+
+- Unraid 7.3.2 or newer. This is the oldest release validated by the current beta.
+- A Dell PowerVault MD1200, or an MD1220 for experimental validation.
+- Access to the active EMM console through a persistent `/dev/serial/by-id` serial adapter path.
+- The enclosure exposed as a SCSI Enclosure Services device under `/dev/sg*`, with `sg_ses` available.
+- Exclusive fan control: Docker containers, scripts, and other plugins that write to the same serial console must be stopped.
+
+The plugin discovers candidates and proves each serial-to-SES pairing with a guarded RPM test. It does not assume that a USB adapter, model string, disk count, or path belongs to a particular shelf.
+
 ## Features
 
 - Supports one or more MD1200/MD1220 shelves.
@@ -28,6 +38,7 @@ Reports from different HBAs, firmware revisions, serial adapters, and Unraid rel
 - Blocks writes while the legacy `MD1200-Fan-Controller` Docker is running.
 - Starts disabled and requires explicit configuration and commissioning.
 - Retains settings during normal plugin updates. Uninstall deliberately removes configuration and commissioning results so reinstall starts clean.
+- Supervises the controller process, restarts unexpected exits with bounded backoff, and sends local Unraid failure and recovery notifications.
 
 ## Default Auto curve
 
@@ -67,6 +78,12 @@ plugin install /tmp/md12xx.fancontrol.plg
 
 Open **Settings → Utilities → MD12xx Fan Control**, expand **Setup directions**, and leave the controller disabled until every shelf passes **Identify & test**. The app shows live progress for the guarded 20% → 50% → 20% test and continues the server-side safety workflow if the page is closed. **Refresh discovery** saves only the discovery options and runs one guarded inventory pass immediately. Active FTDI testing is a temporary setup tool and turns off after every configured shelf is commissioned.
 
+## Screenshots
+
+![Controller and connection discovery](screenshots/controller-and-discovery.png)
+
+![Automatic fan curve](screenshots/auto-curve.png)
+
 Normal updates keep configuration. Uninstall is a complete reset: it removes `/boot/config/plugins/md12xx.fancontrol`, including saved shelf mappings, local diagnostics, and commissioning results, as well as runtime files and state. Copy anything you want to retain before uninstalling.
 
 ## Development
@@ -77,7 +94,13 @@ Run `bash tests/verify.sh` on Linux before publishing. The suite builds the pack
 
 ## Privacy and diagnostics
 
-**Export local diagnostics** creates a redacted archive under `/boot/config/plugins/md12xx.fancontrol/diagnostics`. It does not upload anything. Review the archive before sharing it. See [SECURITY.md](SECURITY.md) for the exact read/write and network boundaries.
+**Export local diagnostics** creates and downloads a redacted archive from `/boot/config/plugins/md12xx.fancontrol/diagnostics`. It does not upload anything. Review the archive before sharing it, then use **Report issue on GitHub** to open the public issue form and attach the archive yourself. Files attached to this public repository can be accessed without authentication. See [SECURITY.md](SECURITY.md) for the exact read/write and network boundaries.
+
+The plugin intentionally does not authenticate to GitHub or upload diagnostics automatically. That keeps repository credentials off the server and leaves the final privacy decision with the operator.
+
+## Development transparency
+
+This is an AI-assisted open-source project. Erik Boettcher / TheIlluminate92 owns the project and provides product direction, the original Docker prototype, hardware access, safety decisions, physical testing, and release approval. OpenAI Codex (GPT-5) provided primary implementation assistance for the standalone plugin, including architecture, code generation, tests, documentation, packaging, and debugging, under Erik's direction and review. See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for the complete credits.
 
 ## Status integration
 

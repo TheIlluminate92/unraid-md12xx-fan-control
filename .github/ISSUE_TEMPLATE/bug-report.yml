@@ -30,8 +30,18 @@ body:
       label: Reproduction steps
     validations:
       required: true
-  - type: textarea
+  - type: upload
     id: diagnostics
     attributes:
-      label: Redacted diagnostics or relevant output
-      description: Use Export local diagnostics and inspect the archive before attaching it.
+      label: Optional redacted diagnostics archive
+      description: Use Export local diagnostics and inspect the archive before attaching it. Attachments to this public repository are public.
+    validations:
+      required: false
+      accept: ".zip,.gz,.tar.gz"
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I reviewed every attached file and understand that attachments to this public repository can be accessed without authentication.
+          required: true

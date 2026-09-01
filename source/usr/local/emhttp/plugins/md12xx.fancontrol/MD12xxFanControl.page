@@ -3,7 +3,7 @@ Title="MD12xx Fan Control"
 Type="xmenu"
 Icon="icon-disks"
 Tag="icon-disk"
-Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0','>=')"
+Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'7.3.2','>=')"
 
 ---
 
@@ -31,12 +31,15 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
   <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
 
+  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), its active EMM console connected through a persistent <code>/dev/serial/by-id</code> adapter, SES access through <code>/dev/sg*</code> with <code>sg_ses</code>, and no other process controlling the same fans.</p>
+
   <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
 
   <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
     <h3>Safe setup</h3>
     <ol>
       <li>Keep this controller disabled and stop every other process that controls the same shelf.</li>
+      <li>Confirm Unraid can see both the shelf's persistent serial adapter and its SES enclosure before adding it.</li>
       <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
       <li>Select <b>Identify &amp; test</b>. The app verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
       <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>
@@ -85,8 +88,17 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <label class="md12xx-inline"><span>Downshift hysteresis</span><input id="md12xx-hysteresis" type="number" min="0" max="10" step="0.5"><em>°C</em></label>
   </section>
 
+  <section class="md12xx-panel md12xx-support">
+    <h3>Support and transparency</h3>
+    <p><b>Diagnostics stay local until you choose to share them.</b> Export and inspect the redacted archive first. Files attached to an issue in this public repository are publicly accessible.</p>
+    <div class="md12xx-support-actions">
+      <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
+      <a class="md12xx-button-link" href="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml" target="_blank" rel="noopener noreferrer">Report issue on GitHub</a>
+    </div>
+    <p class="md12xx-credit"><b>Development transparency:</b> Erik Boettcher / TheIlluminate92 owns and directs the project, supplies hardware validation, and approves releases. OpenAI Codex (GPT-5) provided primary implementation, testing, documentation, packaging, and debugging assistance under that direction and review.</p>
+  </section>
+
   <footer class="md12xx-actions">
-    <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
     <button id="md12xx-refresh" type="button">Refresh discovery</button>
     <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
   </footer>

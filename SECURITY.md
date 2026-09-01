@@ -4,7 +4,7 @@ Report security-sensitive issues privately to the repository owner before openin
 
 ## Local-only contract
 
-The installed runtime contains no outbound network client, cloud service, automatic update checker, analytics, or telemetry uploader. Unraid's plugin manager downloads the public `.plg` during install/update; after installation, the plugin operates locally. Exported diagnostics remain on the server until the user explicitly moves or uploads them.
+The installed runtime contains no outbound network client, cloud service, automatic update checker, analytics, or telemetry uploader. Unraid's plugin manager downloads the public `.plg` during install/update; after installation, the controller operates locally. The Settings page contains one ordinary, user-activated link to the public GitHub issue form, but the plugin does not post data to it. Exported diagnostics remain on the server until the user explicitly downloads and uploads them.
 
 The runtime reads only the hardware and Unraid state required for fan control:
 
@@ -23,7 +23,7 @@ State-changing WebGUI requests use Unraid's authenticated local WebGUI session a
 
 ## Diagnostics
 
-The local diagnostic exporter removes hostnames, serial adapter identifiers, disk names, block-device names, response transcripts, and user-configured shelf names. Review an archive before sharing it. No redaction system should be treated as a substitute for user review.
+The local diagnostic exporter removes hostnames, serial adapter identifiers, disk names, block-device names, response transcripts, and user-configured shelf names. Review an archive before sharing it. No redaction system should be treated as a substitute for user review. Attachments submitted to a public GitHub issue are public; the plugin never performs that upload on the user's behalf.
 
 ## Automated checks
 

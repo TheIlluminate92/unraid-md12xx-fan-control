@@ -18,6 +18,7 @@ stop_pid() {
   fi
   rm -f "$FILE"
 }
+stop_pid "$STATE_DIR/supervisor.pid" '/md12xx.fancontrol/scripts/controller-supervisor.sh' 20
 stop_pid "$PID_FILE" '/md12xx.fancontrol/include/controller.php' 20
 stop_pid "$STATE_DIR/discovery.pid" '/md12xx.fancontrol/include/discovery.php' 20
 stop_pid "$STATE_DIR/diagnostics.pid" '/md12xx.fancontrol/scripts/diagnose.sh' 20

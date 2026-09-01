@@ -540,14 +540,18 @@
       stateById = {};
       (payload.shelves || []).forEach(function (shelf) { stateById[shelf.id] = shelf; });
       var controller = payload.controller || {};
+      var watchdog = payload.watchdog || {};
       controllerState = controller;
       var health = byId("md12xx-health");
-      var state = payload.stale ? "fault" : (payload.enabled ? (controller.state || "normal") : "disabled");
+      var watchdogFault = watchdog.state === "restarting" || watchdog.state === "recovering" || watchdog.state === "fault";
+      var state = watchdogFault ? "fault" : (payload.stale ? "fault" : (payload.enabled ? (controller.state || "normal") : "disabled"));
       health.className = "md12xx-pill is-" + (state === "normal" ? "normal" : state === "fault" ? "fault" : "attention");
       health.textContent = String(state).toUpperCase();
-      health.title = controller.message || "";
+      health.title = watchdogFault ? (watchdog.message || "Controller restart in progress") : (controller.message || "");
       var detail = byId("md12xx-controller-detail");
-      var detailText = payload.stale
+      var detailText = watchdogFault
+        ? (watchdog.message || "The controller stopped unexpectedly and the local supervisor is restarting it.")
+        : payload.stale
         ? "Controller status is stale; the background service may not be running."
         : (controller.message && controller.message !== "Controller disabled" ? controller.message : "");
       detail.hidden = !detailText;
@@ -590,7 +594,7 @@
       var body = new URLSearchParams({ action: "diagnostics", csrf_token: token });
       var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
       var payload = await readJson(response, "Diagnostics failed");
-      message("Local redacted diagnostics created and downloaded. Nothing was uploaded.", false);
+      message("Local redacted diagnostics created and downloaded. Nothing was uploaded. Review the archive before attaching it to a public GitHub issue.", false);
       downloadLocalArchive("diagnostics", payload.file);
     } catch (error) { message(error.message || String(error), true); }
   }

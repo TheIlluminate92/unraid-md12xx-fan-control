@@ -6,12 +6,9 @@
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
 <CHANGES>
 ### 0.4.3 Beta
-- Supervises the fan controller, restarts unexpected exits with bounded backoff, and raises local Unraid failure/recovery notifications.
-- Exposes watchdog state in Settings and redacted local diagnostics.
-- Documents hardware prerequisites, adds Community Apps screenshots, and sets the tested minimum to Unraid 7.3.2.
 - Adds a privacy-first support flow: export diagnostics locally, review them, then open a public GitHub issue and attach them manually.
 - Adds optional diagnostic archive upload fields and mandatory privacy confirmations to the GitHub issue forms.
 - Documents AI-assisted development roles in Settings, project documentation, and Community Apps metadata.
@@ -729,18 +726,14 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
       stateById = {};
       (payload.shelves || []).forEach(function (shelf) { stateById[shelf.id] = shelf; });
       var controller = payload.controller || {};
-      var watchdog = payload.watchdog || {};
       controllerState = controller;
       var health = byId("md12xx-health");
-      var watchdogFault = watchdog.state === "restarting" || watchdog.state === "recovering" || watchdog.state === "fault";
-      var state = watchdogFault ? "fault" : (payload.stale ? "fault" : (payload.enabled ? (controller.state || "normal") : "disabled"));
+      var state = payload.stale ? "fault" : (payload.enabled ? (controller.state || "normal") : "disabled");
       health.className = "md12xx-pill is-" + (state === "normal" ? "normal" : state === "fault" ? "fault" : "attention");
       health.textContent = String(state).toUpperCase();
-      health.title = watchdogFault ? (watchdog.message || "Controller restart in progress") : (controller.message || "");
+      health.title = controller.message || "";
       var detail = byId("md12xx-controller-detail");
-      var detailText = watchdogFault
-        ? (watchdog.message || "The controller stopped unexpectedly and the local supervisor is restarting it.")
-        : payload.stale
+      var detailText = payload.stale
         ? "Controller status is stale; the background service may not be running."
         : (controller.message && controller.message !== "Controller disabled" ? controller.message : "");
       detail.hidden = !detailText;
@@ -1133,8 +1126,6 @@ declare(strict_types=1);
 const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';
 const MD12XX_STATE_FILE = '/var/run/md12xx.fancontrol/status.json';
 const MD12XX_PID_FILE = '/var/run/md12xx.fancontrol/controller.pid';
-const MD12XX_SUPERVISOR_PID_FILE = '/var/run/md12xx.fancontrol/supervisor.pid';
-const MD12XX_WATCHDOG_FILE = '/var/run/md12xx.fancontrol/watchdog.json';
 const MD12XX_DISCOVERY_FILE = '/var/run/md12xx.fancontrol/discovery.json';
 const MD12XX_DISCOVERY_PID_FILE = '/var/run/md12xx.fancontrol/discovery.pid';
 const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';
@@ -1556,7 +1547,6 @@ function md12xx_public_status(): array
         'stale' => $generatedAt === null || (time() - $generatedAt) > $staleAfter,
         'generatedAt' => $generatedAt,
         'controller' => is_array($state['controller'] ?? null) ? $state['controller'] : [],
-        'watchdog' => md12xx_read_json(MD12XX_WATCHDOG_FILE),
         'shelves' => is_array($state['shelves'] ?? null) ? array_values($state['shelves']) : [],
     ];
 }
@@ -2456,7 +2446,7 @@ Title="MD12xx Fan Control"
 Type="xmenu"
 Icon="icon-disks"
 Tag="icon-disk"
-Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'7.3.2','>=')"
+Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'6.12.0','>=')"
 
 ---
 
@@ -2484,15 +2474,12 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
   <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
 
-  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), its active EMM console connected through a persistent <code>/dev/serial/by-id</code> adapter, SES access through <code>/dev/sg*</code> with <code>sg_ses</code>, and no other process controlling the same fans.</p>
-
   <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
 
   <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
     <h3>Safe setup</h3>
     <ol>
       <li>Keep this controller disabled and stop every other process that controls the same shelf.</li>
-      <li>Confirm Unraid can see both the shelf's persistent serial adapter and its SES enclosure before adding it.</li>
       <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
       <li>Select <b>Identify &amp; test</b>. The app verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
       <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>
@@ -2946,151 +2933,6 @@ fi
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/controller-supervisor.sh">
-<INLINE>
-<![CDATA[
-#!/bin/bash
-set -u
-
-RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
-STATE_DIR="/var/run/md12xx.fancontrol"
-SUPERVISOR_PID_FILE="$STATE_DIR/supervisor.pid"
-CONTROLLER_PID_FILE="$STATE_DIR/controller.pid"
-WATCHDOG_FILE="$STATE_DIR/watchdog.json"
-CONTROLLER_LOG="$STATE_DIR/controller.log"
-NOTIFY_SCRIPT="/usr/local/emhttp/webGui/scripts/notify"
-ALERT_STAMP_FILE="$STATE_DIR/watchdog-alert.stamp"
-MAX_LOG_BYTES=65536
-ALERT_INTERVAL=900
-
-mkdir -p "$STATE_DIR"
-printf '%s\n' "$$" > "$SUPERVISOR_PID_FILE"
-
-running=true
-child_pid=""
-restart_count=0
-consecutive_failures=0
-failure_notified=false
-
-json_message() {
-  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/[[:cntrl:]]/ /g'
-}
-
-write_watchdog() {
-  local state="$1" message="$2" delay="${3:-0}" child="${4:-0}" tmp
-  tmp="$WATCHDOG_FILE.tmp.$$"
-  printf '{\n  "generatedAt": %s,\n  "state": "%s",\n  "message": "%s",\n  "restartCount": %s,\n  "restartDelaySeconds": %s,\n  "controllerPid": %s\n}\n' \
-    "$(date +%s)" "$state" "$(json_message "$message")" "$restart_count" "$delay" "$child" > "$tmp"
-  mv -f "$tmp" "$WATCHDOG_FILE"
-}
-
-notify_local() {
-  local importance="$1" subject="$2" description="$3" now last=0
-  now="$(date +%s)"
-  [ -r "$ALERT_STAMP_FILE" ] && last="$(cat "$ALERT_STAMP_FILE" 2>/dev/null || echo 0)"
-  if [ "$importance" != "normal" ] && [ $((now - last)) -lt "$ALERT_INTERVAL" ]; then
-    return
-  fi
-  printf '%s\n' "$now" > "$ALERT_STAMP_FILE"
-  if [ -x "$NOTIFY_SCRIPT" ]; then
-    "$NOTIFY_SCRIPT" -e "MD12xx Fan Control" -s "$subject" -d "$description" -i "$importance" >/dev/null 2>&1 || true
-  else
-    logger -t md12xx.fancontrol "$subject: $description" 2>/dev/null || true
-  fi
-}
-
-process_alive() {
-  local pid="$1" state
-  kill -0 "$pid" 2>/dev/null || return 1
-  [ -r "/proc/$pid/stat" ] || return 1
-  state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
-  [ "$state" != "Z" ]
-}
-
-trim_log() {
-  local size tmp
-  [ -f "$CONTROLLER_LOG" ] || return
-  size="$(wc -c < "$CONTROLLER_LOG" 2>/dev/null || echo 0)"
-  [ "$size" -le "$MAX_LOG_BYTES" ] && return
-  tmp="$CONTROLLER_LOG.tmp.$$"
-  tail -c "$MAX_LOG_BYTES" "$CONTROLLER_LOG" > "$tmp" 2>/dev/null && mv -f "$tmp" "$CONTROLLER_LOG"
-}
-
-shutdown() {
-  running=false
-  if [ -n "$child_pid" ] && process_alive "$child_pid"; then
-    kill "$child_pid" 2>/dev/null || true
-    for _ in 1 2 3 4 5; do
-      process_alive "$child_pid" || break
-      sleep 1
-    done
-  fi
-}
-
-cleanup() {
-  rm -f "$SUPERVISOR_PID_FILE"
-  if [ -z "$child_pid" ] || ! process_alive "$child_pid"; then
-    rm -f "$CONTROLLER_PID_FILE"
-  fi
-  write_watchdog "stopped" "Controller supervisor stopped intentionally" 0 0
-}
-
-trap shutdown INT TERM
-trap cleanup EXIT
-
-while $running; do
-  trim_log
-  started_at="$(date +%s)"
-  /usr/bin/php "$RUNTIME_DIR/include/controller.php" >> "$CONTROLLER_LOG" 2>&1 &
-  child_pid="$!"
-  printf '%s\n' "$child_pid" > "$CONTROLLER_PID_FILE"
-  if [ "$restart_count" -gt 0 ]; then
-    write_watchdog "recovering" "Controller restarted; monitoring recovery" 0 "$child_pid"
-  else
-    write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
-  fi
-  recovered=false
-
-  while $running && process_alive "$child_pid"; do
-    alive_for=$(( $(date +%s) - started_at ))
-    if [ "$alive_for" -ge 60 ] && [ "$recovered" = false ]; then
-      recovered=true
-      consecutive_failures=0
-      write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
-      if $failure_notified; then
-        notify_local normal "Controller recovered" "The fan controller restarted and has remained healthy for 60 seconds."
-        failure_notified=false
-      fi
-    fi
-    sleep 1
-  done
-
-  wait "$child_pid" 2>/dev/null
-  exit_code="$?"
-  rm -f "$CONTROLLER_PID_FILE"
-  child_pid=""
-  $running || break
-
-  restart_count=$((restart_count + 1))
-  consecutive_failures=$((consecutive_failures + 1))
-  if [ "$consecutive_failures" -ge 5 ]; then
-    delay=60
-  else
-    delay=$((5 << (consecutive_failures - 1)))
-  fi
-  write_watchdog "restarting" "Controller exited unexpectedly (exit $exit_code); restart scheduled" "$delay" 0
-  notify_local alert "Controller stopped unexpectedly" "The plugin will restart the fan controller in $delay seconds. Open Settings > Utilities > MD12xx Fan Control to review status."
-  failure_notified=true
-
-  for ((remaining=delay; remaining>0; remaining--)); do
-    $running || break
-    sleep 1
-  done
-done
-
-]]>
-</INLINE>
-</FILE>
 <FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh">
 <INLINE>
 <![CDATA[
@@ -3146,11 +2988,6 @@ if [ -f /var/run/md12xx.fancontrol/status.json ]; then
   ' /var/run/md12xx.fancontrol/status.json > "$RESULT_DIR/status.redacted.json"
 fi
 
-if [ -f /var/run/md12xx.fancontrol/watchdog.json ]; then
-  jq '{generatedAt, state, message, restartCount, restartDelaySeconds}' \
-    /var/run/md12xx.fancontrol/watchdog.json > "$RESULT_DIR/watchdog.json"
-fi
-
 if [ -f /var/run/md12xx.fancontrol/discovery.json ]; then
   jq '
     .serialPorts = ((.serialPorts // []) | map({
@@ -3197,7 +3034,6 @@ set -e
 RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 STATE_DIR="/var/run/md12xx.fancontrol"
 PID_FILE="$STATE_DIR/controller.pid"
-SUPERVISOR_PID_FILE="$STATE_DIR/supervisor.pid"
 DISCOVERY_PID_FILE="$STATE_DIR/discovery.pid"
 mkdir -p "$STATE_DIR"
 
@@ -3211,22 +3047,10 @@ pid_matches() {
     && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Fq "$marker"
 }
 
-if ! pid_matches "$SUPERVISOR_PID_FILE" '/md12xx.fancontrol/scripts/controller-supervisor.sh'; then
-  if pid_matches "$PID_FILE" '/md12xx.fancontrol/include/controller.php'; then
-    ORPHAN_PID="$(cat "$PID_FILE")"
-    kill "$ORPHAN_PID" 2>/dev/null || true
-    for SECOND in 1 2 3 4 5; do
-      kill -0 "$ORPHAN_PID" 2>/dev/null || break
-      sleep 1
-    done
-    if kill -0 "$ORPHAN_PID" 2>/dev/null; then
-      echo "The existing fan controller could not be stopped; refusing to start a second writer." >&2
-      exit 1
-    fi
-  fi
-  rm -f "$PID_FILE" "$SUPERVISOR_PID_FILE"
-  nohup "$RUNTIME_DIR/scripts/controller-supervisor.sh" >/dev/null 2>&1 &
-  echo "$!" > "$SUPERVISOR_PID_FILE"
+if ! pid_matches "$PID_FILE" '/md12xx.fancontrol/include/controller.php'; then
+  rm -f "$PID_FILE"
+  nohup /usr/bin/php "$RUNTIME_DIR/include/controller.php" >/dev/null 2>&1 &
+  echo "$!" > "$PID_FILE"
 fi
 
 if ! pid_matches "$DISCOVERY_PID_FILE" '/md12xx.fancontrol/include/discovery.php'; then
@@ -3261,7 +3085,6 @@ stop_pid() {
   fi
   rm -f "$FILE"
 }
-stop_pid "$STATE_DIR/supervisor.pid" '/md12xx.fancontrol/scripts/controller-supervisor.sh' 20
 stop_pid "$PID_FILE" '/md12xx.fancontrol/include/controller.php' 20
 stop_pid "$STATE_DIR/discovery.pid" '/md12xx.fancontrol/include/discovery.php' 20
 stop_pid "$STATE_DIR/diagnostics.pid" '/md12xx.fancontrol/scripts/diagnose.sh' 20
@@ -3287,7 +3110,7 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 
 chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
 chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php"
-chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
+chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
 
 for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
 

@@ -26,8 +26,18 @@ php -r '
 grep -Fq '<Profile>' "$PROJECT_DIR/ca_profile.xml"
 grep -Fq '<Beta>true</Beta>' "$PROJECT_DIR/plugins/md12xx.fancontrol.xml"
 grep -Fq '<PluginURL>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg</PluginURL>' "$PROJECT_DIR/plugins/md12xx.fancontrol.xml"
+grep -Fq '<MinVer>7.3.2</MinVer>' "$PROJECT_DIR/plugins/md12xx.fancontrol.xml"
+for SCREENSHOT in controller-and-discovery.png connection-discovery.png auto-curve.png; do
+  [ -f "$PROJECT_DIR/screenshots/$SCREENSHOT" ]
+  grep -Fq "/screenshots/$SCREENSHOT</Screenshot>" "$PROJECT_DIR/plugins/md12xx.fancontrol.xml"
+done
 for FIELD in 'Shelf model' 'Unraid version' 'HBA and driver' 'EMM and cabling arrangement' 'Commissioning result' 'Discovery summary' 'Disk mapping' 'Competing fan controller state during testing' 'Optional redacted diagnostics'; do
   grep -Fq "$FIELD" "$PROJECT_DIR/.github/ISSUE_TEMPLATE/hardware-report.yml"
+done
+for FORM in bug-report.yml hardware-report.yml; do
+  grep -Fq 'type: upload' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+  grep -Fq 'accept: ".zip,.gz,.tar.gz"' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
+  grep -Fq 'can be accessed without authentication' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/$FORM"
 done
 
 mkdir -p "$TMP_DIR/sys/class/enclosure/0:0:99:0/Slot 00/device/block/sda"
@@ -129,6 +139,10 @@ grep -Fq 'link.download = file' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Icon="icon-disks"' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'Tag="icon-disk"' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'Version @@VERSION@@' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'Report issue on GitHub' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq 'Development transparency:' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq "'7.3.2','>='" "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq '<b>Requirements:</b>' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'JSON_HEX_TAG' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'scheduleCurveResize' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'window.setTimeout(apply, 300)' "$PLUGIN_DIR/assets/js/settings.js"
@@ -151,6 +165,18 @@ grep -Fq 'application/zip' "$PLUGIN_DIR/include/download.php"
 grep -Fq 'application/gzip' "$PLUGIN_DIR/include/download.php"
 grep -Fq 'diagnostics.pid' "$PLUGIN_DIR/scripts/diagnose.sh"
 grep -Fq 'diagnostics.pid' "$PLUGIN_DIR/scripts/stop.sh"
+grep -Fq 'watchdog.json' "$PLUGIN_DIR/scripts/diagnose.sh"
+grep -Fq '/usr/local/emhttp/webGui/scripts/notify' "$PLUGIN_DIR/scripts/controller-supervisor.sh"
+grep -Fq 'Controller stopped unexpectedly' "$PLUGIN_DIR/scripts/controller-supervisor.sh"
+grep -Fq 'Controller recovered' "$PLUGIN_DIR/scripts/controller-supervisor.sh"
+grep -Fq 'Controller restarted; monitoring recovery' "$PLUGIN_DIR/scripts/controller-supervisor.sh"
+grep -Fq 'ALERT_INTERVAL=900' "$PLUGIN_DIR/scripts/controller-supervisor.sh"
+grep -Fq 'delay=60' "$PLUGIN_DIR/scripts/controller-supervisor.sh"
+grep -Fq 'controller-supervisor.sh' "$PLUGIN_DIR/scripts/start.sh"
+grep -Fq 'refusing to start a second writer' "$PLUGIN_DIR/scripts/start.sh"
+SUPERVISOR_STOP_LINE="$(grep -nF 'controller-supervisor.sh' "$PLUGIN_DIR/scripts/stop.sh" | head -1 | cut -d: -f1)"
+CONTROLLER_STOP_LINE="$(grep -nF "'/md12xx.fancontrol/include/controller.php'" "$PLUGIN_DIR/scripts/stop.sh" | head -1 | cut -d: -f1)"
+[ -n "$SUPERVISOR_STOP_LINE" ] && [ -n "$CONTROLLER_STOP_LINE" ] && [ "$SUPERVISOR_STOP_LINE" -lt "$CONTROLLER_STOP_LINE" ]
 grep -Fq 'basename(' "$PLUGIN_DIR/include/download.php"
 
 php -r '
