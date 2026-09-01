@@ -2,12 +2,16 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.2.1">
+  <!ENTITY version "0.2.2">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="6.12.0" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="cogs">
 <CHANGES>
+### 0.2.2
+- Maps disks through the verified SES device's SAS expander when enclosure-class links are unavailable.
+- Prevents discovery from racing the commissioning test's final 20% safety restore.
+
 ### 0.2.1
 - Fixes BlueDress speed writes by keeping the serial console open read/write and consuming its replies.
 
@@ -711,7 +715,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(75, ((int) $config['pollSeconds'] * 2) + 15);
     return [
-        'version' => '0.2.1',
+        'version' => '0.2.2',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -771,43 +775,83 @@ function md12xx_ses_disk_mapping(
 {
     $base = [
         'state' => 'unavailable',
+        'source' => null,
         'blockDevices' => [],
         'disks' => [],
-        'message' => 'Linux enclosure-to-disk links are unavailable',
+        'message' => 'Linux did not expose a safe SES-to-disk topology mapping',
     ];
     if ($address === '' || !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $address)) return $base;
 
     $enclosureRoot = rtrim($sysfsRoot, '/\\') . '/class/enclosure';
     $enclosure = $enclosureRoot . '/' . $address;
+    $enclosureFound = is_dir($enclosure);
     if (!is_dir($enclosure)) {
         foreach (glob($enclosureRoot . '/*') ?: [] as $candidate) {
             $resolved = @realpath($candidate);
             if (basename($candidate) === $address || ($resolved !== false && basename($resolved) === $address)) {
                 $enclosure = $candidate;
+                $enclosureFound = true;
                 break;
             }
         }
     }
-    if (!is_dir($enclosure)) return $base;
 
     $blockDevices = [];
-    foreach (glob($enclosure . '/*') ?: [] as $component) {
-        if (!is_dir($component)) continue;
-        $device = $component . '/device';
-        $resolved = @realpath($device);
-        foreach (array_unique(array_filter([$device, $resolved !== false ? $resolved : null])) as $devicePath) {
-            foreach (glob($devicePath . '/block/*') ?: [] as $blockPath) {
-                $name = basename($blockPath);
-                if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+    $mappingSource = null;
+    if ($enclosureFound) {
+        foreach (glob($enclosure . '/*') ?: [] as $component) {
+            if (!is_dir($component)) continue;
+            $device = $component . '/device';
+            $resolved = @realpath($device);
+            foreach (array_unique(array_filter([$device, $resolved !== false ? $resolved : null])) as $devicePath) {
+                foreach (glob($devicePath . '/block/*') ?: [] as $blockPath) {
+                    $name = basename($blockPath);
+                    if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+                }
             }
+        }
+        if ($blockDevices) $mappingSource = 'enclosure-class';
+    }
+
+    // Some SAS HBAs expose no /sys/class/enclosure entries. In that case the
+    // SES generic device and its disks still share an exact expander ancestor.
+    // Matching that ancestor is safer than inferring shelves from target IDs.
+    if (!$blockDevices) {
+        $root = rtrim($sysfsRoot, '/\\');
+        $sesPath = null;
+        foreach (glob($root . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
+            $resolved = @realpath($genericPath . '/device');
+            if ($resolved !== false && basename($resolved) === $address) {
+                $sesPath = str_replace('\\', '/', $resolved);
+                break;
+            }
+        }
+        $expanderRoot = null;
+        if ($sesPath !== null && preg_match('#^(.*/expander-[0-9]+:[0-9]+(?::[0-9]+)?)(?:/|$)#', $sesPath, $match)) {
+            $expanderRoot = rtrim($match[1], '/');
+        }
+        if ($expanderRoot !== null) {
+            foreach (glob($root . '/class/scsi_disk/*') ?: [] as $diskPath) {
+                $resolved = @realpath($diskPath . '/device');
+                if ($resolved === false) continue;
+                $resolved = str_replace('\\', '/', $resolved);
+                if (!str_starts_with($resolved, $expanderRoot . '/')) continue;
+                foreach (glob($diskPath . '/device/block/*') ?: [] as $blockPath) {
+                    $name = basename($blockPath);
+                    if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+                }
+            }
+            if ($blockDevices) $mappingSource = 'sas-expander';
         }
     }
     $blockDevices = array_values(array_unique($blockDevices));
     sort($blockDevices, SORT_NATURAL | SORT_FLAG_CASE);
     if (!$blockDevices) {
         return array_replace($base, [
-            'state' => 'empty',
-            'message' => 'The enclosure was found, but Linux did not link any block devices to its slots',
+            'state' => $enclosureFound ? 'empty' : 'unavailable',
+            'message' => $enclosureFound
+                ? 'The enclosure was found, but Linux did not link any block devices to its slots'
+                : 'No enclosure-class links or shared SES SAS-expander topology were available',
         ]);
     }
 
@@ -825,10 +869,13 @@ function md12xx_ses_disk_mapping(
     usort($disks, 'strnatcasecmp');
     return [
         'state' => $disks ? 'verified' : 'unassigned',
+        'source' => $mappingSource,
         'blockDevices' => $blockDevices,
         'disks' => $disks,
         'message' => $disks
-            ? 'Mapped through Linux enclosure slot links and the current Unraid disk inventory'
+            ? ($mappingSource === 'sas-expander'
+                ? 'Mapped through the SES device SAS expander and the current Unraid disk inventory'
+                : 'Mapped through Linux enclosure slot links and the current Unraid disk inventory')
             : 'Physical enclosure disks were found, but none are currently assigned by Unraid',
     ];
 }
@@ -1355,7 +1402,8 @@ while ($running) {
         $config = md12xx_validate_config(md12xx_read_config($configPath));
         $probeConfig = $config['discovery'];
         $conflicts = md12xx_competing_controllers($config);
-        $activeAllowed = !(bool) $config['enabled'] && !$conflicts;
+        $commissioningActive = is_file(MD12XX_RUNTIME_DIR . '/commissioning.active');
+        $activeAllowed = !(bool) $config['enabled'] && !$conflicts && !$commissioningActive;
         $ports = [];
         foreach (md12xx_serial_port_details() as $port) {
             $result = [
@@ -1370,7 +1418,9 @@ while ($running) {
             if ((bool) $probeConfig['autoProbeKnownFtdi'] && (bool) $port['knownFtdiCandidate']) {
                 $result = $activeAllowed
                     ? md12xx_discovery_probe((string) $port['path'], (int) $probeConfig['responseSeconds'])
-                    : array_replace($result, ['probeState' => 'blocked', 'message' => (bool) $config['enabled'] ? 'Fan control is enabled; identity probe skipped' : 'Competing controller detected; identity probe skipped']);
+                    : array_replace($result, ['probeState' => 'blocked', 'message' => $commissioningActive
+                        ? 'Commissioning test is active; identity probe skipped'
+                        : ((bool) $config['enabled'] ? 'Fan control is enabled; identity probe skipped' : 'Competing controller detected; identity probe skipped')]);
             }
             $ports[] = array_merge($port, $result);
         }
@@ -1378,6 +1428,7 @@ while ($running) {
             'generatedAt' => time(),
             'autoProbeKnownFtdi' => (bool) $probeConfig['autoProbeKnownFtdi'],
             'activeProbeAllowed' => $activeAllowed,
+            'commissioningActive' => $commissioningActive,
             'blockedBy' => $conflicts,
             'serialPorts' => $ports,
             'sesDevices' => md12xx_discover_ses(),
@@ -1469,7 +1520,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.2.1',
+    'version' => '0.2.2',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES)?>;
@@ -1489,6 +1540,7 @@ PLUGIN_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_FILE="/boot/config/plugins/md12xx.fancontrol/config.json"
 STATE_DIR="/var/run/md12xx.fancontrol"
 RESULT_ROOT="/boot/config/plugins/md12xx.fancontrol/commissioning"
+COMMISSION_MARKER="$STATE_DIR/commissioning.active"
 SHELF_ID="${1:-}"
 WAIT_SECONDS="${MD12XX_TEST_WAIT_SECONDS:-10}"
 RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
@@ -1536,10 +1588,12 @@ mkdir -p "$RESULT_DIR" "$STATE_DIR"
 HASH="$(printf '%s' "$PORT" | sha1sum | cut -c1-12)"
 LOCK_FILE="$STATE_DIR/serial-${HASH}.lock"
 IDENTITY_CAPTURE="$RESULT_DIR/identity.txt"
+: > "$COMMISSION_MARKER"
+trap 'rm -f "$COMMISSION_MARKER"' EXIT
 
 verify_console() {
   (
-    flock -n 9 || { echo "Serial adapter is locked by another process." >&2; exit 1; }
+    flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
     if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
@@ -1569,7 +1623,7 @@ verify_console() {
 send_speed() {
   local SPEED="$1"
   (
-    flock -n 9 || { echo "Serial adapter is locked by another process." >&2; exit 1; }
+    flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
     if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
@@ -1608,6 +1662,11 @@ restore_safe() {
   send_speed 20 || echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
 }
 
+restore_and_cleanup() {
+  restore_safe
+  rm -f "$COMMISSION_MARKER"
+}
+
 echo "Verifying the selected serial console with a read-only identity query..."
 verify_console
 echo "Primary, active MD12xx console verified."
@@ -1626,8 +1685,8 @@ fi
 LOW="$RESULT_DIR/20-percent.tsv"
 HIGH="$RESULT_DIR/50-percent.tsv"
 : > "$LOW"; : > "$HIGH"
-trap restore_safe EXIT
-trap 'restore_safe; trap - EXIT; exit 130' INT TERM
+trap restore_and_cleanup EXIT
+trap 'exit 130' INT TERM
 
 echo "Commanding 20%, waiting ${WAIT_SECONDS}s, then recording every candidate enclosure..."
 send_speed 20
@@ -1645,6 +1704,7 @@ done < "$CANDIDATES"
 
 restore_safe
 trap - EXIT INT TERM
+rm -f "$COMMISSION_MARKER"
 
 MATCHES="$RESULT_DIR/matches.tsv"
 awk -F '\t' '
@@ -1889,7 +1949,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.2.1 installed. Configure it under Settings → Utilities."
+echo "Version 0.2.2 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>

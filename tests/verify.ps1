@@ -47,6 +47,10 @@ if ($pageSource -match 'require_once\s+__DIR__') { throw 'Settings page relies o
 if (-not $pageSource.Contains("`$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';")) { throw 'Settings page explicit plugin root is missing.' }
 $discoverySource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/discovery.php'))
 if ($discoverySource -match 'set_speed') { throw 'Read-only discovery contains a fan-speed command.' }
+if (-not $discoverySource.Contains('commissioning.active')) { throw 'Discovery does not yield to commissioning.' }
+$commissionSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh'))
+if (-not $commissionSource.Contains('flock -w 15 9')) { throw 'Commissioning lock wait is missing.' }
+if (-not $text.Contains("'sas-expander'")) { throw 'SAS expander disk mapping fallback is missing.' }
 if ($text.Contains('@@')) { throw 'An unexpanded build placeholder remains.' }
 
 $node = Get-Command node -ErrorAction SilentlyContinue

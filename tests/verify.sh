@@ -23,6 +23,21 @@ php -r '
 ' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys" > "$TMP_DIR/disk-mapping.json"
 jq -e '.state == "verified" and .blockDevices == ["sda"] and .disks == ["disk1"]' "$TMP_DIR/disk-mapping.json" >/dev/null
 
+mkdir -p \
+  "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:11/end_device-9:1:11/target9:0:11/9:0:11:0" \
+  "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:0/end_device-9:1:0/target9:0:0/9:0:0:0/block/sda" \
+  "$TMP_DIR/sys-topology/class/scsi_generic/sg11" \
+  "$TMP_DIR/sys-topology/class/scsi_disk/9:0:0:0"
+ln -s "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:11/end_device-9:1:11/target9:0:11/9:0:11:0" \
+  "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device"
+ln -s "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:0/end_device-9:1:0/target9:0:0/9:0:0:0" \
+  "$TMP_DIR/sys-topology/class/scsi_disk/9:0:0:0/device"
+php -r '
+  require $argv[1];
+  echo json_encode(md12xx_ses_disk_mapping("9:0:11:0", $argv[2], $argv[3]), JSON_UNESCAPED_SLASHES);
+' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys-topology" > "$TMP_DIR/topology-mapping.json"
+jq -e '.state == "verified" and .source == "sas-expander" and .blockDevices == ["sda"] and .disks == ["disk1"]' "$TMP_DIR/topology-mapping.json" >/dev/null
+
 php "$PLUGIN_DIR/include/discovery.php" --once \
   --config="$PROJECT_DIR/tests/fixtures/auto.json" \
   --state="$TMP_DIR/discovery-state.json"
@@ -37,6 +52,8 @@ grep -Fq 'Returning the selected MD12xx console to 20%' "$PLUGIN_DIR/scripts/com
 grep -Fq 'md12xx_ses_disk_mapping' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq '@fopen($port, '\''r+'\'')' "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'exec 8<>"$PORT"' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'flock -w 15 9' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'commissioning.active' "$PLUGIN_DIR/include/discovery.php"
 
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$PROJECT_DIR/tests/fixtures/auto.json" \

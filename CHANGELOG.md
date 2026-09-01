@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2 — 2026-09-01
+
+- Adds a safe SES-to-disk mapping fallback for SAS HBAs that expose per-expander topology but no `/sys/class/enclosure` links.
+- Prevents background read-only discovery from starting while commissioning is active and waits for an already-running probe to release the serial adapter.
+- Makes the final 20% commissioning restore use the same guarded read/write console session after the lock is acquired.
+
 ## 0.2.1 — 2026-09-01
 
 - Opens the BlueDress serial console read/write and drains command replies; real-hardware testing showed that write-only sessions could leave `set_speed` unapplied.

@@ -301,43 +301,83 @@ function md12xx_ses_disk_mapping(
 {
     $base = [
         'state' => 'unavailable',
+        'source' => null,
         'blockDevices' => [],
         'disks' => [],
-        'message' => 'Linux enclosure-to-disk links are unavailable',
+        'message' => 'Linux did not expose a safe SES-to-disk topology mapping',
     ];
     if ($address === '' || !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $address)) return $base;
 
     $enclosureRoot = rtrim($sysfsRoot, '/\\') . '/class/enclosure';
     $enclosure = $enclosureRoot . '/' . $address;
+    $enclosureFound = is_dir($enclosure);
     if (!is_dir($enclosure)) {
         foreach (glob($enclosureRoot . '/*') ?: [] as $candidate) {
             $resolved = @realpath($candidate);
             if (basename($candidate) === $address || ($resolved !== false && basename($resolved) === $address)) {
                 $enclosure = $candidate;
+                $enclosureFound = true;
                 break;
             }
         }
     }
-    if (!is_dir($enclosure)) return $base;
 
     $blockDevices = [];
-    foreach (glob($enclosure . '/*') ?: [] as $component) {
-        if (!is_dir($component)) continue;
-        $device = $component . '/device';
-        $resolved = @realpath($device);
-        foreach (array_unique(array_filter([$device, $resolved !== false ? $resolved : null])) as $devicePath) {
-            foreach (glob($devicePath . '/block/*') ?: [] as $blockPath) {
-                $name = basename($blockPath);
-                if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+    $mappingSource = null;
+    if ($enclosureFound) {
+        foreach (glob($enclosure . '/*') ?: [] as $component) {
+            if (!is_dir($component)) continue;
+            $device = $component . '/device';
+            $resolved = @realpath($device);
+            foreach (array_unique(array_filter([$device, $resolved !== false ? $resolved : null])) as $devicePath) {
+                foreach (glob($devicePath . '/block/*') ?: [] as $blockPath) {
+                    $name = basename($blockPath);
+                    if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+                }
             }
+        }
+        if ($blockDevices) $mappingSource = 'enclosure-class';
+    }
+
+    // Some SAS HBAs expose no /sys/class/enclosure entries. In that case the
+    // SES generic device and its disks still share an exact expander ancestor.
+    // Matching that ancestor is safer than inferring shelves from target IDs.
+    if (!$blockDevices) {
+        $root = rtrim($sysfsRoot, '/\\');
+        $sesPath = null;
+        foreach (glob($root . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
+            $resolved = @realpath($genericPath . '/device');
+            if ($resolved !== false && basename($resolved) === $address) {
+                $sesPath = str_replace('\\', '/', $resolved);
+                break;
+            }
+        }
+        $expanderRoot = null;
+        if ($sesPath !== null && preg_match('#^(.*/expander-[0-9]+:[0-9]+(?::[0-9]+)?)(?:/|$)#', $sesPath, $match)) {
+            $expanderRoot = rtrim($match[1], '/');
+        }
+        if ($expanderRoot !== null) {
+            foreach (glob($root . '/class/scsi_disk/*') ?: [] as $diskPath) {
+                $resolved = @realpath($diskPath . '/device');
+                if ($resolved === false) continue;
+                $resolved = str_replace('\\', '/', $resolved);
+                if (!str_starts_with($resolved, $expanderRoot . '/')) continue;
+                foreach (glob($diskPath . '/device/block/*') ?: [] as $blockPath) {
+                    $name = basename($blockPath);
+                    if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+                }
+            }
+            if ($blockDevices) $mappingSource = 'sas-expander';
         }
     }
     $blockDevices = array_values(array_unique($blockDevices));
     sort($blockDevices, SORT_NATURAL | SORT_FLAG_CASE);
     if (!$blockDevices) {
         return array_replace($base, [
-            'state' => 'empty',
-            'message' => 'The enclosure was found, but Linux did not link any block devices to its slots',
+            'state' => $enclosureFound ? 'empty' : 'unavailable',
+            'message' => $enclosureFound
+                ? 'The enclosure was found, but Linux did not link any block devices to its slots'
+                : 'No enclosure-class links or shared SES SAS-expander topology were available',
         ]);
     }
 
@@ -355,10 +395,13 @@ function md12xx_ses_disk_mapping(
     usort($disks, 'strnatcasecmp');
     return [
         'state' => $disks ? 'verified' : 'unassigned',
+        'source' => $mappingSource,
         'blockDevices' => $blockDevices,
         'disks' => $disks,
         'message' => $disks
-            ? 'Mapped through Linux enclosure slot links and the current Unraid disk inventory'
+            ? ($mappingSource === 'sas-expander'
+                ? 'Mapped through the SES device SAS expander and the current Unraid disk inventory'
+                : 'Mapped through Linux enclosure slot links and the current Unraid disk inventory')
             : 'Physical enclosure disks were found, but none are currently assigned by Unraid',
     ];
 }

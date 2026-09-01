@@ -144,7 +144,8 @@ while ($running) {
         $config = md12xx_validate_config(md12xx_read_config($configPath));
         $probeConfig = $config['discovery'];
         $conflicts = md12xx_competing_controllers($config);
-        $activeAllowed = !(bool) $config['enabled'] && !$conflicts;
+        $commissioningActive = is_file(MD12XX_RUNTIME_DIR . '/commissioning.active');
+        $activeAllowed = !(bool) $config['enabled'] && !$conflicts && !$commissioningActive;
         $ports = [];
         foreach (md12xx_serial_port_details() as $port) {
             $result = [
@@ -159,7 +160,9 @@ while ($running) {
             if ((bool) $probeConfig['autoProbeKnownFtdi'] && (bool) $port['knownFtdiCandidate']) {
                 $result = $activeAllowed
                     ? md12xx_discovery_probe((string) $port['path'], (int) $probeConfig['responseSeconds'])
-                    : array_replace($result, ['probeState' => 'blocked', 'message' => (bool) $config['enabled'] ? 'Fan control is enabled; identity probe skipped' : 'Competing controller detected; identity probe skipped']);
+                    : array_replace($result, ['probeState' => 'blocked', 'message' => $commissioningActive
+                        ? 'Commissioning test is active; identity probe skipped'
+                        : ((bool) $config['enabled'] ? 'Fan control is enabled; identity probe skipped' : 'Competing controller detected; identity probe skipped')]);
             }
             $ports[] = array_merge($port, $result);
         }
@@ -167,6 +170,7 @@ while ($running) {
             'generatedAt' => time(),
             'autoProbeKnownFtdi' => (bool) $probeConfig['autoProbeKnownFtdi'],
             'activeProbeAllowed' => $activeAllowed,
+            'commissioningActive' => $commissioningActive,
             'blockedBy' => $conflicts,
             'serialPorts' => $ports,
             'sesDevices' => md12xx_discover_ses(),

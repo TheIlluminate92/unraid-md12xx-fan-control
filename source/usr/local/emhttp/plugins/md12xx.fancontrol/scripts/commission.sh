@@ -5,6 +5,7 @@ PLUGIN_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_FILE="/boot/config/plugins/md12xx.fancontrol/config.json"
 STATE_DIR="/var/run/md12xx.fancontrol"
 RESULT_ROOT="/boot/config/plugins/md12xx.fancontrol/commissioning"
+COMMISSION_MARKER="$STATE_DIR/commissioning.active"
 SHELF_ID="${1:-}"
 WAIT_SECONDS="${MD12XX_TEST_WAIT_SECONDS:-10}"
 RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
@@ -52,10 +53,12 @@ mkdir -p "$RESULT_DIR" "$STATE_DIR"
 HASH="$(printf '%s' "$PORT" | sha1sum | cut -c1-12)"
 LOCK_FILE="$STATE_DIR/serial-${HASH}.lock"
 IDENTITY_CAPTURE="$RESULT_DIR/identity.txt"
+: > "$COMMISSION_MARKER"
+trap 'rm -f "$COMMISSION_MARKER"' EXIT
 
 verify_console() {
   (
-    flock -n 9 || { echo "Serial adapter is locked by another process." >&2; exit 1; }
+    flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
     if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
@@ -85,7 +88,7 @@ verify_console() {
 send_speed() {
   local SPEED="$1"
   (
-    flock -n 9 || { echo "Serial adapter is locked by another process." >&2; exit 1; }
+    flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
     if command -v fuser >/dev/null 2>&1 && fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
       echo "Serial adapter is open in another process." >&2
       exit 1
@@ -124,6 +127,11 @@ restore_safe() {
   send_speed 20 || echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
 }
 
+restore_and_cleanup() {
+  restore_safe
+  rm -f "$COMMISSION_MARKER"
+}
+
 echo "Verifying the selected serial console with a read-only identity query..."
 verify_console
 echo "Primary, active MD12xx console verified."
@@ -142,8 +150,8 @@ fi
 LOW="$RESULT_DIR/20-percent.tsv"
 HIGH="$RESULT_DIR/50-percent.tsv"
 : > "$LOW"; : > "$HIGH"
-trap restore_safe EXIT
-trap 'restore_safe; trap - EXIT; exit 130' INT TERM
+trap restore_and_cleanup EXIT
+trap 'exit 130' INT TERM
 
 echo "Commanding 20%, waiting ${WAIT_SECONDS}s, then recording every candidate enclosure..."
 send_speed 20
@@ -161,6 +169,7 @@ done < "$CANDIDATES"
 
 restore_safe
 trap - EXIT INT TERM
+rm -f "$COMMISSION_MARKER"
 
 MATCHES="$RESULT_DIR/matches.tsv"
 awk -F '\t' '
