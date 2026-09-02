@@ -88,7 +88,8 @@ function md12xx_commission_status(string $id): array
 
 try {
     $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
-    $action = strtolower(trim((string) ($_REQUEST['action'] ?? 'status')));
+    $actionInput = $method === 'POST' ? ($_POST['action'] ?? 'status') : ($_GET['action'] ?? 'status');
+    $action = strtolower(trim((string) $actionInput));
 
     if ($method === 'GET') {
         if ($action === 'discover') {
@@ -213,3 +214,4 @@ try {
     if (http_response_code() < 400) http_response_code(500);
     echo json_encode(['error' => $error->getMessage()], JSON_UNESCAPED_SLASHES);
 }
+
