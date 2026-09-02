@@ -59,8 +59,14 @@ grep -Fq "const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';" "$RUNTIME_DI
 grep -Fq "const MD12XX_WATCHDOG_FILE = '/var/run/md12xx.fancontrol/watchdog.json';" "$RUNTIME_DIR/include/common.php"
 grep -Fq 'credentials: "same-origin"' "$RUNTIME_DIR/assets/js/settings.js"
 grep -Fq 'window.csrf_token' "$RUNTIME_DIR/assets/js/settings.js"
+grep -Fq 'md12xx_serial_path_is_safe' "$RUNTIME_DIR/include/common.php"
+if grep -Fq '$_REQUEST' "$RUNTIME_DIR/include/api.php"; then
+  echo "API uses the combined request bag instead of method-specific inputs." >&2
+  exit 1
+fi
 grep -Fq 'basename(' "$RUNTIME_DIR/include/download.php"
 grep -Fq 'realpath(' "$RUNTIME_DIR/include/download.php"
 grep -Fq 'application/gzip' "$RUNTIME_DIR/include/download.php"
 
 echo "MD12xx local-only security policy passed."
+
