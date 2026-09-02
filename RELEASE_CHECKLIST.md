@@ -8,6 +8,8 @@
 - [x] Synthetic 24-bay MD1220 mapping excludes an unrelated expander.
 - [x] Runtime local-only/security policy scan is part of CI.
 - [x] Community Apps profile, wrapper, icon, license, and support links are present.
+- [x] GitHub private vulnerability reporting is enabled.
+- [x] Every published installer is immutable or current, checksum-listed, and verified by CI.
 
 ## Real Unraid validation
 
@@ -28,4 +30,3 @@
 - [ ] Public Unraid forum support thread exists and replaces the temporary GitHub-only support link where appropriate.
 - [x] Community Apps Validate and Scan both pass with one reachable plugin manifest, no hard errors, and no template warnings.
 - [ ] Listing screenshots are captured from the final Settings page.
-
