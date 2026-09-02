@@ -6,11 +6,12 @@
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="server">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
 ### 0.4.7 Beta
 - Rejects malformed or traversing serial adapter paths before any hardware access.
 - Uses method-specific request parsing in the WebGUI API and adds security regression coverage.
+- Uses the public Unraid support thread in release and Community Apps metadata.
 
 ### 0.4.6 Beta
 - Shows the friendly MD12xx Fan Control name and description on Unraid's Plugins page without changing the internal package ID.
