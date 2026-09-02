@@ -305,4 +305,3 @@ else
   echo "Results: $RESULT_ROOT/${STAMP}-${SHELF_ID}.tar.gz"
 fi
 [ "$READY" = true ]
-
