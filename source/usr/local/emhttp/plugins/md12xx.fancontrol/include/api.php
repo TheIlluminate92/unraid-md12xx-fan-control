@@ -214,4 +214,3 @@ try {
     if (http_response_code() < 400) http_response_code(500);
     echo json_encode(['error' => $error->getMessage()], JSON_UNESCAPED_SLASHES);
 }
-
