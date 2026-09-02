@@ -182,6 +182,8 @@ CONTROLLER_STOP_LINE="$(grep -nF "'/md12xx.fancontrol/include/controller.php'" "
 [ -n "$SUPERVISOR_STOP_LINE" ] && [ -n "$CONTROLLER_STOP_LINE" ] && [ "$SUPERVISOR_STOP_LINE" -lt "$CONTROLLER_STOP_LINE" ]
 grep -Fq 'basename(' "$PLUGIN_DIR/include/download.php"
 
+(cd "$PROJECT_DIR/releases" && sha256sum -c SHA256SUMS)
+
 php -r '
   require $argv[1];
   $config = md12xx_defaults();
@@ -289,4 +291,3 @@ if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP
 fi
 
 echo "MD12xx runtime verification passed."
-
