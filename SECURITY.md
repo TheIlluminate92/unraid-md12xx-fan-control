@@ -30,4 +30,3 @@ The local diagnostic exporter removes hostnames, serial adapter identifiers, dis
 ## Automated checks
 
 CI builds and parses the plugin XML, checks PHP/shell/JavaScript syntax, rejects known server-specific identifiers, verifies generic MD1200 and synthetic 24-bay MD1220 topology fixtures, confirms discovery contains no speed command, and rejects outbound-network primitives or broad filesystem paths in runtime source.
-
