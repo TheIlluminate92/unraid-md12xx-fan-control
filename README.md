@@ -123,15 +123,15 @@ This is an AI-assisted open-source project. Erik Boettcher / TheIlluminate92 own
 
 ## Status integration
 
-Other local plugins can read:
+Other local plugins and authenticated Unraid WebGUI modules can read:
 
 ```text
 /plugins/md12xx.fancontrol/include/api.php
 ```
 
-The default GET response is intentionally read-only JSON containing controller and shelf state.
+The default GET response is read-only JSON containing controller, watchdog, and per-shelf state. The supported Beta integration surface also includes a CSRF-protected Auto/Manual control action; setup and commissioning actions remain WebGUI-internal.
 
-An optional compact dashboard module may be added after the standalone plugin has broader MD1220 validation.
+See the [local API reference](docs/API.md) for request examples, response fields, error handling, polling guidance, authentication requirements, and the local-only security boundary.
 
 ## License and hardware disclaimer
 
