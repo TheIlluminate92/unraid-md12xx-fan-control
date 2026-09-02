@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.5 - 2026-09-02
+
+- Uses Unraid's supported stock `server` icon on the Plugins page while retaining the existing Settings tile icon.
+- Restores the GitHub bug and hardware-report issue forms using native attachment-capable text areas.
+- Records a successful overnight Auto-mode soak on the two-shelf MD1200 test system with no reported control issues.
+
 ## 0.4.4 - 2026-09-01
 
 - Expands hardware requirements with the tested Dell service/password-reset cable, FTDI USB-to-serial adapter, SAS HBA/SES path, and matching-EMM-firmware recommendation.
@@ -120,3 +126,4 @@
 - Preserved Auto, Manual, hysteresis, fail-safe, locking, RPM telemetry, and command reassertion behavior.
 - Added a guarded per-shelf 20%/50% commissioning test.
 - Defaults to disabled and blocks writes when a known legacy Docker controller is running.
+

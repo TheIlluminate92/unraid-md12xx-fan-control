@@ -6,8 +6,13 @@
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="fan">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="server">
 <CHANGES>
+### 0.4.5 Beta
+- Uses Unraid's supported stock server icon on the Plugins page.
+- Restores the GitHub issue forms with native attachment-capable diagnostic text areas.
+- Records a successful overnight Auto-mode soak on the two-shelf MD1200 test system.
+
 ### 0.4.4 Beta
 - Clarifies the tested service cable, FTDI adapter, HBA/SES path, model boundaries, and commissioning recovery steps.
 - States explicitly that HBA access is read-only and fan commands travel only through the selected USB serial console.
@@ -186,3 +191,4 @@ echo "MD12xx Fan Control removed. Configuration, commissioning results, and runt
 </INLINE>
 </FILE>
 </PLUGIN>
+
