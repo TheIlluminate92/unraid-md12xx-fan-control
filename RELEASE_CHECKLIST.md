@@ -29,4 +29,4 @@
 - [ ] At least one MD1220 hardware report.
 - [ ] Public Unraid forum support thread exists and replaces the temporary GitHub-only support link where appropriate.
 - [x] Community Apps Validate and Scan both pass with one reachable plugin manifest, no hard errors, and no template warnings.
-- [ ] Listing screenshots are captured from the final Settings page.
+- [x] Listing screenshots are captured from the final Settings page.
