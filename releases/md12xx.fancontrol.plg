@@ -2,12 +2,16 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.4.5">
+  <!ENTITY version "0.4.6">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="server">
 <CHANGES>
+### 0.4.6 Beta
+- Shows the friendly MD12xx Fan Control name and description on Unraid's Plugins page without changing the internal package ID.
+- Verifies that the Plugins-page display metadata remains in every built installer.
+
 ### 0.4.5 Beta
 - Uses Unraid's supported stock server icon on the Plugins page.
 - Restores the GitHub issue forms with native attachment-capable diagnostic text areas.
@@ -1558,7 +1562,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
-        'version' => '0.4.5',
+        'version' => '0.4.6',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -2484,7 +2488,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   <header class="md12xx-hero">
     <div>
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
-      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.5</span></p>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.6</span></p>
     </div>
     <div class="md12xx-hero-actions">
       <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
@@ -2571,12 +2575,22 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.4.5',
+    'version' => '0.4.6',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
 </script>
 <script src="<?=$webRoot?>/assets/js/settings.js?v=<?=$jsVersion?>"></script>
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/README.md">
+<INLINE>
+<![CDATA[
+**MD12xx Fan Control**
+
+Local temperature-based fan control with independent SES fan telemetry for Dell PowerVault MD1200 and MD1220 disk shelves.
 
 ]]>
 </INLINE>
@@ -3354,7 +3368,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.4.5 installed. Configure it under Settings → Utilities."
+echo "Version 0.4.6 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>
