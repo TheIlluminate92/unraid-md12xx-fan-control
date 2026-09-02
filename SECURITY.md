@@ -1,6 +1,6 @@
 # Security and privacy
 
-Security-sensitive issues must not be posted publicly. The repository owner should enable GitHub private vulnerability reporting under **Settings → Security → Advanced Security → Private vulnerability reporting**. Once enabled, use the repository's **Report a vulnerability** button; do not attach sensitive diagnostics to a public issue.
+Security-sensitive issues must not be posted publicly. GitHub private vulnerability reporting is enabled for this repository. Use [Report a vulnerability](https://github.com/TheIlluminate92/unraid-md12xx-fan-control/security/advisories/new); do not attach sensitive diagnostics to a public issue.
 
 ## Local-only contract
 
