@@ -34,7 +34,11 @@ SES_ADDRESS="$(jq -r '.sesAddress' <<< "$SHELF_JSON")"
 SES_CONFIGURED="$(jq -r '.sesDevice' <<< "$SHELF_JSON")"
 ASSIGNMENT="$(jq -r '.diskAssignment // (if ((.disks // []) | length) > 0 then "manual" else "automatic" end)' <<< "$SHELF_JSON")"
 
-[[ "$PORT" == /dev/serial/by-id/* ]] || { echo "Select a persistent serial adapter and save the configuration first." >&2; exit 1; }
+PORT_IDENTIFIER="${PORT#/dev/serial/by-id/}"
+[[ "$PORT" == /dev/serial/by-id/* && -n "$PORT_IDENTIFIER" && "$PORT_IDENTIFIER" != "." && "$PORT_IDENTIFIER" != ".." && "$PORT_IDENTIFIER" != */* && "$PORT_IDENTIFIER" != *\\* ]] || {
+  echo "Select a valid persistent serial adapter and save the configuration first." >&2
+  exit 1
+}
 [ -e "$PORT" ] || { echo "Serial adapter is missing: $PORT" >&2; exit 1; }
 
 if [ "$(php -r 'require $argv[1]; echo count(md12xx_competing_controllers(md12xx_read_config($argv[2])));' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE")" -gt 0 ]; then

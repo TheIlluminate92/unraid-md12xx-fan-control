@@ -40,10 +40,13 @@ foreach ($xmlPath in @('ca_profile.xml', 'plugins/md12xx.fancontrol.xml', 'icon.
 }
 $profileText = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'ca_profile.xml'))
 if (-not $profileText.Contains('<Profile>')) { throw 'Community Apps profile is missing.' }
+$forumUrl = 'https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/'
+if (-not $profileText.Contains("<Forum>$forumUrl</Forum>")) { throw 'Community Apps forum metadata is missing or incorrect.' }
 $wrapperText = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugins/md12xx.fancontrol.xml'))
 if (-not $wrapperText.Contains('<Beta>true</Beta>')) { throw 'Community Apps beta marker is missing.' }
 if (-not $wrapperText.Contains('<PluginURL>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg</PluginURL>')) { throw 'Community Apps PluginURL is incorrect.' }
 if (-not $wrapperText.Contains('<MinVer>7.3.2</MinVer>')) { throw 'Community Apps minimum Unraid version is not the tested 7.3.2 baseline.' }
+if (-not $wrapperText.Contains("<Support>$forumUrl</Support>")) { throw 'Community Apps support URL is missing or incorrect.' }
 foreach ($screenshot in 'controller-and-discovery.png', 'connection-discovery.png', 'auto-curve.png') {
     if (-not $wrapperText.Contains("/screenshots/$screenshot</Screenshot>")) { throw "Community Apps screenshot is missing: $screenshot" }
     if (-not (Test-Path (Join-Path $projectRoot "screenshots/$screenshot"))) { throw "Screenshot file is missing: $screenshot" }
@@ -134,6 +137,7 @@ $templateSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugin/
 if (-not $templateSource.Contains('Setup is already complete; active connection testing was turned off.')) { throw 'Upgrade-time discovery shutdown is missing.' }
 if (-not $templateSource.Contains('icon="server"')) { throw 'Plugins page stock server icon is not configured.' }
 if ($templateSource.Contains('icon="fan"')) { throw 'Unsupported Plugins page fan icon was reintroduced.' }
+if (-not $templateSource.Contains("support=`"$forumUrl`"")) { throw 'Plugin support URL is missing or incorrect.' }
 $commonSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/common.php'))
 if (-not $commonSource.Contains('[20, 30, 40, 50, 60, 70, 80, 90, 100]')) { throw 'The complete Manual speed list is missing.' }
 if (-not $commonSource.Contains("'pollSeconds' => 5") -or -not $commonSource.Contains('max(5, min(300')) { throw 'Five-second telemetry polling is not configured.' }
@@ -148,9 +152,12 @@ foreach ($marker in 'md12xx_merge_settings_config', 'server-authoritative', "`$s
 }
 if ($commonSource.IndexOf('if (!is_file($marker)) return false;') -gt $commonSource.IndexOf("glob('/proc/[0-9]*/cmdline')")) { throw 'Idle controller still scans every process for commissioning.' }
 if (-not $commonSource.Contains('md12xx_fuser_binary')) { throw 'Fail-closed serial ownership check is missing.' }
+if (-not $commonSource.Contains('md12xx_serial_path_is_safe')) { throw 'Strict persistent serial path validation is missing.' }
 $apiSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/api.php'))
 if (-not $apiSource.Contains('md12xx_merge_settings_config($current, $decoded)')) { throw 'Settings saves do not use the server-authoritative shelf merge.' }
 if (-not $apiSource.Contains('$activeId === $id && md12xx_commission_active()')) { throw 'Stale commissioning jobs can still appear to run forever.' }
+if ($apiSource.Contains('$_REQUEST')) { throw 'The API must use method-specific GET and POST inputs.' }
+if (-not $apiSource.Contains("`$method === 'POST' ? (`$_POST['action'] ?? 'status') : (`$_GET['action'] ?? 'status')")) { throw 'Method-specific API action parsing is missing.' }
 foreach ($speed in 20, 30, 40, 50, 60, 70, 80, 90, 100) {
     if (-not $pageSource.Contains("value=`"$speed`">$speed%</option>")) { throw "Manual speed $speed% is missing from Settings." }
 }

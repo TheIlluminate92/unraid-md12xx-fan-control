@@ -2,7 +2,7 @@
 <Plugin>
   <Name>MD12xx Fan Control</Name>
   <PluginURL>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg</PluginURL>
-  <Support>https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues</Support>
+  <Support>https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/</Support>
   <Project>https://github.com/TheIlluminate92/unraid-md12xx-fan-control</Project>
   <ReadMe>https://github.com/TheIlluminate92/unraid-md12xx-fan-control#readme</ReadMe>
   <Icon>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/icon.svg</Icon>

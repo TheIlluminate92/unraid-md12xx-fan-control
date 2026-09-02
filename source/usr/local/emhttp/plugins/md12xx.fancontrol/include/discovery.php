@@ -63,7 +63,7 @@ function md12xx_discovery_probe(string $port, int $responseSeconds): array
         'responsePreview' => '',
         'message' => '',
     ];
-    if ($port === '' || !str_starts_with($port, '/dev/serial/by-id/') || !file_exists($port)) {
+    if ($port === '' || !md12xx_serial_path_is_safe($port) || !file_exists($port)) {
         return array_replace($base, ['probeState' => 'missing', 'message' => 'Persistent serial device is missing']);
     }
     if (md12xx_fuser_binary() === null) {

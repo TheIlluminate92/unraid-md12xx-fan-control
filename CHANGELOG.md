@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.7 - 2026-09-02
+
+- Rejects nested, traversal, control-character, and malformed serial adapter paths before any hardware access.
+- Uses method-specific GET and POST action parsing in the WebGUI API, matching Unraid's plugin security guidance.
+- Adds regression checks for crafted serial paths and method-specific request handling.
+- Uses the public Unraid support thread in release and Community Apps metadata.
+
 ## 0.4.6 - 2026-09-02
 
 - Shows the friendly **MD12xx Fan Control** name and a useful description on Unraid's Plugins page while retaining the stable internal package ID.
@@ -131,4 +138,3 @@
 - Preserved Auto, Manual, hysteresis, fail-safe, locking, RPM telemetry, and command reassertion behavior.
 - Added a guarded per-shelf 20%/50% commissioning test.
 - Defaults to disabled and blocks writes when a known legacy Docker controller is running.
-

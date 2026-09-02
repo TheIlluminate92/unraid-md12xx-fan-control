@@ -58,6 +58,16 @@ function md12xx_slug(string $value): string
     return $slug !== '' ? substr($slug, 0, 48) : 'shelf';
 }
 
+function md12xx_serial_path_is_safe(string $port): bool
+{
+    $prefix = '/dev/serial/by-id/';
+    if (!str_starts_with($port, $prefix)) return false;
+    $identifier = substr($port, strlen($prefix));
+    if ($identifier === '' || $identifier === '.' || $identifier === '..') return false;
+    if (str_contains($identifier, '/') || str_contains($identifier, '\\')) return false;
+    return preg_match('/[\x00-\x1F\x7F]/', $identifier) !== 1;
+}
+
 function md12xx_validate_config(array $input): array
 {
     $defaults = md12xx_defaults();
@@ -133,7 +143,7 @@ function md12xx_validate_config(array $input): array
         $model = strtoupper(trim((string) ($shelf['model'] ?? 'MD1200')));
         if (!in_array($model, ['MD1200', 'MD1220'], true)) throw new InvalidArgumentException('Shelf model must be MD1200 or MD1220');
         $port = trim((string) ($shelf['serialPort'] ?? ''));
-        if ($port !== '' && (!str_starts_with($port, '/dev/serial/by-id/') || str_contains($port, "\0"))) {
+        if ($port !== '' && !md12xx_serial_path_is_safe($port)) {
             throw new InvalidArgumentException('Serial adapters must use a persistent /dev/serial/by-id path');
         }
         if ($port !== '' && isset($serialPorts[$port])) throw new InvalidArgumentException('A serial adapter cannot be assigned to more than one shelf');

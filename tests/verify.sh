@@ -165,6 +165,9 @@ grep -Fq "unset(\$controlConfig['discovery'], \$controlConfig['pollSeconds'])" "
 grep -Fq 'Setup is complete; turn off Test likely FTDI adapters' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Setup is already complete; active connection testing was turned off.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'icon="server"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
+grep -Fq 'support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
+grep -Fq '<Support>https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/</Support>' "$PROJECT_DIR/plugins/md12xx.fancontrol.xml"
+grep -Fq '<Forum>https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/</Forum>' "$PROJECT_DIR/ca_profile.xml"
 ! grep -Fq 'icon="fan"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'Configuration, commissioning results, and runtime state were deleted.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
@@ -198,6 +201,19 @@ php -r '
   $config["manualSpeed"] = 100;
   $validated = md12xx_validate_config($config);
   if ($validated["manualSpeed"] !== 100) exit(1);
+  foreach ([
+    "/dev/serial/by-id/../sda",
+    "/dev/serial/by-id/nested/device",
+    "/dev/serial/by-id/..\\sda",
+    "/dev/serial/by-id/",
+    "/dev/ttyUSB0"
+  ] as $unsafePort) {
+    if (md12xx_serial_path_is_safe($unsafePort)) exit(1);
+    $test = md12xx_defaults();
+    $test["shelves"] = [["id" => "shelf-a", "serialPort" => $unsafePort]];
+    try { md12xx_validate_config($test); exit(1); } catch (InvalidArgumentException $expected) {}
+  }
+  if (!md12xx_serial_path_is_safe("/dev/serial/by-id/usb-FTDI_USB_Serial_Converter_TEST-if00-port0")) exit(1);
   $config["shelves"] = [["id" => "shelf-a", "commissioned" => true]];
   $config["discovery"]["autoProbeKnownFtdi"] = true;
   $disabled = md12xx_disable_active_discovery_after_setup($config);

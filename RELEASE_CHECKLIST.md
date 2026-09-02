@@ -27,6 +27,6 @@
 
 - [ ] At least one MD1200 report from a different HBA/firmware/Unraid combination.
 - [ ] At least one MD1220 hardware report.
-- [ ] Public Unraid forum support thread exists and replaces the temporary GitHub-only support link where appropriate.
+- [x] Public Unraid forum support thread exists and replaces the temporary GitHub-only support link where appropriate.
 - [x] Community Apps Validate and Scan both pass with one reachable plugin manifest, no hard errors, and no template warnings.
 - [x] Listing screenshots are captured from the final Settings page.
