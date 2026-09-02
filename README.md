@@ -91,6 +91,8 @@ wget -O /tmp/md12xx.fancontrol.plg \
 plugin install /tmp/md12xx.fancontrol.plg
 ```
 
+The WebGUI installer requires a current authenticated Unraid session and a valid CSRF token. If **Install** only clears the URL and the system log records no plugin-manager attempt, reconnect through the server's direct local WebGUI and sign in again; remote or proxied sessions that do not expose the Unraid token cannot submit the native installer form. This failure occurs before the plugin URL is downloaded.
+
 Open **Settings → Utilities → MD12xx Fan Control**, expand **Setup directions**, and leave the controller disabled until every shelf passes **Identify & test**. The app shows live progress for the guarded 20% → 50% → 20% test and continues the server-side safety workflow if the page is closed. **Refresh discovery** saves only the discovery options and runs one guarded inventory pass immediately. Active FTDI testing is a temporary setup tool and turns off after every configured shelf is commissioned.
 
 If discovery identifies the selected console but reports that it is not the active/primary EMM, move the service connection to the active EMM and refresh discovery before commissioning. Do not bypass that identity check.
