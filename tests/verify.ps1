@@ -11,6 +11,7 @@ try { while ($reader.Read()) { } } finally { $reader.Dispose() }
 
 $text = [System.IO.File]::ReadAllText($manifest)
 $required = @(
+    '/usr/local/emhttp/plugins/md12xx.fancontrol/README.md',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/MD12xxFanControl.page',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/include/common.php',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php',
@@ -29,6 +30,9 @@ $required = @(
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh'
 )
 foreach ($path in $required) { if (-not $text.Contains("Name=`"$path`"")) { throw "Missing packaged file: $path" } }
+if (-not $text.Contains('**MD12xx Fan Control**') -or -not $text.Contains('Dell PowerVault MD1200 and MD1220 disk shelves.')) {
+    throw 'Plugins-page display name or description is missing from the packaged README.'
+}
 
 foreach ($xmlPath in @('ca_profile.xml', 'plugins/md12xx.fancontrol.xml', 'icon.svg')) {
     $document = [xml][System.IO.File]::ReadAllText((Join-Path $projectRoot $xmlPath))
