@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.6 - 2026-09-02
+
+- Shows the friendly **MD12xx Fan Control** name and a useful description on Unraid's Plugins page while retaining the stable internal package ID.
+- Adds release checks that require the Plugins-page display metadata to remain packaged.
+
 ## 0.4.5 - 2026-09-02
 
 - Uses Unraid's supported stock `server` icon on the Plugins page while retaining the existing Settings tile icon.
