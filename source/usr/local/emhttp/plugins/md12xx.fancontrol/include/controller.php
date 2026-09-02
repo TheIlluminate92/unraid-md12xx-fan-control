@@ -425,4 +425,3 @@ while ($running) {
     $previousMode = $mode;
     if ($runOnce) break;
 }
-
