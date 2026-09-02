@@ -46,6 +46,8 @@ foreach ($screenshot in 'controller-and-discovery.png', 'connection-discovery.pn
 }
 $hardwareForm = [System.IO.File]::ReadAllText((Join-Path $projectRoot '.github/ISSUE_TEMPLATE/hardware-report.yml'))
 $bugForm = [System.IO.File]::ReadAllText((Join-Path $projectRoot '.github/ISSUE_TEMPLATE/bug-report.yml'))
+$issueConfig = [System.IO.File]::ReadAllText((Join-Path $projectRoot '.github/ISSUE_TEMPLATE/config.yml'))
+if (-not $issueConfig.Contains('/security/advisories/new')) { throw 'Private vulnerability report link is not direct.' }
 foreach ($field in 'Shelf model', 'Unraid version', 'HBA and driver', 'EMM and cabling arrangement', 'Commissioning result', 'Discovery summary', 'Disk mapping', 'Competing fan controller state during testing', 'Optional redacted diagnostics') {
     if (-not $hardwareForm.Contains($field)) { throw "Hardware issue form is missing: $field" }
 }
@@ -192,13 +194,18 @@ if (-not $downloadSource.Contains('basename(') -or -not $downloadSource.Contains
 if ($text.Contains('@@')) { throw 'An unexpanded build placeholder remains.' }
 
 $checksumPath = Join-Path $projectRoot 'releases/SHA256SUMS'
+$checksummedReleases = @()
 foreach ($line in [System.IO.File]::ReadAllLines($checksumPath)) {
     if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid release checksum entry: $line" }
+    $checksummedReleases += $Matches[2]
     $releasePath = Join-Path $projectRoot "releases/$($Matches[2])"
     if (-not (Test-Path $releasePath)) { throw "Checksummed release is missing: $($Matches[2])" }
     $actual = (Get-FileHash -Algorithm SHA256 $releasePath).Hash.ToLowerInvariant()
     if ($actual -ne $Matches[1]) { throw "Release checksum mismatch: $($Matches[2])" }
 }
+$publishedReleases = @(Get-ChildItem (Join-Path $projectRoot 'releases') -Filter '*.plg' -File | ForEach-Object Name)
+if (@(Compare-Object $publishedReleases $checksummedReleases).Count -ne 0) { throw 'Published release and checksum inventory differ.' }
+if (Test-Path (Join-Path $projectRoot 'candidates')) { throw 'Release-candidate artifacts must not be published on the main release tree.' }
 
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
