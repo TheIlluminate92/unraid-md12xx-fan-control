@@ -140,6 +140,7 @@ grep -Fq 'link.download = file' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Icon="icon-disks"' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'Tag="icon-disk"' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'Version @@VERSION@@' "$PLUGIN_DIR/MD12xxFanControl.page"
+grep -Fq '/security/advisories/new' "$PROJECT_DIR/.github/ISSUE_TEMPLATE/config.yml"
 grep -Fq 'Report issue on GitHub' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq 'Development transparency:' "$PLUGIN_DIR/MD12xxFanControl.page"
 grep -Fq "'7.3.2','>='" "$PLUGIN_DIR/MD12xxFanControl.page"
@@ -183,6 +184,10 @@ CONTROLLER_STOP_LINE="$(grep -nF "'/md12xx.fancontrol/include/controller.php'" "
 grep -Fq 'basename(' "$PLUGIN_DIR/include/download.php"
 
 (cd "$PROJECT_DIR/releases" && sha256sum -c SHA256SUMS)
+for RELEASE_FILE in "$PROJECT_DIR"/releases/*.plg; do
+  grep -Fq "  $(basename "$RELEASE_FILE")" "$PROJECT_DIR/releases/SHA256SUMS"
+done
+[ ! -d "$PROJECT_DIR/candidates" ]
 
 php -r '
   require $argv[1];
