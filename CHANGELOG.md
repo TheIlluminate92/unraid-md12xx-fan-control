@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7 - 2026-09-02
+
+- Rejects nested, traversal, control-character, and malformed serial adapter paths before any hardware access.
+- Uses method-specific GET and POST action parsing in the WebGUI API, matching Unraid's plugin security guidance.
+- Adds regression checks for crafted serial paths and method-specific request handling.
+
 ## 0.4.6 - 2026-09-02
 
 - Shows the friendly **MD12xx Fan Control** name and a useful description on Unraid's Plugins page while retaining the stable internal package ID.
