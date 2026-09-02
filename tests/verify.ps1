@@ -126,6 +126,8 @@ foreach ($marker in 'RESULT_DIR_FILE', 'MD12XX_JOB_DIR=', 'tar -czf', 'Results: 
 }
 $templateSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugin/md12xx.fancontrol.plg.in'))
 if (-not $templateSource.Contains('Setup is already complete; active connection testing was turned off.')) { throw 'Upgrade-time discovery shutdown is missing.' }
+if (-not $templateSource.Contains('icon="server"')) { throw 'Plugins page stock server icon is not configured.' }
+if ($templateSource.Contains('icon="fan"')) { throw 'Unsupported Plugins page fan icon was reintroduced.' }
 $commonSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/common.php'))
 if (-not $commonSource.Contains('[20, 30, 40, 50, 60, 70, 80, 90, 100]')) { throw 'The complete Manual speed list is missing.' }
 if (-not $commonSource.Contains("'pollSeconds' => 5") -or -not $commonSource.Contains('max(5, min(300')) { throw 'Five-second telemetry polling is not configured.' }
@@ -193,3 +195,4 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
+
