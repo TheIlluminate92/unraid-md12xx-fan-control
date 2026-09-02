@@ -1,0 +1,3392 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+  <!ENTITY name "md12xx.fancontrol">
+  <!ENTITY author "TheIlluminate92">
+  <!ENTITY version "0.4.6">
+  <!ENTITY launch "MD12xxFanControl">
+]>
+
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="server">
+<CHANGES>
+### 0.4.6 Beta
+- Shows the friendly MD12xx Fan Control name and description on Unraid's Plugins page without changing the internal package ID.
+- Verifies that the Plugins-page display metadata remains in every built installer.
+
+### 0.4.5 Beta
+- Uses Unraid's supported stock server icon on the Plugins page.
+- Restores the GitHub issue forms with native attachment-capable diagnostic text areas.
+- Records a successful overnight Auto-mode soak on the two-shelf MD1200 test system.
+
+### 0.4.4 Beta
+- Clarifies the tested service cable, FTDI adapter, HBA/SES path, model boundaries, and commissioning recovery steps.
+- States explicitly that HBA access is read-only and fan commands travel only through the selected USB serial console.
+- Adds concrete Community Apps requirements and private security-reporting enablement guidance.
+
+### 0.4.3 Beta
+- Supervises the fan controller, restarts unexpected exits with bounded backoff, and raises local Unraid failure/recovery notifications.
+- Exposes watchdog state in Settings and redacted local diagnostics.
+- Documents hardware prerequisites, adds Community Apps screenshots, and sets the tested minimum to Unraid 7.3.2.
+- Adds a privacy-first support flow: export diagnostics locally, review them, then open a public GitHub issue and attach them manually.
+- Adds optional diagnostic archive upload fields and mandatory privacy confirmations to the GitHub issue forms.
+- Documents AI-assisted development roles in Settings, project documentation, and Community Apps metadata.
+
+### 0.4.2 Beta
+- Disables serial adapters already selected by another shelf immediately, without a page refresh.
+
+### 0.4.1 Beta
+- Uses Unraid's stock Disk Settings icon metadata for a reliable Settings tile across themes.
+- Makes the Auto curve point count resize after typing or changing the requested count.
+- Makes Refresh discovery save only discovery options and run one guarded pass immediately.
+- Shows controller fault details, target reasons, telemetry state, and command state in the app.
+- Prevents duplicate hardware assignments and blocks configuration or control writes during Identify &amp; test.
+- Stops tests safely during update/uninstall and avoids rebuilding the form from completed jobs.
+- Fixes archive downloads, strengthens diagnostic redaction, and hardens inline configuration encoding.
+- Saves commissioning RPM calibration, verifies later commands against SES telemetry, and detects response drift.
+- Uses fail-safe speed for incomplete or changed disk mappings and recovers stale commissioning locks.
+- Keeps Settings open while downloading local diagnostic and test archives.
+
+### 0.4.0 Beta
+- Adds fully app-driven Identify &amp; test with live progress and safe server-side continuation.
+- Adds a packaged Settings icon and fixes shelf-name editing so refreshes do not steal focus.
+- Uses generic competing-controller messages and reports blocked shelf writes accurately.
+- Lowers hardware telemetry polling to 5 seconds while saved control changes remain immediate.
+- Removes installation-specific wording from the public interface and documentation.
+
+### 0.3.0 Beta
+- Adds Manual speeds from 20% through 100% in 10% increments.
+- Turns off active FTDI testing automatically after setup; passive inventory remains available.
+- Makes uninstall a complete reset that removes persistent configuration and commissioning results.
+- Adds expandable setup help, clearer disk mappings, a 2–10 point stacked Auto curve, and local redacted diagnostics.
+- Adds Community Apps metadata, hardware-report forms, privacy/security documentation, and generic MD1220 test coverage.
+- MD1200 is hardware-tested; MD1220 and additional HBA/firmware reports are requested.
+
+### 0.2.3
+- Uses the hardware-proven reader-first serial session for every speed command.
+- Requires independent SES RPM proof of the final 20% restoration before commissioning succeeds.
+
+### 0.2.2
+- Maps disks through the verified SES device's SAS expander when enclosure-class links are unavailable.
+- Prevents discovery from racing the commissioning test's final 20% safety restore.
+
+### 0.2.1
+- Fixes BlueDress speed writes by keeping the serial console open read/write and consuming its replies.
+
+### 0.2.0
+- Adds RPM-proven automatic serial-to-SES identification and automatic Unraid disk assignment.
+- Keeps a manual mapping fallback and refuses ambiguous or empty automatic mappings.
+
+### 0.1.3
+- Fixes the blank Unraid Settings page caused by page-builder path resolution.
+
+### 0.1.2
+- Moves updates and support to the dedicated standalone repository.
+
+### 0.1.1
+- Validates conservative discovery against mixed USB serial and SES hardware.
+- Fixes the controller startup parser and adds an installation banner.
+
+### 0.1.0
+- Initial standalone beta for Dell PowerVault MD1200 and MD1220 shelves.
+- Adds multi-shelf configuration, conservative background discovery, Auto/Manual control, independent RPM telemetry, locking, and guarded commissioning.
+- Optional serial verification is read-only, requires an MD12xx-shaped `_who` response, and is blocked while another fan controller is active.
+</CHANGES>
+
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+set -e
+RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
+
+if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
+  "$RUNTIME_DIR/scripts/stop.sh"
+fi
+rm -rf "$RUNTIME_DIR"
+mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/assets/css/settings.css">
+<INLINE>
+<![CDATA[
+.md12xx-page { max-width: 1180px; margin: 18px auto 40px; color: var(--text-color, #ddd); }
+.md12xx-hero, .md12xx-title-row, .md12xx-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.md12xx-hero-actions { display: flex; align-items: center; gap: 10px; }
+.md12xx-hero h2, .md12xx-panel h3 { margin: 0; }
+.md12xx-hero p { margin: 5px 0 0; opacity: .72; }
+.md12xx-beta { margin: 14px 0 0; padding: 10px 12px; color: #ffd166; background: rgba(255,209,102,.08); border-left: 3px solid #ffd166; }
+.md12xx-controller-detail { margin: 12px 0 0; padding: 10px 12px; color: #ffb3b3; background: rgba(255,107,107,.08); border-left: 3px solid #ff6b6b; }
+.md12xx-controller-detail.is-attention { color: #ffd166; background: rgba(255,209,102,.08); border-left-color: #ffd166; }
+.md12xx-help { margin-top: 12px; }
+.md12xx-help ol { margin: 14px 0 0 22px; padding: 0; line-height: 1.55; }
+.md12xx-help li + li { margin-top: 7px; }
+.md12xx-panel { margin-top: 16px; padding: 18px; background: #17191c; border: 1px solid #33383e; border-radius: 4px; }
+.md12xx-grid { display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 14px 18px; margin-top: 15px; }
+.md12xx-grid label, .md12xx-shelf label { display: flex; flex-direction: column; gap: 6px; }
+.md12xx-grid small, .md12xx-shelf small { opacity: .65; }
+.md12xx-page input, .md12xx-page select { box-sizing: border-box; min-height: 34px; padding: 6px 9px; color: #eee; background: #0e1012; border: 1px solid #424850; }
+.md12xx-page input[type="checkbox"] { width: 22px; min-height: 22px; }
+.md12xx-page button, .md12xx-button-link { box-sizing: border-box; padding: 8px 14px; color: #f2f2f2; background: #292e34; border: 1px solid #555d66; cursor: pointer; }
+.md12xx-page button:hover, .md12xx-button-link:hover { border-color: #f15a2b; }
+.md12xx-button-link { display: inline-block; text-decoration: none; }
+.md12xx-page .md12xx-primary { background: #cf4a20; border-color: #f15a2b; }
+.md12xx-pill { padding: 5px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; letter-spacing: .08em; background: #343a40; }
+.md12xx-pill.is-normal { color: #70df9b; }.md12xx-pill.is-attention { color: #ffd166; }.md12xx-pill.is-fault { color: #ff6b6b; }
+.md12xx-message { margin-top: 14px; padding: 11px 13px; border-left: 3px solid #f15a2b; background: #24282d; }
+.md12xx-warning { margin: 16px 0 0; color: #ffd166; }
+.md12xx-discovery-summary { margin: 14px 0 0; padding: 10px 12px; border-left: 3px solid #4bb3fd; background: rgba(75,179,253,.08); }
+.md12xx-shelf { margin-top: 14px; padding: 14px; border: 1px solid #343a40; background: #111316; }
+.md12xx-shelf-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.md12xx-shelf-head strong { font-size: 15px; }
+.md12xx-shelf-grid { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 13px 18px; }
+.md12xx-shelf .md12xx-disks { min-height: 120px; }
+.md12xx-manual { margin-top: 12px; border: 1px solid #343a40; padding: 10px 12px; background: #0d0f11; }
+.md12xx-manual summary { cursor: pointer; color: #f4b942; font-weight: 600; }
+.md12xx-manual[open] summary { margin-bottom: 12px; }
+.md12xx-assignment-summary { line-height: 1.45; }
+.md12xx-mapped-disks { margin-top: 12px; padding: 10px 12px; background: rgba(75,179,253,.08); border-left: 3px solid #4bb3fd; line-height: 1.45; }
+.md12xx-mapped-disks strong { display: block; margin-bottom: 3px; }
+.md12xx-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 12px; }
+.md12xx-status span { padding: 8px; background: #1c2024; font-size: 12px; }
+.md12xx-status b { display: block; margin-top: 3px; font-size: 15px; }
+.md12xx-commission { margin-top: 12px; padding: 12px; background: #090a0b; border: 1px solid #343a40; }
+.md12xx-commission-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.md12xx-commission p { margin: 9px 0 0; opacity: .72; line-height: 1.4; }
+.md12xx-commission-phase { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.md12xx-commission-phase.is-running { color: #4bb3fd; }
+.md12xx-commission-phase.is-passed { color: #70df9b; }
+.md12xx-commission-phase.is-failed { color: #ff6b6b; }
+.md12xx-commission-output { max-height: 250px; margin: 12px 0 0; padding: 10px; overflow: auto; white-space: pre-wrap; color: #d9e0e6; background: #050607; border: 1px solid #2d3238; font: 12px/1.45 monospace; }
+.md12xx-commission-result { display: inline-block; margin-top: 10px; color: #4bb3fd; }
+.md12xx-commission-result[hidden] { display: none; }
+.md12xx-page button:disabled { cursor: not-allowed; opacity: .5; }
+.md12xx-point-count { display: flex; align-items: center; gap: 8px; }.md12xx-point-count input { width: 72px; }
+.md12xx-curve { display: grid; grid-template-columns: repeat(var(--md12xx-curve-columns, 4), minmax(110px, 1fr)); gap: 12px; margin-top: 14px; }
+.md12xx-curve-step { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #111316; border: 1px solid #343a40; }
+.md12xx-curve-step label { display: flex; flex-direction: column; gap: 5px; }
+.md12xx-inline { display: flex; align-items: center; gap: 8px; margin-top: 14px; }.md12xx-inline input { width: 90px; }
+.md12xx-support p { line-height: 1.5; }
+.md12xx-support-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.md12xx-credit { margin: 14px 0 0; opacity: .78; }
+.md12xx-actions { margin-top: 18px; justify-content: flex-end; }
+@media (max-width: 850px) { .md12xx-grid, .md12xx-shelf-grid { grid-template-columns: 1fr; }.md12xx-curve { grid-template-columns: repeat(2, 1fr); }.md12xx-status { grid-template-columns: repeat(2, 1fr); }.md12xx-title-row { align-items: flex-start; }.md12xx-hero { align-items: flex-start; }.md12xx-hero-actions { flex-direction: column-reverse; align-items: flex-end; } }
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/assets/icon.svg">
+<INLINE>
+<![CDATA[
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">MD12xx Fan Control</title>
+  <desc id="desc">A Dell disk shelf with a cooling fan</desc>
+  <rect x="18" y="48" width="220" height="160" rx="16" fill="#17191c" stroke="#f15a2b" stroke-width="10"/>
+  <g fill="#4b5158">
+    <rect x="36" y="68" width="20" height="52" rx="3"/><rect x="62" y="68" width="20" height="52" rx="3"/>
+    <rect x="88" y="68" width="20" height="52" rx="3"/><rect x="114" y="68" width="20" height="52" rx="3"/>
+    <rect x="140" y="68" width="20" height="52" rx="3"/><rect x="166" y="68" width="20" height="52" rx="3"/>
+  </g>
+  <g transform="translate(188 155)" fill="#f15a2b">
+    <circle r="12"/>
+    <path d="M0-14C-7-44 15-46 22-34c7 13-6 27-22 34zM12 7c30-8 38 13 29 24-9 12-27 4-41-17zM-12 7c-22 22-39 7-35-7 4-14 23-17 47 0z"/>
+  </g>
+  <g fill="#70df9b"><circle cx="45" cy="180" r="5"/><circle cx="63" cy="180" r="5"/></g>
+  <path d="M91 177h52" stroke="#69717a" stroke-width="8" stroke-linecap="round"/>
+</svg>
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js">
+<INLINE>
+<![CDATA[
+(function () {
+  "use strict";
+
+  var boot = window.MD12xxBootstrap || {};
+  var endpoint = boot.endpoint || "/plugins/md12xx.fancontrol/include/api.php";
+  var downloadEndpoint = endpoint.replace(/api\.php(?:\?.*)?$/, "download.php");
+  var config = JSON.parse(JSON.stringify(boot.config || {}));
+  var persistedConfig = JSON.parse(JSON.stringify(boot.config || {}));
+  var discovery = { serialPorts: [], sesDevices: [], disks: [] };
+  var stateById = {};
+  var controllerState = {};
+  var commissionJobs = {};
+  var commissionTimers = {};
+  var curveResizeTimer = null;
+
+  function byId(id) { return document.getElementById(id); }
+  function esc(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+  function message(text, bad) {
+    var node = byId("md12xx-message");
+    node.hidden = !text;
+    node.textContent = text || "";
+    node.style.borderLeftColor = bad ? "#ff6b6b" : "#70df9b";
+  }
+  function option(value, label, selected, disabled) {
+    return '<option value="' + esc(value) + '"' + (selected ? " selected" : "") + (disabled ? " disabled" : "") + ">" + esc(label) + "</option>";
+  }
+  function downloadLocalArchive(type, file) {
+    var link = document.createElement("a");
+    link.href = downloadEndpoint + "?type=" + encodeURIComponent(type) + "&file=" + encodeURIComponent(file);
+    link.download = file;
+    link.hidden = true;
+    document.body.appendChild(link);
+    link.click();
+    window.setTimeout(function () { link.remove(); }, 0);
+  }
+  function slug(value) {
+    var result = String(value || "shelf").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+    return (result || "shelf").slice(0, 48);
+  }
+  function liveControlSignature(value) {
+    var shelves = Array.isArray(value.shelves) ? value.shelves : [];
+    return JSON.stringify({
+      mode: value.mode,
+      manualSpeed: value.manualSpeed,
+      reassertSeconds: value.reassertSeconds,
+      sensorFailureSpeed: value.sensorFailureSpeed,
+      hysteresisC: value.hysteresisC,
+      curve: value.curve,
+      shelves: shelves.map(function (shelf) {
+        return {
+          id: shelf.id,
+          enabled: shelf.enabled,
+          commissioned: shelf.commissioned,
+          model: shelf.model,
+          serialPort: shelf.serialPort,
+          sesAddress: shelf.sesAddress,
+          sesDevice: shelf.sesDevice,
+          diskAssignment: shelf.diskAssignment,
+          disks: shelf.disks
+        };
+      })
+    });
+  }
+
+  function valuesUsedByOtherShelves(key, shelfId) {
+    var used = {};
+    (Array.isArray(config.shelves) ? config.shelves : []).forEach(function (shelf) {
+      if (shelf.id === shelfId) return;
+      var values = key === "disks" ? (Array.isArray(shelf.disks) ? shelf.disks : []) : [shelf[key]];
+      values.forEach(function (value) { if (value) used[String(value)] = true; });
+    });
+    return used;
+  }
+
+  function serialOptions(selected, shelfId) {
+    var values = discovery.serialPorts.map(function (item) {
+      return typeof item === "string" ? { path: item, probeState: "passive-only" } : item;
+    });
+    var used = valuesUsedByOtherShelves("serialPort", shelfId);
+    if (selected && !values.some(function (item) { return item.path === selected; })) values.unshift({ path: selected, probeState: "saved" });
+    return option("", "Select persistent serial adapter…", !selected) + values.map(function (item) {
+      var suffix = item.consoleVerified ? " · MD12xx verified" : item.knownFtdiCandidate ? " · FTDI candidate" : " · " + (item.probeState || "detected");
+      if (item.message && ["fault", "busy", "missing", "no-response", "unrecognized"].indexOf(item.probeState) >= 0) suffix += " · " + item.message;
+      if (used[item.path]) suffix += " · already assigned";
+      return option(item.path, item.path + suffix, item.path === selected, !!used[item.path]);
+    }).join("");
+  }
+
+  function renderDiscoverySummary() {
+    var ports = Array.isArray(discovery.serialPorts) ? discovery.serialPorts : [];
+    var ses = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    var verified = ports.filter(function (item) { return item && typeof item === "object" && item.consoleVerified; }).length;
+    var blocked = Array.isArray(discovery.blockedBy) ? discovery.blockedBy : [];
+    var shelves = Array.isArray(config.shelves) ? config.shelves : [];
+    var setupComplete = shelves.length > 0 && shelves.every(function (shelf) { return !!shelf.commissioned; });
+    var text = ports.length + " serial adapter" + (ports.length === 1 ? "" : "s") + ", " + ses.length + " SES enclosure" + (ses.length === 1 ? "" : "s") + ", " + verified + " verified MD12xx console" + (verified === 1 ? "" : "s") + ".";
+    if (discovery.error) text += " Discovery error: " + discovery.error + ".";
+    if (discovery.stale) text += " Discovery data is stale; the background worker may not be running.";
+    if (blocked.length) text += " Active probing blocked by: " + blocked.join(", ") + ".";
+    else if (discovery.autoProbeKnownFtdi && !discovery.activeProbeAllowed) text += " Active probing is paused while fan control is enabled.";
+    if (setupComplete && discovery.autoProbeKnownFtdi) text += " Setup is complete; turn off Test likely FTDI adapters unless you are troubleshooting.";
+    byId("md12xx-discovery-summary").textContent = text;
+  }
+  function sesOptions(shelf) {
+    var selected = (shelf.sesAddress || "") + "|" + (shelf.sesDevice || "");
+    var values = discovery.sesDevices.slice();
+    var usedAddresses = valuesUsedByOtherShelves("sesAddress", shelf.id);
+    var usedDevices = valuesUsedByOtherShelves("sesDevice", shelf.id);
+    if (shelf.sesAddress && !values.some(function (item) { return item.address === shelf.sesAddress; })) {
+      values.unshift({ address: shelf.sesAddress, device: shelf.sesDevice, vendor: "Saved", model: "mapping" });
+    }
+    return option("|", "Select SES enclosure…", !shelf.sesAddress && !shelf.sesDevice) + values.map(function (item) {
+      var value = String(item.address || "") + "|" + String(item.device || "");
+      var label = [item.device, item.address, item.vendor, item.model].filter(Boolean).join(" · ");
+      var used = !!usedAddresses[item.address] || !!usedDevices[item.device];
+      return option(value, label + (used ? " · already assigned" : ""), value === selected, used);
+    }).join("");
+  }
+  function diskOptions(selected, shelfId) {
+    selected = Array.isArray(selected) ? selected : [];
+    var values = discovery.disks.map(function (disk) { return disk.name; });
+    var used = valuesUsedByOtherShelves("disks", shelfId);
+    selected.forEach(function (name) { if (values.indexOf(name) < 0) values.push(name); });
+    return values.map(function (name) {
+      var isSelected = selected.indexOf(name) >= 0;
+      return option(name, name + (used[name] ? " · already assigned" : ""), isSelected, !!used[name] && !isSelected);
+    }).join("");
+  }
+  function assignmentMode(shelf) {
+    if (shelf.diskAssignment === "automatic" || shelf.diskAssignment === "manual") return shelf.diskAssignment;
+    return Array.isArray(shelf.disks) && shelf.disks.length ? "manual" : "automatic";
+  }
+  function selectedSes(shelf) {
+    var devices = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    return devices.find(function (item) {
+      return (shelf.sesAddress && item.address === shelf.sesAddress) || (!shelf.sesAddress && shelf.sesDevice && item.device === shelf.sesDevice);
+    }) || null;
+  }
+  function assignmentSummary(shelf) {
+    if (assignmentMode(shelf) === "manual") {
+      var manual = Array.isArray(shelf.disks) ? shelf.disks : [];
+      return manual.length ? "Manual override: " + manual.join(", ") : "Manual override selected; choose at least one Unraid disk below.";
+    }
+    var ses = selectedSes(shelf);
+    var saved = Array.isArray(shelf.disks) ? shelf.disks : [];
+    var current = ses && Array.isArray(ses.disks) ? ses.disks : [];
+    var disks = saved.length ? saved : current;
+    if (saved.length && current.length) {
+      var savedKey = saved.slice().sort().join("\n");
+      var currentKey = current.slice().sort().join("\n");
+      if (savedKey !== currentKey) return "Commissioned mapping: " + saved.join(", ") + ". Current discovery differs; fan control will use fail-safe speed until the shelf is reviewed.";
+    }
+    if (disks.length) return "Automatically detected: " + disks.join(", ");
+    if (!shelf.sesAddress && !shelf.sesDevice) return "Select a verified serial adapter, save, then run Identify & test to find its enclosure and disks.";
+    return (ses && ses.diskMappingMessage) || "No automatic disk mapping was found. Open Manual mapping only if the identification test cannot resolve it.";
+  }
+
+  function calibrationSummary(shelf) {
+    var calibration = shelf && shelf.calibration && typeof shelf.calibration === "object" ? shelf.calibration : {};
+    var low = Number(calibration.rpmAt20 || 0);
+    var high = Number(calibration.rpmAt50 || 0);
+    if (!shelf.commissioned) return "Commissioned: no";
+    if (low > 0 && high > low) return "Commissioned: yes · 20% " + low + " RPM · 50% " + high + " RPM";
+    return "Commissioned: yes · telemetry calibration missing; run Identify & test again";
+  }
+  function mappedDisks(shelf) {
+    var ses = selectedSes(shelf);
+    var saved = Array.isArray(shelf.disks) ? shelf.disks : [];
+    var disks = assignmentMode(shelf) === "automatic" && !saved.length && ses && Array.isArray(ses.disks) ? ses.disks : saved;
+    return Array.isArray(disks) ? disks : [];
+  }
+
+  function shelfDraft(card) {
+    var ses = card.querySelector(".md12xx-ses").value.split("|");
+    return {
+      id: card.getAttribute("data-id"),
+      name: card.querySelector(".md12xx-name").value.trim(),
+      model: card.querySelector(".md12xx-model").value,
+      serialPort: card.querySelector(".md12xx-port").value,
+      sesAddress: ses[0] || "",
+      sesDevice: ses[1] || "",
+      diskAssignment: card.querySelector(".md12xx-assignment").value,
+      disks: Array.prototype.map.call(card.querySelector(".md12xx-disks").selectedOptions, function (item) { return item.value; })
+    };
+  }
+
+  function updateMappingPreview(card) {
+    var shelf = shelfDraft(card);
+    card.querySelector(".md12xx-assignment-summary").textContent = assignmentSummary(shelf);
+    var disks = mappedDisks(shelf);
+    card.querySelector(".md12xx-mapped-disk-list").textContent = disks.length ? disks.join(", ") : "None detected yet";
+  }
+
+  function commissioningRunning() {
+    return Object.keys(commissionJobs).some(function (id) { return !!(commissionJobs[id] && commissionJobs[id].running); });
+  }
+
+  function updateActionAvailability() {
+    var running = commissioningRunning();
+    byId("md12xx-save").disabled = running;
+    byId("md12xx-add").disabled = running;
+    byId("md12xx-refresh").disabled = running;
+    Array.prototype.forEach.call(document.querySelectorAll(".md12xx-remove"), function (button) { button.disabled = running; });
+  }
+
+  function commissionPhaseLabel(phase) {
+    return {
+      "not-started": "Ready",
+      "starting": "Starting…",
+      "verifying-console": "Verifying console…",
+      "testing-20": "Recording 20% baseline…",
+      "testing-50": "Testing 50% response…",
+      "restoring": "Returning to 20%…",
+      "verifying-restore": "Verifying final 20% state…",
+      "passed": "Passed",
+      "failed": "Failed"
+    }[phase] || phase || "Ready";
+  }
+
+  function updateCommissionCard(id) {
+    var card = Array.prototype.find.call(document.querySelectorAll(".md12xx-shelf"), function (item) { return item.getAttribute("data-id") === id; });
+    if (!card) return;
+    var job = commissionJobs[id] || { phase: "not-started", running: false, output: "" };
+    var button = card.querySelector(".md12xx-commission-start");
+    var phase = card.querySelector(".md12xx-commission-phase");
+    var output = card.querySelector(".md12xx-commission-output");
+    var result = card.querySelector(".md12xx-commission-result");
+    button.disabled = !!job.running || !!config.enabled || byId("md12xx-enabled").checked || !card.querySelector(".md12xx-port").value;
+    button.textContent = job.running ? "Identify & test running…" : "Identify & test";
+    phase.textContent = commissionPhaseLabel(job.phase);
+    phase.className = "md12xx-commission-phase is-" + (job.phase === "passed" ? "passed" : job.phase === "failed" ? "failed" : job.running ? "running" : "ready");
+    output.textContent = job.output || "";
+    output.hidden = !job.output;
+    if (!output.hidden) output.scrollTop = output.scrollHeight;
+    result.hidden = !job.resultFile;
+    if (job.resultFile) {
+      result.href = downloadEndpoint + "?type=commissioning&file=" + encodeURIComponent(job.resultFile);
+      result.setAttribute("download", job.resultFile);
+    }
+    updateActionAvailability();
+  }
+
+  function updateShelfStatus() {
+    Array.prototype.forEach.call(document.querySelectorAll(".md12xx-shelf"), function (card) {
+      var id = card.getAttribute("data-id");
+      var status = stateById[id] || {};
+      var values = {
+        rpm: status.averageRpm == null ? "—" : status.averageRpm,
+        temperature: status.temperatureC == null ? "—" : status.temperatureC + "°C",
+        target: status.targetPercent == null ? "—" : status.targetPercent + "%",
+        reason: status.targetReason || "—",
+        telemetry: status.telemetryState || "—",
+        command: status.writeState || "—",
+        mapping: status.diskMappingState || "—"
+      };
+      Object.keys(values).forEach(function (key) {
+        var node = card.querySelector('[data-status="' + key + '"]');
+        if (node) node.textContent = values[key];
+      });
+      var telemetryNode = card.querySelector('[data-status="telemetry"]');
+      if (telemetryNode) telemetryNode.title = status.telemetryMessage || "";
+      var commandNode = card.querySelector('[data-status="command"]');
+      if (commandNode) commandNode.title = status.writeMessage || "";
+      var mappingNode = card.querySelector('[data-status="mapping"]');
+      if (mappingNode) mappingNode.title = status.diskMappingMessage || "";
+      updateCommissionCard(id);
+    });
+  }
+
+  function renderShelves() {
+    var root = byId("md12xx-shelves");
+    var shelves = Array.isArray(config.shelves) ? config.shelves : [];
+    if (!shelves.length) {
+      root.innerHTML = '<p class="md12xx-empty">No shelves configured. Discovery is read-only; add a shelf to begin mapping hardware.</p>';
+      return;
+    }
+    root.innerHTML = shelves.map(function (shelf, index) {
+      var status = stateById[shelf.id] || {};
+      var commissioned = !!shelf.commissioned;
+      var assignment = assignmentMode(shelf);
+      return '<article class="md12xx-shelf" data-index="' + index + '" data-id="' + esc(shelf.id) + '" data-commissioned="' + (commissioned ? "1" : "0") + '">' +
+        '<div class="md12xx-shelf-head"><strong class="md12xx-shelf-title">' + esc(shelf.name || shelf.model || "Shelf") + '</strong><button type="button" class="md12xx-remove">Remove</button></div>' +
+        '<div class="md12xx-shelf-grid">' +
+          '<label><span>Name</span><input class="md12xx-name" maxlength="80" value="' + esc(shelf.name || "") + '"></label>' +
+          '<label><span>Model</span><select class="md12xx-model">' + option("MD1200", "Dell PowerVault MD1200", shelf.model !== "MD1220") + option("MD1220", "Dell PowerVault MD1220", shelf.model === "MD1220") + '</select></label>' +
+          '<label><span>Serial adapter</span><select class="md12xx-port">' + serialOptions(shelf.serialPort || "", shelf.id) + '</select><small>This is the only hardware choice needed for automatic setup</small></label>' +
+          '<label><span>Disk assignment</span><select class="md12xx-assignment">' + option("automatic", "Automatic from detected SES enclosure", assignment === "automatic") + option("manual", "Manual override", assignment === "manual") + '</select><small class="md12xx-assignment-summary">' + esc(assignmentSummary(shelf)) + '</small></label>' +
+          '<label><span>Shelf enabled</span><input class="md12xx-shelf-enabled" type="checkbox"' + (shelf.enabled !== false ? " checked" : "") + '><small>' + esc(calibrationSummary(shelf)) + '</small></label>' +
+        '</div>' +
+        '<div class="md12xx-mapped-disks"><strong>Associated Unraid disks</strong><span class="md12xx-mapped-disk-list">' + esc(mappedDisks(shelf).length ? mappedDisks(shelf).join(", ") : "None detected yet") + '</span></div>' +
+        '<details class="md12xx-manual"' + (assignment === "manual" ? " open" : "") + '><summary>Manual mapping fallback</summary><div class="md12xx-shelf-grid">' +
+          '<label><span>SES enclosure</span><select class="md12xx-ses">' + sesOptions(shelf) + '</select><small>Normally filled by Identify & test</small></label>' +
+          '<label><span>Assigned Unraid disks</span><select class="md12xx-disks" multiple>' + diskOptions(shelf.disks, shelf.id) + '</select><small>Used only in Manual override mode; Ctrl/Cmd-click for multiple disks</small></label>' +
+        '</div></details>' +
+        '<div class="md12xx-status">' +
+          '<span>RPM<b data-status="rpm">' + esc(status.averageRpm == null ? "—" : status.averageRpm) + '</b></span>' +
+          '<span>Temperature<b data-status="temperature">' + esc(status.temperatureC == null ? "—" : status.temperatureC + "°C") + '</b></span>' +
+          '<span>Target<b data-status="target">' + esc(status.targetPercent == null ? "—" : status.targetPercent + "%") + '</b></span>' +
+          '<span>Reason<b data-status="reason">' + esc(status.targetReason || "—") + '</b></span>' +
+          '<span>Telemetry<b data-status="telemetry" title="' + esc(status.telemetryMessage || "") + '">' + esc(status.telemetryState || "—") + '</b></span>' +
+          '<span>Command<b data-status="command" title="' + esc(status.writeMessage || "") + '">' + esc(status.writeState || "—") + '</b></span>' +
+          '<span>Mapping<b data-status="mapping" title="' + esc(status.diskMappingMessage || "") + '">' + esc(status.diskMappingState || "—") + '</b></span>' +
+        '</div>' +
+        '<div class="md12xx-commission"><div class="md12xx-commission-head"><button type="button" class="md12xx-commission-start">Identify &amp; test</button><strong class="md12xx-commission-phase">Ready</strong></div>' +
+          '<p>Verifies the console, runs 20% → 50% → 20%, identifies the responding SES enclosure, saves its disks, and proves the final 20% state.</p>' +
+          '<pre class="md12xx-commission-output" hidden></pre><a class="md12xx-commission-result" href="#" hidden>Download test results (review identifiers before sharing)</a></div>' +
+      '</article>';
+    }).join("");
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-remove"), function (button) {
+      button.addEventListener("click", function () {
+        var card = button.closest(".md12xx-shelf");
+        var id = card.getAttribute("data-id");
+        if (commissionJobs[id] && commissionJobs[id].running) { message("Wait for Identify & test to finish before removing this shelf.", true); return; }
+        if (!window.confirm("Remove this shelf from the draft configuration? Nothing changes until Save configuration is selected.")) return;
+        config.shelves.splice(Number(card.getAttribute("data-index")), 1);
+        renderShelves();
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-assignment"), function (select) {
+      select.addEventListener("change", function () {
+        var card = select.closest(".md12xx-shelf");
+        var details = card.querySelector(".md12xx-manual");
+        if (select.value === "manual") details.open = true;
+        updateMappingPreview(card);
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-ses, .md12xx-disks"), function (input) {
+      input.addEventListener("change", function () { config = collect(); syncHardwareOptions(); updateMappingPreview(input.closest(".md12xx-shelf")); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-port"), function (input) {
+      input.addEventListener("change", function () {
+        config = collect();
+        syncHardwareOptions({ refreshSerialPorts: true });
+        updateCommissionCard(input.closest(".md12xx-shelf").getAttribute("data-id"));
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-name"), function (input) {
+      var timer = null;
+      var updateTitle = function () {
+        var card = input.closest(".md12xx-shelf");
+        var model = card.querySelector(".md12xx-model").value;
+        card.querySelector(".md12xx-shelf-title").textContent = input.value.trim() || model || "Shelf";
+      };
+      input.addEventListener("input", function () {
+        window.clearTimeout(timer);
+        timer = window.setTimeout(updateTitle, 400);
+      });
+      input.addEventListener("blur", function () { window.clearTimeout(timer); updateTitle(); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-commission-start"), function (button) {
+      button.addEventListener("click", function () {
+        var id = button.closest(".md12xx-shelf").getAttribute("data-id");
+        startCommission(id);
+      });
+    });
+    updateShelfStatus();
+    updateActionAvailability();
+  }
+
+  function renderCurve() {
+    var curve = Array.isArray(config.curve) && config.curve.length ? config.curve : [
+      { temperatureC: 0, speed: 20 }, { temperatureC: 35, speed: 25 }, { temperatureC: 45, speed: 30 }, { temperatureC: 50, speed: 50 }
+    ];
+    byId("md12xx-curve-points").value = String(curve.length);
+    byId("md12xx-curve").style.setProperty("--md12xx-curve-columns", String(Math.min(curve.length, 6)));
+    byId("md12xx-curve").innerHTML = curve.map(function (step, index) {
+      return '<div class="md12xx-curve-step"><strong>Point ' + (index + 1) + '</strong><label><span>°C</span><input class="md12xx-curve-temp" type="number" min="0" max="100" step="0.5" value="' + esc(step.temperatureC) + '"></label>' +
+        '<label><span>%</span><input class="md12xx-curve-speed" type="number" min="20" max="100" step="5" value="' + esc(step.speed) + '"></label></div>';
+    }).join("");
+  }
+  function resizeCurve(count) {
+    config = collect();
+    count = Math.max(2, Math.min(10, Number(count) || 4));
+    var curve = Array.isArray(config.curve) ? config.curve.slice(0, count) : [];
+    while (curve.length < count) {
+      var previous = curve.length ? curve[curve.length - 1] : { temperatureC: 0, speed: 20 };
+      if (Number(previous.temperatureC) >= 100 && curve.length > 1) {
+        var before = curve[curve.length - 2];
+        curve.splice(curve.length - 1, 0, { temperatureC: (Number(before.temperatureC) + Number(previous.temperatureC)) / 2, speed: Number(previous.speed) });
+      } else {
+        curve.push({ temperatureC: Math.min(100, Number(previous.temperatureC) + 5), speed: Number(previous.speed) });
+      }
+    }
+    config.curve = curve;
+    renderCurve();
+  }
+  function scheduleCurveResize(value, immediate) {
+    if (curveResizeTimer) window.clearTimeout(curveResizeTimer);
+    var apply = function () {
+      curveResizeTimer = null;
+      resizeCurve(value);
+    };
+    if (immediate) apply();
+    else curveResizeTimer = window.setTimeout(apply, 300);
+  }
+
+  function loadGlobals() {
+    byId("md12xx-enabled").checked = !!config.enabled;
+    byId("md12xx-mode").value = config.mode === "manual" ? "manual" : "auto";
+    byId("md12xx-manual").value = String(config.manualSpeed || 20);
+    byId("md12xx-poll").value = String(config.pollSeconds || 5);
+    byId("md12xx-reassert").value = String(config.reassertSeconds || 900);
+    byId("md12xx-failsafe").value = String(config.sensorFailureSpeed || 50);
+    var discoveryConfig = config.discovery || {};
+    byId("md12xx-probe-ftdi").checked = !!discoveryConfig.autoProbeKnownFtdi;
+    byId("md12xx-discovery-interval").value = String(discoveryConfig.intervalSeconds || 300);
+    byId("md12xx-response-seconds").value = String(discoveryConfig.responseSeconds || 3);
+    byId("md12xx-hysteresis").value = String(config.hysteresisC == null ? 1 : config.hysteresisC);
+    renderCurve();
+    renderShelves();
+  }
+
+  function collect() {
+    var next = {
+      enabled: byId("md12xx-enabled").checked,
+      mode: byId("md12xx-mode").value,
+      manualSpeed: Number(byId("md12xx-manual").value),
+      pollSeconds: Number(byId("md12xx-poll").value),
+      reassertSeconds: Number(byId("md12xx-reassert").value),
+      sensorFailureSpeed: Number(byId("md12xx-failsafe").value),
+      hysteresisC: Number(byId("md12xx-hysteresis").value),
+      discovery: {
+        autoProbeKnownFtdi: byId("md12xx-probe-ftdi").checked,
+        intervalSeconds: Number(byId("md12xx-discovery-interval").value),
+        responseSeconds: Number(byId("md12xx-response-seconds").value)
+      },
+      legacyContainerNames: Array.isArray(config.legacyContainerNames) ? config.legacyContainerNames : ["MD1200-Fan-Controller"],
+      curve: [], shelves: []
+    };
+    var temps = document.querySelectorAll(".md12xx-curve-temp");
+    var speeds = document.querySelectorAll(".md12xx-curve-speed");
+    for (var i = 0; i < temps.length; i++) next.curve.push({ temperatureC: Number(temps[i].value), speed: Number(speeds[i].value) });
+    Array.prototype.forEach.call(document.querySelectorAll(".md12xx-shelf"), function (card, index) {
+      var ses = card.querySelector(".md12xx-ses").value.split("|");
+      var disks = Array.prototype.map.call(card.querySelector(".md12xx-disks").selectedOptions, function (item) { return item.value; });
+      var name = card.querySelector(".md12xx-name").value.trim();
+      var shelfId = card.getAttribute("data-id") || slug(name || "shelf-" + (index + 1));
+      var existing = (Array.isArray(config.shelves) ? config.shelves : []).find(function (shelf) { return shelf.id === shelfId; }) || {};
+      var persisted = (Array.isArray(persistedConfig.shelves) ? persistedConfig.shelves : []).find(function (shelf) { return shelf.id === shelfId; }) || {};
+      var calibration = existing.calibration && typeof existing.calibration === "object" && Object.keys(existing.calibration).length
+        ? existing.calibration
+        : (persisted.calibration && typeof persisted.calibration === "object" ? persisted.calibration : {});
+      next.shelves.push({
+        id: shelfId,
+        name: name,
+        model: card.querySelector(".md12xx-model").value,
+        enabled: card.querySelector(".md12xx-shelf-enabled").checked,
+        commissioned: card.getAttribute("data-commissioned") === "1",
+        serialPort: card.querySelector(".md12xx-port").value,
+        sesAddress: ses[0] || "",
+        sesDevice: ses[1] || "",
+        diskAssignment: card.querySelector(".md12xx-assignment").value,
+        disks: disks,
+        calibration: calibration
+      });
+    });
+    return next;
+  }
+
+  async function readJson(response, fallback) {
+    var text = await response.text();
+    var payload = {};
+    if (text) {
+      try { payload = JSON.parse(text); }
+      catch (error) {
+        if (response.status === 401 || response.status === 403) throw new Error("The Unraid session expired; reload this page and try again");
+        throw new Error(fallback + " returned an invalid response");
+      }
+    }
+    if (!response.ok) throw new Error(payload.error || (response.status === 401 || response.status === 403 ? "The Unraid session expired; reload this page and try again" : fallback));
+    return payload;
+  }
+
+  function syncHardwareOptions(options) {
+    options = options || {};
+    config = collect();
+    Array.prototype.forEach.call(document.querySelectorAll(".md12xx-shelf"), function (card, index) {
+      var shelf = config.shelves[index];
+      if (!shelf) return;
+      var port = card.querySelector(".md12xx-port");
+      var ses = card.querySelector(".md12xx-ses");
+      var disks = card.querySelector(".md12xx-disks");
+      if (options.refreshSerialPorts || document.activeElement !== port) { port.innerHTML = serialOptions(shelf.serialPort, shelf.id); port.value = shelf.serialPort; }
+      if (document.activeElement !== ses) { ses.innerHTML = sesOptions(shelf); ses.value = (shelf.sesAddress || "") + "|" + (shelf.sesDevice || ""); }
+      if (document.activeElement !== disks) disks.innerHTML = diskOptions(shelf.disks, shelf.id);
+      updateMappingPreview(card);
+    });
+  }
+
+  async function discover() {
+    var response = await fetch(endpoint + "?action=discover&_=" + Date.now(), { cache: "no-store", credentials: "same-origin" });
+    discovery = await readJson(response, "Discovery failed");
+    renderDiscoverySummary();
+    syncHardwareOptions();
+  }
+  async function waitForDiscovery(previousGenerationId, timeoutSeconds) {
+    var deadline = Date.now() + timeoutSeconds * 1000;
+    while (Date.now() < deadline) {
+      var response = await fetch(endpoint + "?action=discover&_=" + Date.now(), { cache: "no-store", credentials: "same-origin" });
+      var payload = await readJson(response, "Discovery refresh failed");
+      if (payload.generationId && String(payload.generationId) !== String(previousGenerationId || "")) return payload;
+      await new Promise(function (resolve) { window.setTimeout(resolve, 1000); });
+    }
+    throw new Error("Discovery refresh did not finish in time; retry once or review the displayed discovery error");
+  }
+  async function refreshDiscovery() {
+    if (commissioningRunning()) { message("Wait for Identify & test to finish before refreshing discovery.", true); return; }
+    var button = byId("md12xx-refresh");
+    var draft = collect();
+    var token = String(window.csrf_token || "");
+    if (!token) { message("The current Unraid session token is unavailable; reload this page", true); return; }
+    button.disabled = true;
+    button.textContent = "Refreshing discovery…";
+    try {
+      var body = new URLSearchParams({ action: "refresh-discovery", csrf_token: token, discovery: JSON.stringify(draft.discovery) });
+      var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
+      var payload = await readJson(response, "Discovery refresh failed");
+      config = draft;
+      config.discovery = payload.config.discovery;
+      var candidateCount = (discovery.serialPorts || []).filter(function (item) { return item && item.knownFtdiCandidate; }).length;
+      var timeoutSeconds = Math.min(120, Math.max(20, candidateCount * Number(config.discovery.responseSeconds || 3) + 20));
+      discovery = await waitForDiscovery(payload.previousGenerationId, timeoutSeconds);
+      byId("md12xx-probe-ftdi").checked = !!config.discovery.autoProbeKnownFtdi;
+      byId("md12xx-discovery-interval").value = String(config.discovery.intervalSeconds);
+      byId("md12xx-response-seconds").value = String(config.discovery.responseSeconds);
+      renderDiscoverySummary();
+      syncHardwareOptions();
+      message("Discovery refreshed. Only the discovery options were saved.", false);
+    } catch (error) { message(error.message || String(error), true); }
+    finally { button.textContent = "Refresh discovery"; updateActionAvailability(); }
+  }
+  async function refreshStatus() {
+    try {
+      var response = await fetch(endpoint + "?_=" + Date.now(), { cache: "no-store", credentials: "same-origin" });
+      var payload = await readJson(response, "Status refresh failed");
+      stateById = {};
+      (payload.shelves || []).forEach(function (shelf) { stateById[shelf.id] = shelf; });
+      var controller = payload.controller || {};
+      var watchdog = payload.watchdog || {};
+      controllerState = controller;
+      var health = byId("md12xx-health");
+      var watchdogFault = watchdog.state === "restarting" || watchdog.state === "recovering" || watchdog.state === "fault";
+      var state = watchdogFault ? "fault" : (payload.stale ? "fault" : (payload.enabled ? (controller.state || "normal") : "disabled"));
+      health.className = "md12xx-pill is-" + (state === "normal" ? "normal" : state === "fault" ? "fault" : "attention");
+      health.textContent = String(state).toUpperCase();
+      health.title = watchdogFault ? (watchdog.message || "Controller restart in progress") : (controller.message || "");
+      var detail = byId("md12xx-controller-detail");
+      var detailText = watchdogFault
+        ? (watchdog.message || "The controller stopped unexpectedly and the local supervisor is restarting it.")
+        : payload.stale
+        ? "Controller status is stale; the background service may not be running."
+        : (controller.message && controller.message !== "Controller disabled" ? controller.message : "");
+      detail.hidden = !detailText;
+      detail.textContent = detailText;
+      detail.className = "md12xx-controller-detail is-" + (state === "attention" ? "attention" : "fault");
+      updateShelfStatus();
+    } catch (error) {
+      byId("md12xx-health").className = "md12xx-pill is-fault";
+      byId("md12xx-health").textContent = "UNAVAILABLE";
+      var detail = byId("md12xx-controller-detail");
+      detail.hidden = false;
+      detail.className = "md12xx-controller-detail is-fault";
+      detail.textContent = error.message || "Controller status could not be read; reload the page and try again.";
+    }
+  }
+  async function save(showConfirmation) {
+    if (commissioningRunning()) { message("Wait for Identify & test to finish before saving configuration.", true); return false; }
+    try {
+      var next = collect();
+      if (next.enabled && !persistedConfig.enabled && !window.confirm("Enable MD12xx fan control now? Every enabled, commissioned shelf may receive its current target command immediately.")) return false;
+      if (next.enabled && persistedConfig.enabled && liveControlSignature(next) !== liveControlSignature(persistedConfig)
+          && !window.confirm("Apply these live fan-control changes now? An enabled, commissioned shelf may receive a new target command immediately.")) return false;
+      var token = String(window.csrf_token || "");
+      if (!token) throw new Error("The current Unraid session token is unavailable; reload this page");
+      var body = new URLSearchParams({ action: "save", csrf_token: token, config: JSON.stringify(next) });
+      var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
+      var payload = await readJson(response, "Save failed");
+      config = payload.config;
+      persistedConfig = JSON.parse(JSON.stringify(payload.config));
+      loadGlobals();
+      if (showConfirmation !== false) message("Configuration saved. Hardware remapping clears commissioning until Identify & test passes.", false);
+      await refreshStatus();
+      return true;
+    } catch (error) { message(error.message || String(error), true); return false; }
+  }
+  async function diagnostics() {
+    try {
+      var token = String(window.csrf_token || "");
+      if (!token) throw new Error("The current Unraid session token is unavailable; reload this page");
+      var body = new URLSearchParams({ action: "diagnostics", csrf_token: token });
+      var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
+      var payload = await readJson(response, "Diagnostics failed");
+      message("Local redacted diagnostics created and downloaded. Nothing was uploaded. Review the archive before attaching it to a public GitHub issue.", false);
+      downloadLocalArchive("diagnostics", payload.file);
+    } catch (error) { message(error.message || String(error), true); }
+  }
+
+  async function loadFreshConfig() {
+    var response = await fetch(endpoint + "?action=config&_=" + Date.now(), { cache: "no-store", credentials: "same-origin" });
+    var payload = await readJson(response, "Configuration refresh failed");
+    config = payload.config;
+    persistedConfig = JSON.parse(JSON.stringify(payload.config));
+    loadGlobals();
+  }
+
+  async function pollCommission(id, resumeOnly) {
+    window.clearTimeout(commissionTimers[id]);
+    try {
+      var response = await fetch(endpoint + "?action=commission&id=" + encodeURIComponent(id) + "&_=" + Date.now(), { cache: "no-store", credentials: "same-origin" });
+      var job = await readJson(response, "Unable to read commissioning progress");
+      commissionJobs[id] = job;
+      updateCommissionCard(id);
+      if (job.running) {
+        commissionTimers[id] = window.setTimeout(function () { pollCommission(id, false); }, 1000);
+      } else if (resumeOnly) {
+        return;
+      } else if (job.phase === "passed") {
+        await loadFreshConfig();
+        await discover();
+        message("Identify & test passed. Review the detected enclosure and associated disks before enabling control.", false);
+      } else if (job.phase === "failed") {
+        await loadFreshConfig();
+        message("Identify & test failed. Review the result below; the shelf remains uncommissioned.", true);
+      }
+    } catch (error) {
+      message(error.message || String(error), true);
+      commissionTimers[id] = window.setTimeout(function () { pollCommission(id, resumeOnly); }, 2000);
+    }
+  }
+
+  async function startCommission(id) {
+    if (config.enabled || byId("md12xx-enabled").checked) {
+      message("Disable this controller before running Identify & test.", true);
+      return;
+    }
+    if (!window.confirm("Identify this shelf now? Its fans will run at 20%, then 50%, then return to 20%. The test takes about one minute and must not be interrupted.")) return;
+    if (!await save(false)) return;
+    try {
+      var token = String(window.csrf_token || "");
+      if (!token) throw new Error("The current Unraid session token is unavailable; reload this page");
+      var body = new URLSearchParams({ action: "commission", csrf_token: token, id: id });
+      var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
+      var payload = await readJson(response, "Unable to start Identify & test");
+      commissionJobs[id] = payload.job;
+      updateCommissionCard(id);
+      message("Identify & test started. It continues safely even if this page is closed.", false);
+      pollCommission(id, false);
+    } catch (error) { message(error.message || String(error), true); }
+  }
+
+  function resumeCommissionJobs() {
+    (config.shelves || []).forEach(function (shelf) { pollCommission(shelf.id, true); });
+  }
+
+  byId("md12xx-add").addEventListener("click", function () {
+    config = collect();
+    var number = config.shelves.length + 1;
+    var id = "shelf-" + number;
+    while (config.shelves.some(function (item) { return item.id === id; })) { number++; id = "shelf-" + number; }
+    config.shelves.push({ id: id, name: "MD1200 Shelf " + number, model: "MD1200", enabled: true, commissioned: false, serialPort: "", sesDevice: "", sesAddress: "", diskAssignment: "automatic", disks: [] });
+    renderShelves();
+  });
+  byId("md12xx-refresh").addEventListener("click", refreshDiscovery);
+  byId("md12xx-diagnostics").addEventListener("click", diagnostics);
+  byId("md12xx-curve-points").addEventListener("input", function () { scheduleCurveResize(this.value, false); });
+  byId("md12xx-curve-points").addEventListener("change", function () { scheduleCurveResize(this.value, true); });
+  byId("md12xx-help-toggle").addEventListener("click", function () {
+    var help = byId("md12xx-help");
+    help.hidden = !help.hidden;
+    this.setAttribute("aria-expanded", help.hidden ? "false" : "true");
+    this.textContent = help.hidden ? "Setup directions" : "Hide directions";
+  });
+  byId("md12xx-enabled").addEventListener("change", function () {
+    Array.prototype.forEach.call(document.querySelectorAll(".md12xx-shelf"), function (card) { updateCommissionCard(card.getAttribute("data-id")); });
+  });
+  byId("md12xx-save").addEventListener("click", function () { save(true); });
+
+  loadGlobals();
+  discover().catch(function (error) { message(error.message, true); });
+  refreshStatus();
+  resumeCommissionJobs();
+  window.setInterval(refreshStatus, 5000);
+}());
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/icon.svg">
+<INLINE>
+<![CDATA[
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">MD12xx Fan Control</title>
+  <desc id="desc">A disk shelf with a cooling fan</desc>
+  <rect x="18" y="48" width="220" height="160" rx="16" fill="#17191c" stroke="#f15a2b" stroke-width="10"/>
+  <g fill="#4b5158">
+    <rect x="36" y="68" width="20" height="52" rx="3"/><rect x="62" y="68" width="20" height="52" rx="3"/>
+    <rect x="88" y="68" width="20" height="52" rx="3"/><rect x="114" y="68" width="20" height="52" rx="3"/>
+    <rect x="140" y="68" width="20" height="52" rx="3"/><rect x="166" y="68" width="20" height="52" rx="3"/>
+  </g>
+  <g transform="translate(188 155)" fill="#f15a2b">
+    <circle r="12"/>
+    <path d="M0-14C-7-44 15-46 22-34c7 13-6 27-22 34zM12 7c30-8 38 13 29 24-9 12-27 4-41-17zM-12 7c-22 22-39 7-35-7 4-14 23-17 47 0z"/>
+  </g>
+  <g fill="#70df9b"><circle cx="45" cy="180" r="5"/><circle cx="63" cy="180" r="5"/></g>
+  <path d="M91 177h52" stroke="#69717a" stroke-width="8" stroke-linecap="round"/>
+</svg>
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/api.php">
+<INLINE>
+<![CDATA[
+<?php
+
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
+
+require_once __DIR__ . '/common.php';
+
+function md12xx_commission_paths(string $id): array
+{
+    $safe = md12xx_slug($id);
+    $directory = MD12XX_COMMISSION_JOB_DIR . '/' . $safe;
+    return [
+        'directory' => $directory,
+        'pid' => $directory . '/pid',
+        'log' => $directory . '/output.log',
+        'exit' => $directory . '/exit-code',
+        'started' => $directory . '/started-at',
+    ];
+}
+
+function md12xx_discovery_payload(): array
+{
+    $background = md12xx_read_discovery();
+    $config = md12xx_read_config();
+    $generatedAt = is_numeric($background['generatedAt'] ?? null) ? (int) $background['generatedAt'] : null;
+    $discoveryInterval = (int) ($config['discovery']['intervalSeconds'] ?? 300);
+    return [
+        'generatedAt' => $generatedAt,
+        'generationId' => $background['generationId'] ?? null,
+        'stale' => $generatedAt === null || (time() - $generatedAt) > max(120, ($discoveryInterval * 3) + 30),
+        'error' => $background['error'] ?? null,
+        'autoProbeKnownFtdi' => $background['autoProbeKnownFtdi'] ?? false,
+        'activeProbeAllowed' => $background['activeProbeAllowed'] ?? false,
+        'blockedBy' => $background['blockedBy'] ?? [],
+        'serialPorts' => $background['serialPorts'] ?? md12xx_serial_port_details(),
+        'sesDevices' => $background['sesDevices'] ?? md12xx_discover_ses(),
+        'disks' => md12xx_discover_disks(),
+        'pairingPolicy' => $background['pairingPolicy'] ?? 'Explicit operator pairing is required.',
+    ];
+}
+
+function md12xx_commission_status(string $id): array
+{
+    $paths = md12xx_commission_paths($id);
+    $pid = is_file($paths['pid']) ? (int) trim((string) @file_get_contents($paths['pid'])) : 0;
+    $running = md12xx_pid_running($pid, 'commission-job.sh');
+    $hasExit = is_file($paths['exit']);
+    $activeId = is_file(MD12XX_RUNTIME_DIR . '/commissioning.active') ? trim((string) @file_get_contents(MD12XX_RUNTIME_DIR . '/commissioning.active')) : '';
+    // Do not let a stale marker make a crashed job appear to run forever.
+    // The shared lifecycle check verifies a live wrapper/child and expires an
+    // orphaned marker after its short launch grace period.
+    if (!$running && !$hasExit && $pid > 1 && $activeId === $id && md12xx_commission_active()) $running = true;
+    $exitCode = $hasExit ? (int) trim((string) @file_get_contents($paths['exit'])) : null;
+    $output = is_file($paths['log']) ? (string) @file_get_contents($paths['log']) : '';
+    if (strlen($output) > 65536) $output = substr($output, -65536);
+    $startedAt = is_file($paths['started']) ? (int) trim((string) @file_get_contents($paths['started'])) : null;
+    $resultFile = null;
+    if (preg_match('/^Results:\s+(.+\.(?:zip|tar\.gz))\s*$/mi', $output, $match)) $resultFile = basename(trim($match[1]));
+
+    $phase = 'not-started';
+    if ($hasExit) $phase = $exitCode === 0 ? 'passed' : 'failed';
+    elseif ($running && str_contains($output, 'Waiting 30s to prove')) $phase = 'verifying-restore';
+    elseif ($running && str_contains($output, 'Returning the selected MD12xx console to 20%')) $phase = 'restoring';
+    elseif ($running && str_contains($output, 'Commanding 50%')) $phase = 'testing-50';
+    elseif ($running && str_contains($output, 'Commanding 20%')) $phase = 'testing-20';
+    elseif ($running && str_contains($output, 'Verifying the selected serial console')) $phase = 'verifying-console';
+    elseif ($running) $phase = 'starting';
+    elseif ($startedAt !== null) $phase = 'failed';
+
+    $config = md12xx_read_config();
+    $shelf = null;
+    foreach ($config['shelves'] as $candidate) {
+        if ((string) ($candidate['id'] ?? '') === $id) { $shelf = $candidate; break; }
+    }
+    return [
+        'id' => $id,
+        'phase' => $phase,
+        'running' => $running,
+        'exitCode' => $exitCode,
+        'startedAt' => $startedAt,
+        'output' => $output,
+        'resultFile' => $resultFile,
+        'shelf' => $shelf,
+    ];
+}
+
+try {
+    $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    $action = strtolower(trim((string) ($_REQUEST['action'] ?? 'status')));
+
+    if ($method === 'GET') {
+        if ($action === 'discover') {
+            echo json_encode(md12xx_discovery_payload(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } elseif ($action === 'config') {
+            echo json_encode(['config' => md12xx_read_config()], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } elseif ($action === 'commission') {
+            $rawId = trim((string) ($_GET['id'] ?? ''));
+            if ($rawId === '') throw new InvalidArgumentException('Shelf id is required');
+            $id = md12xx_slug($rawId);
+            echo json_encode(md12xx_commission_status($id), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        } else {
+            echo json_encode(md12xx_public_status(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        }
+        exit;
+    }
+
+    if ($method !== 'POST') {
+        http_response_code(405);
+        throw new RuntimeException('Method not allowed');
+    }
+
+    if ($action === 'refresh-discovery') {
+        if (md12xx_commission_active()) throw new RuntimeException('Wait for Identify & test to finish before refreshing discovery');
+        $requested = json_decode((string) ($_POST['discovery'] ?? ''), true, 16, JSON_THROW_ON_ERROR);
+        if (!is_array($requested)) throw new InvalidArgumentException('Invalid discovery settings');
+        $current = md12xx_read_config();
+        $current['discovery'] = $requested;
+        $saved = md12xx_write_config($current);
+        $script = dirname(__DIR__) . '/include/discovery.php';
+        if (!is_file($script)) throw new RuntimeException('Discovery service is unavailable');
+        $previousGenerationId = md12xx_read_discovery()['generationId'] ?? null;
+        $command = 'nohup /usr/bin/php ' . escapeshellarg($script) . ' --once >/dev/null 2>&1 & echo $!';
+        $pid = (int) trim((string) @shell_exec($command));
+        if ($pid <= 1) throw new RuntimeException('Unable to start discovery refresh');
+        echo json_encode(['ok' => true, 'config' => $saved, 'previousGenerationId' => $previousGenerationId], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
+    if ($action === 'commission') {
+        $rawId = trim((string) ($_POST['id'] ?? ''));
+        if ($rawId === '') throw new InvalidArgumentException('Shelf id is required');
+        $id = md12xx_slug($rawId);
+        $config = md12xx_read_config();
+        $shelf = null;
+        foreach ($config['shelves'] as $candidate) {
+            if ((string) ($candidate['id'] ?? '') === $id) { $shelf = $candidate; break; }
+        }
+        if (!is_array($shelf)) throw new InvalidArgumentException('Unknown shelf');
+        if ((bool) $config['enabled']) throw new RuntimeException('Disable this controller before running Identify & test');
+        if (trim((string) ($shelf['serialPort'] ?? '')) === '') throw new InvalidArgumentException('Select and save a persistent serial adapter first');
+        if (md12xx_competing_controllers($config)) throw new RuntimeException('Another fan controller is active. Disable it, then retry');
+        if (md12xx_commission_active()) throw new RuntimeException('Another shelf test is already running');
+
+        $paths = md12xx_commission_paths($id);
+        if (!is_dir($paths['directory']) && !@mkdir($paths['directory'], 0755, true) && !is_dir($paths['directory'])) {
+            throw new RuntimeException('Unable to create commissioning job state');
+        }
+        foreach (['pid', 'log', 'exit', 'started'] as $key) @unlink($paths[$key]);
+        $runner = dirname(__DIR__) . '/scripts/commission-job.sh';
+        if (!is_file($runner) || !is_executable($runner)) throw new RuntimeException('Commissioning service is unavailable');
+        if (!is_dir(MD12XX_RUNTIME_DIR) && !@mkdir(MD12XX_RUNTIME_DIR, 0755, true) && !is_dir(MD12XX_RUNTIME_DIR)) {
+            throw new RuntimeException('Unable to create commissioning state');
+        }
+        if (@file_put_contents(MD12XX_RUNTIME_DIR . '/commissioning.active', $id . "\n", LOCK_EX) === false) {
+            throw new RuntimeException('Unable to lock commissioning state');
+        }
+        $command = 'nohup ' . escapeshellarg($runner) . ' ' . escapeshellarg($id) . ' ' . escapeshellarg($paths['directory']) . ' >/dev/null 2>&1 & echo $!';
+        $pid = (int) trim((string) @shell_exec($command));
+        if ($pid <= 1) {
+            @unlink(MD12XX_RUNTIME_DIR . '/commissioning.active');
+            throw new RuntimeException('Unable to start commissioning');
+        }
+        @file_put_contents($paths['pid'], $pid . "\n", LOCK_EX);
+        echo json_encode(['ok' => true, 'job' => md12xx_commission_status($id)], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
+    if ($action === 'control') {
+        if (md12xx_commission_active()) throw new RuntimeException('Control changes are blocked while Identify & test is running');
+        $current = md12xx_read_config();
+        $mode = strtolower(trim((string) ($_POST['mode'] ?? '')));
+        if (!in_array($mode, ['auto', 'manual'], true)) throw new InvalidArgumentException('Mode must be Auto or Manual');
+        $current['mode'] = $mode;
+        if ($mode === 'manual') {
+            $speed = (int) ($_POST['speed'] ?? 0);
+            if (!in_array($speed, [20, 30, 40, 50, 60, 70, 80, 90, 100], true)) throw new InvalidArgumentException('Unsupported manual speed');
+            $current['manualSpeed'] = $speed;
+        }
+        md12xx_write_config($current);
+        echo json_encode(['ok' => true, 'status' => md12xx_public_status()], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
+    if ($action === 'diagnostics') {
+        $script = dirname(__DIR__) . '/scripts/diagnose.sh';
+        if (!is_file($script) || !is_executable($script)) throw new RuntimeException('Diagnostics script is unavailable');
+        $lines = [];
+        $exitCode = 1;
+        @exec(escapeshellarg($script) . ' 2>&1', $lines, $exitCode);
+        if ($exitCode !== 0) throw new RuntimeException('Diagnostics failed: ' . implode(' ', $lines));
+        $last = trim((string) end($lines));
+        $prefix = 'Read-only diagnostics: ';
+        if (!str_starts_with($last, $prefix)) throw new RuntimeException('Diagnostics completed without an archive path');
+        $path = substr($last, strlen($prefix));
+        echo json_encode(['ok' => true, 'path' => $path, 'file' => basename($path), 'uploaded' => false], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
+    if ($action !== 'save') throw new InvalidArgumentException('Unsupported action');
+    if (md12xx_commission_active()) throw new RuntimeException('Configuration changes are blocked while Identify & test is running');
+    $decoded = json_decode((string) ($_POST['config'] ?? ''), true, 64, JSON_THROW_ON_ERROR);
+    if (!is_array($decoded)) throw new InvalidArgumentException('Invalid configuration payload');
+
+    $current = md12xx_read_config();
+    $saved = md12xx_write_config(md12xx_merge_settings_config($current, $decoded));
+    echo json_encode(['ok' => true, 'config' => $saved], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+} catch (JsonException | InvalidArgumentException $error) {
+    http_response_code(422);
+    echo json_encode(['error' => $error->getMessage()], JSON_UNESCAPED_SLASHES);
+} catch (Throwable $error) {
+    if (http_response_code() < 400) http_response_code(500);
+    echo json_encode(['error' => $error->getMessage()], JSON_UNESCAPED_SLASHES);
+}
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/common.php">
+<INLINE>
+<![CDATA[
+<?php
+
+declare(strict_types=1);
+
+const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';
+const MD12XX_STATE_FILE = '/var/run/md12xx.fancontrol/status.json';
+const MD12XX_PID_FILE = '/var/run/md12xx.fancontrol/controller.pid';
+const MD12XX_SUPERVISOR_PID_FILE = '/var/run/md12xx.fancontrol/supervisor.pid';
+const MD12XX_WATCHDOG_FILE = '/var/run/md12xx.fancontrol/watchdog.json';
+const MD12XX_DISCOVERY_FILE = '/var/run/md12xx.fancontrol/discovery.json';
+const MD12XX_DISCOVERY_PID_FILE = '/var/run/md12xx.fancontrol/discovery.pid';
+const MD12XX_RUNTIME_DIR = '/var/run/md12xx.fancontrol';
+const MD12XX_COMMISSION_JOB_DIR = '/var/run/md12xx.fancontrol/commission-jobs';
+
+function md12xx_defaults(): array
+{
+    return [
+        'enabled' => false,
+        'mode' => 'auto',
+        'manualSpeed' => 20,
+        'pollSeconds' => 5,
+        'reassertSeconds' => 900,
+        'sensorFailureSpeed' => 50,
+        'hysteresisC' => 1.0,
+        'discovery' => [
+            'autoProbeKnownFtdi' => false,
+            'intervalSeconds' => 300,
+            'responseSeconds' => 3,
+        ],
+        'curve' => [
+            ['temperatureC' => 0.0, 'speed' => 20],
+            ['temperatureC' => 35.0, 'speed' => 25],
+            ['temperatureC' => 45.0, 'speed' => 30],
+            ['temperatureC' => 50.0, 'speed' => 50],
+        ],
+        'legacyContainerNames' => ['MD1200-Fan-Controller'],
+        'shelves' => [],
+    ];
+}
+
+function md12xx_read_json(string $path): array
+{
+    $raw = @file_get_contents($path);
+    if ($raw === false || trim($raw) === '') return [];
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function md12xx_read_config(?string $path = null): array
+{
+    $configured = md12xx_read_json($path ?: MD12XX_CONFIG_FILE);
+    return array_replace(md12xx_defaults(), $configured);
+}
+
+function md12xx_slug(string $value): string
+{
+    $slug = strtolower(trim((string) preg_replace('/[^a-zA-Z0-9_-]+/', '-', $value), '-'));
+    return $slug !== '' ? substr($slug, 0, 48) : 'shelf';
+}
+
+function md12xx_validate_config(array $input): array
+{
+    $defaults = md12xx_defaults();
+    $config = $defaults;
+    $config['enabled'] = filter_var($input['enabled'] ?? false, FILTER_VALIDATE_BOOL);
+    $config['mode'] = strtolower((string) ($input['mode'] ?? 'auto')) === 'manual' ? 'manual' : 'auto';
+
+    $manualSpeed = (int) ($input['manualSpeed'] ?? 20);
+    if (!in_array($manualSpeed, [20, 30, 40, 50, 60, 70, 80, 90, 100], true)) {
+        throw new InvalidArgumentException('Manual speed must be between 20 and 100 percent in 10 percent increments');
+    }
+    $config['manualSpeed'] = $manualSpeed;
+    $config['pollSeconds'] = max(5, min(300, (int) ($input['pollSeconds'] ?? 5)));
+    $config['reassertSeconds'] = max(60, min(3600, (int) ($input['reassertSeconds'] ?? 900)));
+    $config['sensorFailureSpeed'] = max(20, min(100, (int) ($input['sensorFailureSpeed'] ?? 50)));
+    $config['hysteresisC'] = max(0.0, min(10.0, (float) ($input['hysteresisC'] ?? 1.0)));
+    $discovery = is_array($input['discovery'] ?? null) ? $input['discovery'] : [];
+    $config['discovery'] = [
+        'autoProbeKnownFtdi' => filter_var($discovery['autoProbeKnownFtdi'] ?? false, FILTER_VALIDATE_BOOL),
+        'intervalSeconds' => max(60, min(3600, (int) ($discovery['intervalSeconds'] ?? 300))),
+        'responseSeconds' => max(1, min(10, (int) ($discovery['responseSeconds'] ?? 3))),
+    ];
+
+    $curve = is_array($input['curve'] ?? null) ? array_values($input['curve']) : $defaults['curve'];
+    if (count($curve) < 2 || count($curve) > 10) {
+        throw new InvalidArgumentException('The Auto curve must contain between 2 and 10 steps');
+    }
+    $validatedCurve = [];
+    foreach ($curve as $step) {
+        if (!is_array($step) || !is_numeric($step['temperatureC'] ?? null) || !is_numeric($step['speed'] ?? null)) {
+            throw new InvalidArgumentException('Every Auto curve step requires a temperature and speed');
+        }
+        $temperature = max(0.0, min(100.0, (float) $step['temperatureC']));
+        $speed = max(20, min(100, (int) $step['speed']));
+        $validatedCurve[] = ['temperatureC' => $temperature, 'speed' => $speed];
+    }
+    usort($validatedCurve, static fn(array $a, array $b): int => $a['temperatureC'] <=> $b['temperatureC']);
+    $previousTemperature = null;
+    $previousSpeed = null;
+    foreach ($validatedCurve as $step) {
+        if ($previousTemperature !== null && $step['temperatureC'] <= $previousTemperature) {
+            throw new InvalidArgumentException('Auto curve temperatures must be unique and increasing');
+        }
+        if ($previousSpeed !== null && $step['speed'] < $previousSpeed) {
+            throw new InvalidArgumentException('Auto curve fan speeds cannot decrease as temperature rises');
+        }
+        $previousTemperature = $step['temperatureC'];
+        $previousSpeed = $step['speed'];
+    }
+    $config['curve'] = $validatedCurve;
+    $config['sensorFailureSpeed'] = max($config['sensorFailureSpeed'], max(array_column($validatedCurve, 'speed')));
+
+    $containers = is_array($input['legacyContainerNames'] ?? null) ? $input['legacyContainerNames'] : $defaults['legacyContainerNames'];
+    $config['legacyContainerNames'] = array_values(array_unique(array_filter(array_map(
+        static fn($name): string => substr(trim((string) $name), 0, 128),
+        $containers
+    ))));
+
+    $shelves = is_array($input['shelves'] ?? null) ? array_values($input['shelves']) : [];
+    if (count($shelves) > 16) throw new InvalidArgumentException('At most 16 shelves are supported');
+    $ids = [];
+    $serialPorts = [];
+    $sesAddresses = [];
+    $sesDevices = [];
+    $diskOwners = [];
+    $validatedShelves = [];
+    foreach ($shelves as $index => $shelf) {
+        if (!is_array($shelf)) throw new InvalidArgumentException('Invalid shelf configuration');
+        $id = md12xx_slug((string) ($shelf['id'] ?? ('shelf-' . ($index + 1))));
+        if (isset($ids[$id])) throw new InvalidArgumentException('Shelf identifiers must be unique');
+        $ids[$id] = true;
+
+        $model = strtoupper(trim((string) ($shelf['model'] ?? 'MD1200')));
+        if (!in_array($model, ['MD1200', 'MD1220'], true)) throw new InvalidArgumentException('Shelf model must be MD1200 or MD1220');
+        $port = trim((string) ($shelf['serialPort'] ?? ''));
+        if ($port !== '' && (!str_starts_with($port, '/dev/serial/by-id/') || str_contains($port, "\0"))) {
+            throw new InvalidArgumentException('Serial adapters must use a persistent /dev/serial/by-id path');
+        }
+        if ($port !== '' && isset($serialPorts[$port])) throw new InvalidArgumentException('A serial adapter cannot be assigned to more than one shelf');
+        if ($port !== '') $serialPorts[$port] = $id;
+        $sesDevice = trim((string) ($shelf['sesDevice'] ?? ''));
+        if ($sesDevice !== '' && !preg_match('#^/dev/sg[0-9]+$#', $sesDevice)) throw new InvalidArgumentException('Invalid SES device');
+        if ($sesDevice !== '' && isset($sesDevices[$sesDevice])) throw new InvalidArgumentException('An SES device cannot be assigned to more than one shelf');
+        if ($sesDevice !== '') $sesDevices[$sesDevice] = $id;
+        $sesAddress = trim((string) ($shelf['sesAddress'] ?? ''));
+        if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid stable SCSI address');
+        if ($sesAddress !== '' && isset($sesAddresses[$sesAddress])) throw new InvalidArgumentException('An SES enclosure cannot be assigned to more than one shelf');
+        if ($sesAddress !== '') $sesAddresses[$sesAddress] = $id;
+
+        $diskAssignment = strtolower(trim((string) ($shelf['diskAssignment'] ?? '')));
+        if ($diskAssignment === '') {
+            // Preserve pre-0.1.4 configurations as manual mappings. Newly added
+            // shelves explicitly opt into automatic enclosure mapping in the UI.
+            $diskAssignment = !empty($shelf['disks']) ? 'manual' : 'automatic';
+        }
+        if (!in_array($diskAssignment, ['automatic', 'manual'], true)) {
+            throw new InvalidArgumentException('Disk assignment must be automatic or manual');
+        }
+
+        $disks = is_array($shelf['disks'] ?? null) ? $shelf['disks'] : [];
+        $disks = array_values(array_unique(array_filter(array_map(static function ($disk): string {
+            $name = strtolower(trim((string) $disk));
+            return preg_match('/^(parity2?|disk[0-9]+|cache|[a-z0-9][a-z0-9_-]{0,31})$/', $name) ? $name : '';
+        }, $disks))));
+        foreach ($disks as $disk) {
+            if (isset($diskOwners[$disk])) throw new InvalidArgumentException('An Unraid disk cannot be assigned to more than one shelf: ' . $disk);
+            $diskOwners[$disk] = $id;
+        }
+
+        $calibrationInput = is_array($shelf['calibration'] ?? null) ? $shelf['calibration'] : [];
+        $rpmAt20 = max(0, min(30000, (int) ($calibrationInput['rpmAt20'] ?? 0)));
+        $rpmAt50 = max(0, min(30000, (int) ($calibrationInput['rpmAt50'] ?? 0)));
+        $calibration = ($rpmAt20 > 0 && $rpmAt50 >= ($rpmAt20 + 250))
+            ? ['rpmAt20' => $rpmAt20, 'rpmAt50' => $rpmAt50]
+            : [];
+
+        $validatedShelves[] = [
+            'id' => $id,
+            'name' => substr(trim((string) ($shelf['name'] ?? ($model . ' ' . ($index + 1)))), 0, 80),
+            'model' => $model,
+            'enabled' => filter_var($shelf['enabled'] ?? true, FILTER_VALIDATE_BOOL),
+            'commissioned' => filter_var($shelf['commissioned'] ?? false, FILTER_VALIDATE_BOOL),
+            'serialPort' => $port,
+            'sesDevice' => $sesDevice,
+            'sesAddress' => $sesAddress,
+            'diskAssignment' => $diskAssignment,
+            'disks' => $disks,
+            'calibration' => $calibration,
+        ];
+    }
+    $config['shelves'] = $validatedShelves;
+    return $config;
+}
+
+function md12xx_disable_active_discovery_after_setup(array $config): array
+{
+    $shelves = is_array($config['shelves'] ?? null) ? $config['shelves'] : [];
+    if ($shelves === []) return $config;
+    foreach ($shelves as $shelf) {
+        if (!is_array($shelf) || !filter_var($shelf['commissioned'] ?? false, FILTER_VALIDATE_BOOL)) return $config;
+    }
+    if (!is_array($config['discovery'] ?? null)) $config['discovery'] = [];
+    $config['discovery']['autoProbeKnownFtdi'] = false;
+    return $config;
+}
+
+function md12xx_merge_settings_config(array $current, array $requested): array
+{
+    $existing = [];
+    foreach (($current['shelves'] ?? []) as $shelf) {
+        if (!is_array($shelf)) continue;
+        $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] = $shelf;
+    }
+
+    $shelves = is_array($requested['shelves'] ?? null) ? $requested['shelves'] : [];
+    foreach ($shelves as &$shelf) {
+        if (!is_array($shelf)) continue;
+        $old = $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] ?? null;
+        if (!is_array($old)) {
+            $shelf['commissioned'] = false;
+            $shelf['calibration'] = [];
+            continue;
+        }
+
+        $oldAutomatic = strtolower((string) ($old['diskAssignment'] ?? 'automatic')) === 'automatic';
+        $newAutomatic = strtolower((string) ($shelf['diskAssignment'] ?? 'automatic')) === 'automatic';
+        $sameModel = strtoupper((string) ($old['model'] ?? '')) === strtoupper((string) ($shelf['model'] ?? ''));
+        $sameSerial = (string) ($old['serialPort'] ?? '') === (string) ($shelf['serialPort'] ?? '');
+
+        // An automatic pairing is established only by Identify & test. Keep its
+        // SES enclosure, disk list, commissioning state, and RPM calibration
+        // server-authoritative so a stale Settings page cannot erase or replace
+        // proven hardware while saving an unrelated option.
+        if ($oldAutomatic && $newAutomatic && $sameModel && $sameSerial) {
+            $shelf['sesAddress'] = (string) ($old['sesAddress'] ?? '');
+            $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
+            $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
+            $shelf['commissioned'] = (bool) ($old['commissioned'] ?? false);
+            $shelf['calibration'] = is_array($old['calibration'] ?? null) ? $old['calibration'] : [];
+            continue;
+        }
+
+        // Changing the identity of an automatic shelf invalidates every value
+        // derived by its previous hardware test. The next test will repopulate
+        // these fields from observed hardware, never from the browser.
+        if ($newAutomatic) {
+            $shelf['sesAddress'] = '';
+            $shelf['sesDevice'] = '';
+            $shelf['disks'] = [];
+            $shelf['commissioned'] = false;
+            $shelf['calibration'] = [];
+            continue;
+        }
+
+        $oldDisks = is_array($old['disks'] ?? null) ? array_values($old['disks']) : [];
+        $newDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
+        sort($oldDisks, SORT_NATURAL | SORT_FLAG_CASE);
+        sort($newDisks, SORT_NATURAL | SORT_FLAG_CASE);
+        $sameManualHardware = !$oldAutomatic
+            && $sameModel
+            && $sameSerial
+            && (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
+            && $oldDisks === $newDisks;
+        $shelf['commissioned'] = $sameManualHardware && (bool) ($old['commissioned'] ?? false);
+        $shelf['calibration'] = $sameManualHardware && is_array($old['calibration'] ?? null)
+            ? $old['calibration']
+            : [];
+    }
+    unset($shelf);
+
+    $requested['shelves'] = $shelves;
+    return $requested;
+}
+
+function md12xx_controller_calibration(array $shelf): ?array
+{
+    $calibration = is_array($shelf['calibration'] ?? null) ? $shelf['calibration'] : [];
+    $low = (int) ($calibration['rpmAt20'] ?? 0);
+    $high = (int) ($calibration['rpmAt50'] ?? 0);
+    return $low > 0 && $high >= ($low + 250) ? ['rpmAt20' => $low, 'rpmAt50' => $high] : null;
+}
+
+function md12xx_controller_verify_target(int $target, int $rpm, array $calibration): array
+{
+    $low = (int) $calibration['rpmAt20'];
+    $high = (int) $calibration['rpmAt50'];
+    $span = $high - $low;
+    if ($target <= 20) {
+        $tolerance = max(300, (int) round($low * 0.15));
+        $passed = abs($rpm - $low) <= $tolerance && ($high - $rpm) >= 250;
+        return ['passed' => $passed, 'expected' => 'near the commissioned 20% baseline of ' . $low . ' RPM'];
+    }
+    if ($target >= 50) {
+        $minimum = $high - max(350, (int) round($span * 0.30));
+        return ['passed' => $rpm >= $minimum, 'minimumOnly' => $target > 50, 'expected' => 'at least ' . $minimum . ' RPM from the commissioned 50% response'];
+    }
+    $progress = ($target - 20) / 30;
+    $expected = (int) round($low + ($span * $progress));
+    $tolerance = max(350, (int) round($span * 0.30));
+    // A wide interpolation tolerance accommodates nonlinear MD12xx fan
+    // curves, but it must never be wide enough to accept the unchanged 20%
+    // baseline as proof of a higher command.
+    $minimum = $low + max(150, (int) round($span * $progress * 0.40));
+    return [
+        'passed' => $rpm >= $minimum && abs($rpm - $expected) <= $tolerance,
+        'expected' => 'about ' . $expected . ' RPM (±' . $tolerance . '), with at least ' . $minimum . ' RPM',
+    ];
+}
+
+function md12xx_write_config(array $input, ?string $path = null): array
+{
+    $path = $path ?: MD12XX_CONFIG_FILE;
+    $config = md12xx_validate_config($input);
+    $directory = dirname($path);
+    if (!is_dir($directory) && !@mkdir($directory, 0755, true) && !is_dir($directory)) {
+        throw new RuntimeException('Unable to create the configuration directory');
+    }
+    $lock = @fopen($path . '.lock', 'c+');
+    if ($lock === false || !@flock($lock, LOCK_EX)) {
+        if (is_resource($lock)) fclose($lock);
+        throw new RuntimeException('Unable to lock the configuration');
+    }
+    try {
+        $encoded = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        $temporary = $path . '.tmp.' . getmypid();
+        if (@file_put_contents($temporary, $encoded, LOCK_EX) === false || !@rename($temporary, $path)) {
+            @unlink($temporary);
+            throw new RuntimeException('Unable to save the configuration');
+        }
+        @chmod($path, 0644);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+    return $config;
+}
+
+function md12xx_read_state(?string $path = null): array
+{
+    return md12xx_read_json($path ?: MD12XX_STATE_FILE);
+}
+
+function md12xx_read_discovery(?string $path = null): array
+{
+    return md12xx_read_json($path ?: MD12XX_DISCOVERY_FILE);
+}
+
+function md12xx_pid_running(int $pid, string $marker): bool
+{
+    if ($pid <= 1 || !is_readable('/proc/' . $pid . '/cmdline')) return false;
+    $raw = @file_get_contents('/proc/' . $pid . '/cmdline');
+    return is_string($raw) && str_contains(str_replace("\0", ' ', $raw), $marker);
+}
+
+function md12xx_commission_active(): bool
+{
+    $marker = MD12XX_RUNTIME_DIR . '/commissioning.active';
+    foreach (glob(MD12XX_COMMISSION_JOB_DIR . '/*/pid') ?: [] as $pidFile) {
+        $pid = (int) trim((string) @file_get_contents($pidFile));
+        if (md12xx_pid_running($pid, 'commission-job.sh')) return true;
+    }
+    // The app and the commissioning script both create this marker before
+    // hardware work begins. Avoid walking every process on each five-second
+    // control poll when no test is even pending.
+    if (!is_file($marker)) return false;
+    foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $cmdline) {
+        $raw = @file_get_contents($cmdline);
+        if (is_string($raw) && str_contains(str_replace("\0", ' ', $raw), '/md12xx.fancontrol/scripts/commission.sh')) return true;
+    }
+    $modified = @filemtime($marker);
+    if (is_int($modified) && (time() - $modified) < 30) return true;
+    @unlink($marker);
+    return false;
+}
+
+function md12xx_competing_controllers(array $config): array
+{
+    $detected = false;
+    $names = is_array($config['legacyContainerNames'] ?? null) ? $config['legacyContainerNames'] : [];
+    $lines = [];
+    $exitCode = 1;
+    @exec("docker ps --format '{{.Names}}' 2>/dev/null", $lines, $exitCode);
+    if ($exitCode === 0 && $names) {
+        $wanted = array_map('strtolower', array_map('trim', $names));
+        $detected = (bool) array_filter(array_map('trim', $lines), static fn(string $name): bool => in_array(strtolower($name), $wanted, true));
+    }
+
+    // Detect another local MD12xx writer by its process role without exposing
+    // implementation-specific plugin or host names in the public interface.
+    foreach (glob('/proc/[0-9]*/cmdline') ?: [] as $cmdline) {
+        $raw = @file_get_contents($cmdline);
+        if (is_string($raw) && str_contains(str_replace("\0", ' ', $raw), '/md1200-controller.php')) {
+            $detected = true;
+            break;
+        }
+    }
+    return $detected ? ['Another fan controller'] : [];
+}
+
+function md12xx_serial_busy(string $port): bool
+{
+    $binary = md12xx_fuser_binary();
+    if ($binary === null) return true;
+    $target = @realpath($port);
+    $exitCode = 1;
+    @exec(escapeshellarg($binary) . ' ' . escapeshellarg($target !== false ? $target : $port) . ' >/dev/null 2>&1', $unused, $exitCode);
+    return $exitCode === 0;
+}
+
+function md12xx_fuser_binary(): ?string
+{
+    $binary = trim((string) @shell_exec('command -v fuser 2>/dev/null'));
+    return $binary !== '' ? $binary : null;
+}
+
+function md12xx_public_status(): array
+{
+    $config = md12xx_read_config();
+    $state = md12xx_read_state();
+    $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
+    $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
+    return [
+        'version' => '0.4.6',
+        'enabled' => (bool) $config['enabled'],
+        'mode' => (string) $config['mode'],
+        'manualSpeed' => (int) $config['manualSpeed'],
+        'allowedManualSpeeds' => [20, 30, 40, 50, 60, 70, 80, 90, 100],
+        'stale' => $generatedAt === null || (time() - $generatedAt) > $staleAfter,
+        'generatedAt' => $generatedAt,
+        'controller' => is_array($state['controller'] ?? null) ? $state['controller'] : [],
+        'watchdog' => md12xx_read_json(MD12XX_WATCHDOG_FILE),
+        'shelves' => is_array($state['shelves'] ?? null) ? array_values($state['shelves']) : [],
+    ];
+}
+
+function md12xx_discover_serial_ports(): array
+{
+    $ports = glob('/dev/serial/by-id/*') ?: [];
+    sort($ports, SORT_NATURAL | SORT_FLAG_CASE);
+    return array_values(array_filter($ports, 'is_string'));
+}
+
+function md12xx_serial_port_details(): array
+{
+    $result = [];
+    foreach (md12xx_discover_serial_ports() as $path) {
+        $target = @realpath($path);
+        $tty = $target !== false ? basename($target) : '';
+        $cursor = $tty !== '' ? @realpath('/sys/class/tty/' . $tty . '/device') : false;
+        $metadata = ['vendorId' => '', 'productId' => '', 'manufacturer' => '', 'product' => '', 'serial' => ''];
+        for ($depth = 0; $cursor !== false && $depth < 8; $depth++, $cursor = @realpath(dirname($cursor))) {
+            foreach ([
+                'vendorId' => 'idVendor', 'productId' => 'idProduct', 'manufacturer' => 'manufacturer',
+                'product' => 'product', 'serial' => 'serial',
+            ] as $key => $filename) {
+                if ($metadata[$key] === '' && is_file($cursor . '/' . $filename)) {
+                    $metadata[$key] = trim((string) @file_get_contents($cursor . '/' . $filename));
+                }
+            }
+            if ($metadata['vendorId'] !== '' && $metadata['productId'] !== '') break;
+            if ($cursor === '/sys' || $cursor === '/') break;
+        }
+        $knownFtdi = strtolower($metadata['vendorId']) === '0403'
+            || stripos($path, 'FTDI_USB_Serial_Converter') !== false
+            || stripos($metadata['manufacturer'] . ' ' . $metadata['product'], 'FTDI') !== false;
+        $result[] = array_merge([
+            'path' => $path,
+            'device' => $target !== false ? $target : null,
+            'tty' => $tty !== '' ? $tty : null,
+            'knownFtdiCandidate' => $knownFtdi,
+        ], $metadata);
+    }
+    return $result;
+}
+
+function md12xx_ses_disk_mapping(
+    string $address,
+    string $disksPath = '/var/local/emhttp/disks.ini',
+    string $sysfsRoot = '/sys'
+): array
+{
+    $base = [
+        'state' => 'unavailable',
+        'source' => null,
+        'blockDevices' => [],
+        'disks' => [],
+        'message' => 'Linux did not expose a safe SES-to-disk topology mapping',
+    ];
+    if ($address === '' || !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $address)) return $base;
+
+    $enclosureRoot = rtrim($sysfsRoot, '/\\') . '/class/enclosure';
+    $enclosure = $enclosureRoot . '/' . $address;
+    $enclosureFound = is_dir($enclosure);
+    if (!is_dir($enclosure)) {
+        foreach (glob($enclosureRoot . '/*') ?: [] as $candidate) {
+            $resolved = @realpath($candidate);
+            if (basename($candidate) === $address || ($resolved !== false && basename($resolved) === $address)) {
+                $enclosure = $candidate;
+                $enclosureFound = true;
+                break;
+            }
+        }
+    }
+
+    $blockDevices = [];
+    $mappingSource = null;
+    if ($enclosureFound) {
+        foreach (glob($enclosure . '/*') ?: [] as $component) {
+            if (!is_dir($component)) continue;
+            $device = $component . '/device';
+            $resolved = @realpath($device);
+            foreach (array_unique(array_filter([$device, $resolved !== false ? $resolved : null])) as $devicePath) {
+                foreach (glob($devicePath . '/block/*') ?: [] as $blockPath) {
+                    $name = basename($blockPath);
+                    if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+                }
+            }
+        }
+        if ($blockDevices) $mappingSource = 'enclosure-class';
+    }
+
+    // Some SAS HBAs expose no /sys/class/enclosure entries. In that case the
+    // SES generic device and its disks still share an exact expander ancestor.
+    // Matching that ancestor is safer than inferring shelves from target IDs.
+    if (!$blockDevices) {
+        $root = rtrim($sysfsRoot, '/\\');
+        $sesPath = null;
+        foreach (glob($root . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
+            $resolved = @realpath($genericPath . '/device');
+            if ($resolved !== false && basename($resolved) === $address) {
+                $sesPath = str_replace('\\', '/', $resolved);
+                break;
+            }
+        }
+        $expanderRoot = null;
+        if ($sesPath !== null && preg_match('#^(.*/expander-[0-9]+:[0-9]+(?::[0-9]+)?)(?:/|$)#', $sesPath, $match)) {
+            $expanderRoot = rtrim($match[1], '/');
+        }
+        if ($expanderRoot !== null) {
+            foreach (glob($root . '/class/scsi_disk/*') ?: [] as $diskPath) {
+                $resolved = @realpath($diskPath . '/device');
+                if ($resolved === false) continue;
+                $resolved = str_replace('\\', '/', $resolved);
+                if (!str_starts_with($resolved, $expanderRoot . '/')) continue;
+                foreach (glob($diskPath . '/device/block/*') ?: [] as $blockPath) {
+                    $name = basename($blockPath);
+                    if (preg_match('/^(sd[a-z]+|nvme[0-9]+n[0-9]+)$/', $name)) $blockDevices[] = $name;
+                }
+            }
+            if ($blockDevices) $mappingSource = 'sas-expander';
+        }
+    }
+    $blockDevices = array_values(array_unique($blockDevices));
+    sort($blockDevices, SORT_NATURAL | SORT_FLAG_CASE);
+    if (!$blockDevices) {
+        return array_replace($base, [
+            'state' => $enclosureFound ? 'empty' : 'unavailable',
+            'message' => $enclosureFound
+                ? 'The enclosure was found, but Linux did not link any block devices to its slots'
+                : 'No enclosure-class links or shared SES SAS-expander topology were available',
+        ]);
+    }
+
+    $byDevice = [];
+    foreach (md12xx_discover_disks($disksPath) as $disk) {
+        $device = basename(trim((string) ($disk['device'] ?? '')));
+        if ($device === '') continue;
+        $name = (string) $disk['name'];
+        $score = is_numeric($disk['temperatureC'] ?? null) ? 50 : 0;
+        if (preg_match('/^(parity2?|disk[0-9]+)$/', $name)) $score += 100;
+        if (preg_match('/^flash[0-9]*$/', $name)) $score -= 100;
+        $key = strtolower($device);
+        if (!isset($byDevice[$key]) || $score > $byDevice[$key]['score']) {
+            $byDevice[$key] = ['name' => $name, 'score' => $score];
+        }
+    }
+    $disks = [];
+    foreach ($blockDevices as $device) {
+        $name = $byDevice[strtolower($device)]['name'] ?? '';
+        if ($name !== '') $disks[] = $name;
+    }
+    $disks = array_values(array_unique($disks));
+    usort($disks, 'strnatcasecmp');
+    return [
+        'state' => $disks ? 'verified' : 'unassigned',
+        'source' => $mappingSource,
+        'blockDevices' => $blockDevices,
+        'disks' => $disks,
+        'message' => $disks
+            ? ($mappingSource === 'sas-expander'
+                ? 'Mapped through the SES device SAS expander and the current Unraid disk inventory'
+                : 'Mapped through Linux enclosure slot links and the current Unraid disk inventory')
+            : 'Physical enclosure disks were found, but none are currently assigned by Unraid',
+    ];
+}
+
+function md12xx_discover_ses(
+    string $disksPath = '/var/local/emhttp/disks.ini',
+    string $sysfsRoot = '/sys'
+): array
+{
+    $result = [];
+    foreach (glob(rtrim($sysfsRoot, '/\\') . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
+        $devicePath = $genericPath . '/device';
+        $resolved = @realpath($devicePath);
+        if ($resolved === false) continue;
+        $vendor = trim((string) @file_get_contents($devicePath . '/vendor'));
+        $model = trim((string) @file_get_contents($devicePath . '/model'));
+        $type = trim((string) @file_get_contents($devicePath . '/type'));
+        if ($type !== '13' && stripos($model, 'MD12') === false) continue;
+        $mapping = md12xx_ses_disk_mapping(basename($resolved), $disksPath, $sysfsRoot);
+        $result[] = [
+            'device' => '/dev/' . basename($genericPath),
+            'address' => basename($resolved),
+            'vendor' => $vendor,
+            'model' => $model,
+            'supportedCandidate' => stripos($vendor . ' ' . $model, 'DELL') !== false || stripos($model, 'MD12') !== false,
+            'diskMappingState' => $mapping['state'],
+            'blockDevices' => $mapping['blockDevices'],
+            'disks' => $mapping['disks'],
+            'diskMappingMessage' => $mapping['message'],
+        ];
+    }
+    usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['device'], $b['device']));
+    return $result;
+}
+
+function md12xx_discover_disks(string $path = '/var/local/emhttp/disks.ini'): array
+{
+    $values = is_file($path) ? @parse_ini_file($path, true, INI_SCANNER_RAW) : [];
+    if (!is_array($values)) return [];
+    $result = [];
+    foreach ($values as $section => $disk) {
+        if (!is_array($disk)) continue;
+        $name = strtolower(trim((string) ($disk['name'] ?? $section)));
+        if ($name === '') continue;
+        $result[] = [
+            'name' => $name,
+            'device' => trim((string) ($disk['device'] ?? '')),
+            'temperatureC' => is_numeric($disk['temp'] ?? null) ? (float) $disk['temp'] : null,
+        ];
+    }
+    usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
+    return $result;
+}
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php">
+<INLINE>
+<![CDATA[
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/common.php';
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
+$options = getopt('', ['once', 'dry-run', 'config:', 'disks:', 'state:', 'fixture-dir:']);
+$runOnce = array_key_exists('once', $options);
+$dryRun = array_key_exists('dry-run', $options);
+$configPath = isset($options['config']) ? (string) $options['config'] : MD12XX_CONFIG_FILE;
+$disksPath = isset($options['disks']) ? (string) $options['disks'] : '/var/local/emhttp/disks.ini';
+$statePath = isset($options['state']) ? (string) $options['state'] : MD12XX_STATE_FILE;
+$fixtureDirectory = isset($options['fixture-dir']) ? (string) $options['fixture-dir'] : '';
+$running = true;
+
+if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
+    pcntl_async_signals(true);
+    pcntl_signal(SIGTERM, static function () use (&$running): void { $running = false; });
+    pcntl_signal(SIGINT, static function () use (&$running): void { $running = false; });
+}
+
+function md12xx_controller_disks(string $path): array
+{
+    $values = is_file($path) ? @parse_ini_file($path, true, INI_SCANNER_RAW) : [];
+    if (!is_array($values)) return [];
+    $result = [];
+    foreach ($values as $section => $disk) {
+        if (!is_array($disk)) continue;
+        $name = strtolower(trim((string) ($disk['name'] ?? $section)));
+        if ($name !== '') $result[$name] = $disk;
+    }
+    return $result;
+}
+
+function md12xx_controller_spun_down(array $disk): bool
+{
+    $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
+    if (in_array($explicit, ['1', 'yes', 'true', 'on'], true)) return true;
+    return str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
+}
+
+function md12xx_controller_temperature(array $assigned, array $disks): array
+{
+    $assigned = array_values(array_unique(array_map(static fn($name): string => strtolower((string) $name), $assigned)));
+    $temperatures = [];
+    $seen = 0;
+    $active = 0;
+    $missing = [];
+    foreach ($assigned as $name) {
+        $disk = $disks[strtolower((string) $name)] ?? null;
+        if (!is_array($disk)) { $missing[] = (string) $name; continue; }
+        $seen++;
+        if (!md12xx_controller_spun_down($disk)) $active++;
+        $raw = trim((string) ($disk['temp'] ?? ''));
+        if (is_numeric($raw) && (float) $raw > 0.0) $temperatures[(string) $name] = (float) $raw;
+    }
+    arsort($temperatures, SORT_NUMERIC);
+    $source = $temperatures ? (string) array_key_first($temperatures) : null;
+    return [
+        'temperatureC' => $source === null ? null : round((float) $temperatures[$source], 1),
+        'temperatureSource' => $source,
+        'assignedCount' => count($assigned),
+        'assignedSeen' => $seen,
+        'missingDisks' => $missing,
+        'activeDisks' => $active,
+        'allSpunDown' => count($assigned) > 0 && $seen === count($assigned) && $active === 0,
+    ];
+}
+
+function md12xx_controller_auto_target(array $config, array $thermal, ?int $previous): array
+{
+    $curve = $config['curve'];
+    $cool = (int) $curve[0]['speed'];
+    if (($thermal['assignedCount'] ?? 0) === 0) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'no assigned disks; fail-safe'];
+    }
+    if (!empty($thermal['mappingChanged'])) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'automatic disk mapping changed; fail-safe'];
+    }
+    if (!empty($thermal['missingDisks'])) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'assigned disk inventory incomplete; fail-safe'];
+    }
+    if ($thermal['allSpunDown']) return ['speed' => $cool, 'reason' => 'assigned disks spun down'];
+    if ($thermal['temperatureC'] === null) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'temperature unavailable; fail-safe'];
+    }
+
+    $temperature = (float) $thermal['temperatureC'];
+    $candidate = $cool;
+    foreach ($curve as $step) {
+        if ($temperature >= (float) $step['temperatureC']) $candidate = (int) $step['speed'];
+    }
+    if ($previous !== null && $candidate < $previous) {
+        $threshold = null;
+        foreach ($curve as $step) {
+            if ((int) $step['speed'] >= $previous) { $threshold = (float) $step['temperatureC']; break; }
+        }
+        if ($threshold !== null && $temperature >= ($threshold - (float) $config['hysteresisC'])) $candidate = $previous;
+    }
+    return ['speed' => $candidate, 'reason' => ($thermal['temperatureSource'] ?? 'disk') . ' ' . $temperature . '°C'];
+}
+
+function md12xx_controller_resolve_ses(string $configuredDevice, string $scsiAddress): string
+{
+    if ($scsiAddress !== '') {
+        foreach (glob('/sys/class/scsi_generic/sg*') ?: [] as $genericPath) {
+            $resolved = @realpath($genericPath . '/device');
+            if ($resolved !== false && basename($resolved) === $scsiAddress) return '/dev/' . basename($genericPath);
+        }
+    }
+    return $configuredDevice;
+}
+
+function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
+{
+    if ($dryRun) return ['state' => 'dry-run', 'message' => 'Dry run; no serial write'];
+    if ($port === '' || !str_starts_with($port, '/dev/serial/by-id/') || !file_exists($port)) {
+        return ['state' => 'fault', 'message' => 'Persistent serial adapter is missing'];
+    }
+    if (md12xx_fuser_binary() === null) return ['state' => 'fault', 'message' => 'Serial ownership check is unavailable'];
+    if (md12xx_serial_busy($port)) return ['state' => 'fault', 'message' => 'Serial adapter is open in another process'];
+    if (!is_dir(MD12XX_RUNTIME_DIR)) @mkdir(MD12XX_RUNTIME_DIR, 0755, true);
+    $lockPath = MD12XX_RUNTIME_DIR . '/serial-' . substr(sha1($port), 0, 12) . '.lock';
+    $lock = @fopen($lockPath, 'c+');
+    if ($lock === false || !@flock($lock, LOCK_EX | LOCK_NB)) {
+        if (is_resource($lock)) fclose($lock);
+        return ['state' => 'fault', 'message' => 'Serial adapter is already in use'];
+    }
+    try {
+        $exitCode = 1;
+        @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1 2>/dev/null', $unused, $exitCode);
+        if ($exitCode !== 0) return ['state' => 'fault', 'message' => 'Unable to configure serial adapter'];
+        // Real MD1200 testing proved the console reader must already be open
+        // before the writer sends set_speed. A single read/write descriptor
+        // could acknowledge 50% and then silently miss the following 20%.
+        $reader = @fopen($port, 'r');
+        if ($reader === false) return ['state' => 'fault', 'message' => 'Unable to open serial response reader'];
+        stream_set_blocking($reader, false);
+        $readerReadyAt = microtime(true) + 0.3;
+        while (microtime(true) < $readerReadyAt) { @fread($reader, 4096); usleep(25000); }
+        $writer = @fopen($port, 'w');
+        if ($writer === false) { fclose($reader); return ['state' => 'fault', 'message' => 'Unable to open serial command writer']; }
+        stream_set_write_buffer($writer, 0);
+        $payload = 'set_speed ' . $speed . "\r";
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $written = @fwrite($writer, $payload);
+            @fflush($writer);
+            if ($written !== strlen($payload)) { fclose($writer); fclose($reader); return ['state' => 'fault', 'message' => 'Serial command write failed']; }
+            usleep(100000);
+        }
+        fclose($writer);
+        $reply = '';
+        $replyUntil = microtime(true) + 1.0;
+        while (microtime(true) < $replyUntil && strlen($reply) < 8192) {
+            $chunk = @fread($reader, 1024);
+            if (is_string($chunk) && $chunk !== '') $reply .= $chunk;
+            usleep(25000);
+        }
+        fclose($reader);
+        $acknowledged = preg_match('/set_speed\s+' . preg_quote((string) $speed, '/') . '/i', $reply) === 1;
+        return [
+            'state' => $acknowledged ? 'sent' : 'unconfirmed',
+            'message' => $acknowledged
+                ? 'Command acknowledged; awaiting independent fan telemetry'
+                : 'Command written without a console acknowledgement; independent telemetry required',
+        ];
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+function md12xx_controller_rpm(string $id, string $device, string $fixtureDirectory): array
+{
+    if ($fixtureDirectory !== '') {
+        $fixture = rtrim($fixtureDirectory, '/\\') . DIRECTORY_SEPARATOR . $id . '.txt';
+        $output = is_file($fixture) ? (string) @file_get_contents($fixture) : '';
+    } elseif ($device === '' || !file_exists($device)) {
+        return ['state' => 'unconfigured', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'SES device is not mapped'];
+    } else {
+        $binary = trim((string) @shell_exec('command -v sg_ses 2>/dev/null'));
+        if ($binary === '') return ['state' => 'unavailable', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'sg_ses is unavailable'];
+        $lines = [];
+        $exitCode = 1;
+        @exec('timeout 10 ' . escapeshellarg($binary) . ' -p es ' . escapeshellarg($device) . ' 2>/dev/null', $lines, $exitCode);
+        if ($exitCode !== 0) return ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'SES telemetry read failed'];
+        $output = implode("\n", $lines);
+    }
+    preg_match_all('/Actual\s+speed\s*=\s*([0-9]+)\s*rpm/i', $output, $matches);
+    $values = array_values(array_filter(array_map('intval', $matches[1] ?? []), static fn(int $rpm): bool => $rpm > 0));
+    if (!$values) return ['state' => 'unavailable', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'No fan RPM values were reported'];
+    return ['state' => 'normal', 'averageRpm' => (int) round(array_sum($values) / count($values)), 'fanCount' => count($values), 'fanRpms' => $values, 'message' => ''];
+}
+
+function md12xx_controller_write_state(string $path, array $state): void
+{
+    $directory = dirname($path);
+    if (!is_dir($directory)) @mkdir($directory, 0755, true);
+    $encoded = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($encoded === false) return;
+    $temporary = $path . '.tmp.' . getmypid();
+    if (@file_put_contents($temporary, $encoded . "\n", LOCK_EX) !== false) {
+        @chmod($temporary, 0644);
+        @rename($temporary, $path);
+    }
+}
+
+$previousTargets = [];
+$lastCommands = [];
+$previousMode = null;
+$nextPollAt = 0;
+$lastConfigSignature = '';
+$lastControlSignature = '';
+$pendingVerifications = [];
+$lastVerifications = [];
+$verificationFaults = [];
+$driftCounts = [];
+
+while ($running) {
+    clearstatcache(true, $configPath);
+    $signature = is_file($configPath) ? (string) @sha1_file($configPath) : '';
+    try {
+        $config = md12xx_validate_config(md12xx_read_config($configPath));
+    } catch (Throwable $error) {
+        md12xx_controller_write_state($statePath, ['generatedAt' => time(), 'controller' => ['state' => 'fault', 'message' => 'Invalid configuration: ' . $error->getMessage()], 'shelves' => []]);
+        if ($runOnce) break;
+        sleep(10);
+        continue;
+    }
+    $pollSeconds = (int) $config['pollSeconds'];
+    $configChanged = $signature !== $lastConfigSignature;
+    if (!$runOnce && !$configChanged && time() < $nextPollAt) { sleep(1); continue; }
+    $lastConfigSignature = $signature;
+    $nextPollAt = time() + $pollSeconds;
+    $controlConfig = $config;
+    unset($controlConfig['discovery'], $controlConfig['pollSeconds']);
+    foreach ($controlConfig['shelves'] as &$controlShelf) unset($controlShelf['name']);
+    unset($controlShelf);
+    $controlSignature = sha1((string) json_encode($controlConfig, JSON_UNESCAPED_SLASHES));
+    $controlChanged = $controlSignature !== $lastControlSignature;
+    $lastControlSignature = $controlSignature;
+
+    $enabled = (bool) $config['enabled'];
+    $mode = (string) $config['mode'];
+    $manualSpeed = (int) $config['manualSpeed'];
+    $commissioningActive = md12xx_commission_active();
+    $conflicts = $enabled ? md12xx_competing_controllers($config) : [];
+    $disks = md12xx_controller_disks($disksPath);
+    $controllerState = 'normal';
+    $messages = [];
+    $shelfStates = [];
+
+    if (!$enabled) $messages[] = 'Controller disabled';
+    if ($enabled && !$config['shelves']) { $controllerState = 'attention'; $messages[] = 'No shelves configured'; }
+    if ($conflicts) { $controllerState = 'fault'; $messages[] = 'Another fan controller is active'; }
+    if ($enabled && $commissioningActive) { $controllerState = 'fault'; $messages[] = 'Identify & test is active; control writes are blocked'; }
+
+    foreach ($config['shelves'] as $shelf) {
+        $id = (string) $shelf['id'];
+        $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
+        $assignedDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
+        $savedAssignedDisks = $assignedDisks;
+        $mappingChanged = false;
+        $diskMapping = [
+            'state' => $assignmentMode === 'automatic' ? 'unavailable' : 'manual',
+            'disks' => $assignedDisks,
+            'message' => $assignmentMode === 'automatic' ? 'SES enclosure is not mapped' : 'Manual disk override',
+        ];
+        if ($assignmentMode === 'automatic' && (string) $shelf['sesAddress'] !== '') {
+            $diskMapping = md12xx_ses_disk_mapping((string) $shelf['sesAddress'], $disksPath);
+            // Keep the last hardware-confirmed snapshot if sysfs is temporarily
+            // unavailable. A successful current mapping always wins.
+            if (!empty($diskMapping['disks'])) {
+                $currentDisks = array_values(array_unique($diskMapping['disks']));
+                $savedComparison = $savedAssignedDisks;
+                $currentComparison = $currentDisks;
+                sort($savedComparison, SORT_NATURAL | SORT_FLAG_CASE);
+                sort($currentComparison, SORT_NATURAL | SORT_FLAG_CASE);
+                $mappingChanged = $savedComparison !== [] && $savedComparison !== $currentComparison;
+                $assignedDisks = $mappingChanged
+                    ? array_values(array_unique(array_merge($savedAssignedDisks, $currentDisks)))
+                    : $currentDisks;
+                if ($mappingChanged) {
+                    $diskMapping['state'] = 'changed';
+                    $diskMapping['message'] = 'The current SES-to-disk mapping differs from the commissioned snapshot';
+                }
+            }
+        }
+        $thermal = md12xx_controller_temperature($assignedDisks, $disks);
+        $thermal['mappingChanged'] = $mappingChanged;
+        $auto = md12xx_controller_auto_target($config, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
+        $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
+        $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
+        if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {
+            unset($pendingVerifications[$id]);
+        }
+        $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
+        $lastCommand = $lastCommands[$id] ?? null;
+        $commandDue = $operable && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
+        if ($commissioningActive) {
+            $write = ['state' => 'blocked', 'message' => 'Identify & test is active'];
+        } elseif ($conflicts) {
+            $write = ['state' => 'blocked', 'message' => 'Another fan controller is active'];
+        } else {
+            $write = ['state' => $operable ? 'idle' : 'disabled', 'message' => $operable ? 'No command due' : ((bool) $shelf['commissioned'] ? 'Shelf or controller disabled' : 'Shelf not commissioned')];
+        }
+        if ($commandDue) {
+            $write = md12xx_controller_send((string) $shelf['serialPort'], $target, $dryRun);
+            if (in_array($write['state'], ['sent', 'unconfirmed', 'dry-run'], true)) $lastCommands[$id] = time();
+            if (in_array($write['state'], ['sent', 'unconfirmed'], true)) {
+                $calibration = md12xx_controller_calibration($shelf);
+                if ($calibration === null) {
+                    $lastVerifications[$id] = ['target' => $target, 'state' => 'unverified', 'message' => 'Telemetry calibration is missing; run Identify & test again'];
+                    $write = $lastVerifications[$id];
+                } else {
+                    $pendingVerifications[$id] = ['target' => $target, 'sentAt' => time(), 'calibration' => $calibration];
+                    unset($verificationFaults[$id]);
+                }
+            }
+        }
+
+        $sesDevice = md12xx_controller_resolve_ses((string) $shelf['sesDevice'], (string) $shelf['sesAddress']);
+        $telemetry = md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
+        $pending = $pendingVerifications[$id] ?? null;
+        if (is_array($pending) && (int) $pending['target'] === $target) {
+            $elapsed = time() - (int) $pending['sentAt'];
+            $verification = $telemetry['state'] === 'normal'
+                ? md12xx_controller_verify_target($target, (int) $telemetry['averageRpm'], $pending['calibration'])
+                : ['passed' => false, 'expected' => 'normal SES fan telemetry'];
+            if ((bool) $verification['passed']) {
+                $minimumOnly = !empty($verification['minimumOnly']);
+                $lastVerifications[$id] = [
+                    'target' => $target,
+                    'state' => $minimumOnly ? 'minimum-verified' : 'verified',
+                    'message' => $minimumOnly
+                        ? 'Independent SES telemetry verified at least the commissioned 50% response at ' . $telemetry['averageRpm'] . ' RPM; the exact ' . $target . '% RPM is not calibrated'
+                        : 'Independent SES telemetry verified the response to ' . $target . '% at ' . $telemetry['averageRpm'] . ' RPM',
+                ];
+                $driftCounts[$id] = 0;
+                unset($pendingVerifications[$id], $verificationFaults[$id]);
+            } elseif ($elapsed >= 45) {
+                $verificationFaults[$id] = ['target' => $target, 'state' => 'fault', 'message' => 'Fan response to ' . $target . '% was not verified after 45 seconds; expected ' . $verification['expected']];
+                unset($pendingVerifications[$id], $lastCommands[$id], $lastVerifications[$id]);
+            } else {
+                $write = ['state' => 'pending', 'message' => 'Waiting for independent SES telemetry to verify ' . $target . '% (' . $elapsed . 's)'];
+            }
+        }
+        $lastVerified = $lastVerifications[$id] ?? null;
+        if (!isset($pendingVerifications[$id]) && is_array($lastVerified) && (int) ($lastVerified['target'] ?? -1) === $target
+            && in_array((string) ($lastVerified['state'] ?? ''), ['verified', 'minimum-verified'], true) && $telemetry['state'] === 'normal') {
+            $calibration = md12xx_controller_calibration($shelf);
+            $drift = $calibration === null ? ['passed' => true] : md12xx_controller_verify_target($target, (int) $telemetry['averageRpm'], $calibration);
+            $driftCounts[$id] = !empty($drift['passed']) ? 0 : (($driftCounts[$id] ?? 0) + 1);
+            if ($driftCounts[$id] >= 3) {
+                $verificationFaults[$id] = ['target' => $target, 'state' => 'fault', 'message' => 'Fan telemetry no longer matches the ' . $target . '% target; expected ' . ($drift['expected'] ?? 'the commissioned response')];
+                unset($lastVerifications[$id], $lastCommands[$id]);
+            }
+        }
+        if (($verificationFaults[$id]['target'] ?? null) === $target) {
+            $write = $verificationFaults[$id];
+        } elseif (($lastVerifications[$id]['target'] ?? null) === $target && !isset($pendingVerifications[$id]) && in_array($write['state'], ['idle', 'sent', 'unconfirmed'], true)) {
+            $write = $lastVerifications[$id];
+        }
+        if ($operable && $write['state'] === 'fault') { $controllerState = 'fault'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
+        elseif ($operable && $write['state'] === 'unverified' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
+        elseif ($operable && $write['state'] === 'pending' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
+        elseif ($operable && $mappingChanged && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': automatic disk mapping changed'; }
+        elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
+        elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }
+        elseif ($enabled && (bool) $shelf['enabled'] && !(bool) $shelf['commissioned'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': commissioning required'; }
+        elseif ($enabled && (bool) $shelf['enabled'] && $telemetry['state'] !== 'normal' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $telemetry['message']; }
+
+        $shelfStates[] = [
+            'id' => $id,
+            'name' => $shelf['name'],
+            'model' => $shelf['model'],
+            'enabled' => (bool) $shelf['enabled'],
+            'commissioned' => (bool) $shelf['commissioned'],
+            'serialPort' => $shelf['serialPort'],
+            'sesDevice' => $sesDevice,
+            'sesAddress' => $shelf['sesAddress'],
+            'diskAssignment' => $assignmentMode,
+            'diskMappingState' => $diskMapping['state'],
+            'diskMappingMessage' => $diskMapping['message'],
+            'assignedDisks' => $assignedDisks,
+            'assignedCount' => $thermal['assignedCount'],
+            'assignedSeen' => $thermal['assignedSeen'],
+            'missingDisks' => $thermal['missingDisks'],
+            'activeDisks' => $thermal['activeDisks'],
+            'temperatureC' => $thermal['temperatureC'],
+            'temperatureSource' => $thermal['temperatureSource'],
+            'averageRpm' => $telemetry['averageRpm'],
+            'fanCount' => $telemetry['fanCount'],
+            'fanRpms' => $telemetry['fanRpms'],
+            'telemetryState' => $telemetry['state'],
+            'telemetryMessage' => $telemetry['message'],
+            'targetPercent' => $target,
+            'targetReason' => $reason,
+            'writeState' => $write['state'],
+            'writeMessage' => $write['message'],
+        ];
+        $previousTargets[$id] = $target;
+    }
+
+    $state = [
+        'generatedAt' => time(),
+        'controller' => [
+            'enabled' => $enabled,
+            'mode' => $mode,
+            'manualSpeed' => $manualSpeed,
+            'state' => $controllerState,
+            'message' => implode('; ', array_values(array_unique($messages))),
+            'conflicts' => $conflicts,
+            'dryRun' => $dryRun,
+            'pollSeconds' => $pollSeconds,
+        ],
+        'shelves' => $shelfStates,
+    ];
+    md12xx_controller_write_state($statePath, $state);
+    $previousMode = $mode;
+    if ($runOnce) break;
+}
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/discovery.php">
+<INLINE>
+<![CDATA[
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/common.php';
+
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
+$options = getopt('', ['once', 'config:', 'state:']);
+$runOnce = array_key_exists('once', $options);
+$configPath = isset($options['config']) ? (string) $options['config'] : MD12XX_CONFIG_FILE;
+$statePath = isset($options['state']) ? (string) $options['state'] : MD12XX_DISCOVERY_FILE;
+$running = true;
+if (!is_dir(MD12XX_RUNTIME_DIR)) @mkdir(MD12XX_RUNTIME_DIR, 0755, true);
+$cycleLock = @fopen(MD12XX_RUNTIME_DIR . '/discovery-cycle.lock', 'c+');
+
+if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
+    pcntl_async_signals(true);
+    pcntl_signal(SIGTERM, static function () use (&$running): void { $running = false; });
+    pcntl_signal(SIGINT, static function () use (&$running): void { $running = false; });
+}
+
+function md12xx_discovery_write_state(string $path, array $state): void
+{
+    $directory = dirname($path);
+    if (!is_dir($directory)) @mkdir($directory, 0755, true);
+    $encoded = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    if ($encoded === false) return;
+    $temporary = $path . '.tmp.' . getmypid();
+    if (@file_put_contents($temporary, $encoded . "\n", LOCK_EX) !== false) {
+        @chmod($temporary, 0644);
+        @rename($temporary, $path);
+    }
+}
+
+function md12xx_discovery_preview(string $response): string
+{
+    $clean = (string) preg_replace('/[^\x09\x0A\x0D\x20-\x7E]/', '', $response);
+    $lines = preg_split('/\r?\n|\r/', $clean) ?: [];
+    $selected = [];
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '') continue;
+        if (preg_match('/BlueDress|Host Links|Expansion Links|Drive\(s\)|EMM \(|Power Supplies|\[[0-9]+\]\s*=\s*[0-9]+c/i', $line)) {
+            $selected[] = substr($line, 0, 240);
+        }
+        if (count($selected) >= 24) break;
+    }
+    return implode("\n", $selected);
+}
+
+function md12xx_discovery_probe(string $port, int $responseSeconds): array
+{
+    $base = [
+        'probeState' => 'not-run',
+        'blueDressPrompt' => false,
+        'md12xxResponse' => false,
+        'primaryActive' => false,
+        'consoleVerified' => false,
+        'responsePreview' => '',
+        'message' => '',
+    ];
+    if ($port === '' || !str_starts_with($port, '/dev/serial/by-id/') || !file_exists($port)) {
+        return array_replace($base, ['probeState' => 'missing', 'message' => 'Persistent serial device is missing']);
+    }
+    if (md12xx_fuser_binary() === null) {
+        return array_replace($base, ['probeState' => 'fault', 'message' => 'Serial ownership check is unavailable; probe skipped']);
+    }
+    if (md12xx_serial_busy($port)) {
+        return array_replace($base, ['probeState' => 'busy', 'message' => 'Serial adapter is open in another process; probe skipped']);
+    }
+
+    if (!is_dir(MD12XX_RUNTIME_DIR)) @mkdir(MD12XX_RUNTIME_DIR, 0755, true);
+    $lockPath = MD12XX_RUNTIME_DIR . '/serial-' . substr(sha1($port), 0, 12) . '.lock';
+    $lock = @fopen($lockPath, 'c+');
+    if ($lock === false || !@flock($lock, LOCK_EX | LOCK_NB)) {
+        if (is_resource($lock)) fclose($lock);
+        return array_replace($base, ['probeState' => 'busy', 'message' => 'Serial adapter is in use; probe skipped']);
+    }
+
+    try {
+        $exitCode = 1;
+        @exec('stty -F ' . escapeshellarg($port) . ' 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 0 time 1 2>/dev/null', $unused, $exitCode);
+        if ($exitCode !== 0) return array_replace($base, ['probeState' => 'fault', 'message' => 'Unable to configure serial adapter']);
+        $handle = @fopen($port, 'r+');
+        if ($handle === false) return array_replace($base, ['probeState' => 'fault', 'message' => 'Unable to open serial adapter']);
+        stream_set_blocking($handle, false);
+        stream_set_write_buffer($handle, 0);
+
+        // Drain a stale prompt so classification is based on this _who response.
+        $drainUntil = microtime(true) + 0.25;
+        while (microtime(true) < $drainUntil) { @fread($handle, 4096); usleep(25000); }
+
+        // The service console uses carriage-return command framing. CRLF was
+        // observed to echo without reliably applying commands on real MD1200s.
+        $payload = "_who\r";
+        $written = @fwrite($handle, $payload);
+        @fflush($handle);
+        if ($written !== strlen($payload)) {
+            fclose($handle);
+            return array_replace($base, ['probeState' => 'fault', 'message' => 'Read-only identity query could not be written']);
+        }
+
+        $response = '';
+        $deadline = microtime(true) + $responseSeconds;
+        while (microtime(true) < $deadline && strlen($response) < 32768) {
+            $chunk = @fread($handle, 4096);
+            if (is_string($chunk) && $chunk !== '') $response .= $chunk;
+            usleep(50000);
+        }
+        fclose($handle);
+
+        // BlueDress is common on the hardware tested so far, but prompt text is
+        // firmware-owned and is not used as the only identity check. The _who
+        // response structure is the stronger model-family fingerprint.
+        $blueDress = preg_match('/BlueDress\.[0-9]+\.[0-9]+\s*>/i', $response) === 1;
+        $fingerprints = [
+            preg_match('/Host\s+Links\s+UP\s*:/i', $response) === 1,
+            preg_match('/Expansion\s+Links\s+UP\s*:/i', $response) === 1,
+            preg_match('/Drive\(s\)\s*:/i', $response) === 1,
+            preg_match('/EMM\s*\(/i', $response) === 1,
+            preg_match('/Power\s+Supplies\s*:/i', $response) === 1,
+        ];
+        $md12xxResponse = count(array_filter($fingerprints)) >= 4;
+        $primaryActive = preg_match('/I.?m\s+primary\s+and\s+active/i', $response) === 1;
+        $verified = $md12xxResponse && $primaryActive;
+        return array_replace($base, [
+            'probeState' => $response === '' ? 'no-response' : ($verified ? 'verified' : 'unrecognized'),
+            'blueDressPrompt' => $blueDress,
+            'md12xxResponse' => $md12xxResponse,
+            'primaryActive' => $primaryActive,
+            'consoleVerified' => $verified,
+            'responsePreview' => md12xx_discovery_preview($response),
+            'message' => $verified
+                ? 'MD12xx EMM console verified as primary and active; SES pairing still required'
+                : ($response === '' ? 'No response to the read-only identity query' : 'A response was received but did not prove a primary active MD12xx EMM'),
+        ]);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
+}
+
+while ($running) {
+    if (is_resource($cycleLock)) @flock($cycleLock, LOCK_EX);
+    $generationId = sprintf('%.6f-%d', microtime(true), getmypid());
+    try {
+        $config = md12xx_validate_config(md12xx_read_config($configPath));
+        $probeConfig = $config['discovery'];
+        $conflicts = md12xx_competing_controllers($config);
+        $commissioningActive = md12xx_commission_active();
+        $activeAllowed = !(bool) $config['enabled'] && !$conflicts && !$commissioningActive;
+        $ports = [];
+        foreach (md12xx_serial_port_details() as $port) {
+            if (!$running) break;
+            $result = [
+                'probeState' => 'passive-only',
+                'blueDressPrompt' => false,
+                'md12xxResponse' => false,
+                'primaryActive' => false,
+                'consoleVerified' => false,
+                'responsePreview' => '',
+                'message' => 'Passively inventoried; active query not enabled for this device',
+            ];
+            if ((bool) $probeConfig['autoProbeKnownFtdi'] && (bool) $port['knownFtdiCandidate']) {
+                $result = $activeAllowed
+                    ? md12xx_discovery_probe((string) $port['path'], (int) $probeConfig['responseSeconds'])
+                    : array_replace($result, ['probeState' => 'blocked', 'message' => $commissioningActive
+                        ? 'Commissioning test is active; identity probe skipped'
+                        : ((bool) $config['enabled'] ? 'Fan control is enabled; identity probe skipped' : 'Competing controller detected; identity probe skipped')]);
+            }
+            $ports[] = array_merge($port, $result);
+        }
+        md12xx_discovery_write_state($statePath, [
+            'generatedAt' => time(),
+            'generationId' => $generationId,
+            'autoProbeKnownFtdi' => (bool) $probeConfig['autoProbeKnownFtdi'],
+            'activeProbeAllowed' => $activeAllowed,
+            'commissioningActive' => $commissioningActive,
+            'blockedBy' => $conflicts,
+            'serialPorts' => $ports,
+            'sesDevices' => md12xx_discover_ses(),
+            'pairingPolicy' => 'Serial console identity and SES identity are verified independently; explicit operator pairing is required.',
+        ]);
+        $interval = (int) $probeConfig['intervalSeconds'];
+    } catch (Throwable $error) {
+        md12xx_discovery_write_state($statePath, ['generatedAt' => time(), 'generationId' => $generationId, 'error' => $error->getMessage(), 'serialPorts' => [], 'sesDevices' => []]);
+        $interval = 60;
+    } finally {
+        if (is_resource($cycleLock)) @flock($cycleLock, LOCK_UN);
+    }
+    if ($runOnce) break;
+    for ($second = 0; $running && $second < $interval; $second++) sleep(1);
+}
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/download.php">
+<INLINE>
+<![CDATA[
+<?php
+
+declare(strict_types=1);
+
+$type = strtolower(trim((string) ($_GET['type'] ?? 'diagnostics')));
+$file = basename(trim((string) ($_GET['file'] ?? '')));
+$roots = [
+    'diagnostics' => '/boot/config/plugins/md12xx.fancontrol/diagnostics',
+    'commissioning' => '/boot/config/plugins/md12xx.fancontrol/commissioning',
+];
+
+if (!isset($roots[$type]) || !preg_match('/^[a-zA-Z0-9._-]+\.(?:zip|tar\.gz)$/', $file)) {
+    http_response_code(400);
+    exit('Invalid download request');
+}
+
+$root = realpath($roots[$type]);
+$path = realpath($roots[$type] . '/' . $file);
+if ($root === false || $path === false || !str_starts_with($path, $root . DIRECTORY_SEPARATOR) || !is_file($path)) {
+    http_response_code(404);
+    exit('Archive not found');
+}
+
+header('Content-Type: ' . (str_ends_with($file, '.tar.gz') ? 'application/gzip' : 'application/zip'));
+header('Content-Disposition: attachment; filename="' . addcslashes($file, "\"\\") . '"');
+header('Content-Length: ' . filesize($path));
+header('Cache-Control: no-store');
+readfile($path);
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/MD12xxFanControl.page">
+<INLINE>
+<![CDATA[
+Menu="Utilities"
+Title="MD12xx Fan Control"
+Type="xmenu"
+Icon="icon-disks"
+Tag="icon-disk"
+Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'7.3.2','>=')"
+
+---
+
+<?php
+$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';
+require_once $pluginRoot . '/include/common.php';
+$config = md12xx_read_config();
+$webRoot = '/plugins/md12xx.fancontrol';
+$cssVersion = @filemtime($pluginRoot . '/assets/css/settings.css') ?: 0;
+$jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
+?>
+<link rel="stylesheet" href="<?=$webRoot?>/assets/css/settings.css?v=<?=$cssVersion?>">
+
+<section class="md12xx-page">
+  <header class="md12xx-hero">
+    <div>
+      <h2>Dell MD1200 / MD1220 Fan Control</h2>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.6</span></p>
+    </div>
+    <div class="md12xx-hero-actions">
+      <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
+      <span id="md12xx-health" class="md12xx-pill is-loading">LOADING</span>
+    </div>
+  </header>
+
+  <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
+
+  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), a compatible SAS HBA/controller exposing the shelf as <code>/dev/sg*</code>, <code>sg_ses</code>, and the active EMM console on a persistent <code>/dev/serial/by-id</code> path. The tested MD1200 serial path uses a Dell-compatible six-pin service/password-reset cable and an FTDI USB-to-serial adapter. MD1400, MD1420, and other shelves are unsupported.</p>
+
+  <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
+
+  <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
+    <h3>Safe setup</h3>
+    <ol>
+      <li>Keep this controller disabled and stop every other process that controls the same shelf.</li>
+      <li>Connect the Dell-compatible service/password-reset cable to the active/primary EMM, then connect its FTDI USB-to-serial adapter to Unraid. Matching firmware on both EMMs is strongly recommended.</li>
+      <li>Confirm Unraid can see both the shelf's persistent serial adapter and its SES enclosure before adding it.</li>
+      <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
+      <li>Select <b>Identify &amp; test</b>. The app verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
+      <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>
+      <li>Active connection testing turns off automatically when setup completes. Passive inventory remains available. Enable this controller only after every competing fan writer is disabled.</li>
+    </ol>
+    <p><b>Separate safety paths:</b> fan commands travel only through USB serial. The SAS HBA is used read-only for topology and independent SES RPM telemetry; the plugin does not configure or flash it.</p>
+    <p class="md12xx-warning"><b>Recovery:</b> if a test cannot prove the final 20% state, keep every controller stopped and follow the on-screen recovery message before continuing.</p>
+  </section>
+
+  <div id="md12xx-message" class="md12xx-message" hidden></div>
+
+  <section class="md12xx-panel">
+    <h3>Controller</h3>
+    <div class="md12xx-grid">
+      <label><span>Controller enabled</span><input id="md12xx-enabled" type="checkbox"></label>
+      <label><span>Mode</span><select id="md12xx-mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
+      <label><span>Manual speed</span><select id="md12xx-manual"><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option></select></label>
+      <label><span>Telemetry interval</span><input id="md12xx-poll" type="number" min="5" max="300" step="5"><small>Seconds; 5 recommended. Saved control changes are detected immediately.</small></label>
+      <label><span>Reassert interval</span><input id="md12xx-reassert" type="number" min="60" max="3600" step="30"><small>Seconds; 900 recommended</small></label>
+      <label><span>Sensor-failure speed</span><input id="md12xx-failsafe" type="number" min="20" max="100" step="5"><small>50% recommended</small></label>
+    </div>
+    <p class="md12xx-warning"><b>Safety:</b> enabling the controller does not enable an uncommissioned shelf. Each hardware pairing must pass Identify &amp; test.</p>
+  </section>
+
+  <section class="md12xx-panel">
+    <h3>Connection discovery</h3>
+    <div class="md12xx-grid">
+      <label><span>Test likely FTDI adapters</span><input id="md12xx-probe-ftdi" type="checkbox"><small>Optional; automatically turns off after all configured shelves pass Identify &amp; test</small></label>
+      <label><span>Discovery interval</span><input id="md12xx-discovery-interval" type="number" min="60" max="3600" step="60"><small>Seconds; 300 recommended</small></label>
+      <label><span>Response wait</span><input id="md12xx-response-seconds" type="number" min="1" max="10" step="1"><small>Seconds; 3 recommended</small></label>
+    </div>
+    <p id="md12xx-discovery-summary" class="md12xx-discovery-summary">Waiting for passive inventory…</p>
+    <p class="md12xx-warning"><b>Read-only test:</b> sends only <code>_who</code> with the hardware-confirmed carriage return. It never sends a fan-speed command, runs only while this controller is disabled, and pauses whenever another fan controller is active.</p>
+  </section>
+
+  <section class="md12xx-panel">
+    <div class="md12xx-title-row"><h3>Shelves</h3><button id="md12xx-add" type="button">Add shelf</button></div>
+    <div id="md12xx-shelves"></div>
+  </section>
+
+  <section class="md12xx-panel">
+    <div class="md12xx-title-row">
+      <h3>Auto curve</h3>
+      <label class="md12xx-point-count"><span>Number of points</span><input id="md12xx-curve-points" type="number" min="2" max="10" step="1"></label>
+    </div>
+    <div id="md12xx-curve" class="md12xx-curve"></div>
+    <label class="md12xx-inline"><span>Downshift hysteresis</span><input id="md12xx-hysteresis" type="number" min="0" max="10" step="0.5"><em>°C</em></label>
+  </section>
+
+  <section class="md12xx-panel md12xx-support">
+    <h3>Support and transparency</h3>
+    <p><b>Diagnostics stay local until you choose to share them.</b> Export and inspect the redacted archive first. Files attached to an issue in this public repository are publicly accessible.</p>
+    <div class="md12xx-support-actions">
+      <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
+      <a class="md12xx-button-link" href="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml" target="_blank" rel="noopener noreferrer">Report issue on GitHub</a>
+    </div>
+    <p class="md12xx-credit"><b>Development transparency:</b> Erik Boettcher / TheIlluminate92 owns and directs the project, supplies hardware validation, and approves releases. OpenAI Codex (GPT-5) provided primary implementation, testing, documentation, packaging, and debugging assistance under that direction and review.</p>
+  </section>
+
+  <footer class="md12xx-actions">
+    <button id="md12xx-refresh" type="button">Refresh discovery</button>
+    <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
+  </footer>
+</section>
+
+<script>
+window.MD12xxBootstrap = <?=json_encode([
+    'version' => '0.4.6',
+    'endpoint' => $webRoot . '/include/api.php',
+    'config' => $config,
+], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
+</script>
+<script src="<?=$webRoot?>/assets/js/settings.js?v=<?=$jsVersion?>"></script>
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/README.md">
+<INLINE>
+<![CDATA[
+**MD12xx Fan Control**
+
+Local temperature-based fan control with independent SES fan telemetry for Dell PowerVault MD1200 and MD1220 disk shelves.
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission-job.sh">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -u
+
+SHELF_ID="${1:-}"
+JOB_DIR="${2:-}"
+PLUGIN_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+
+if [[ ! "$SHELF_ID" =~ ^[a-z0-9][a-z0-9_-]{0,47}$ ]] || [ -z "$JOB_DIR" ]; then
+  exit 64
+fi
+
+mkdir -p "$JOB_DIR"
+LOG_FILE="$JOB_DIR/output.log"
+EXIT_FILE="$JOB_DIR/exit-code"
+STARTED_FILE="$JOB_DIR/started-at"
+RESULT_DIR_FILE="$JOB_DIR/result-directory"
+COMMISSION_MARKER="/var/run/md12xx.fancontrol/commissioning.active"
+CHILD_PID=""
+
+stop_child() {
+  if [ -n "$CHILD_PID" ] && kill -0 "$CHILD_PID" 2>/dev/null; then
+    kill -TERM "$CHILD_PID" 2>/dev/null || true
+    wait "$CHILD_PID" 2>/dev/null || true
+  fi
+  rm -f "$COMMISSION_MARKER"
+}
+trap stop_child INT TERM EXIT
+
+date +%s > "$STARTED_FILE"
+rm -f "$EXIT_FILE"
+rm -f "$RESULT_DIR_FILE"
+
+MD12XX_JOB_DIR="$JOB_DIR" "$PLUGIN_DIR/scripts/commission.sh" "$SHELF_ID" > "$LOG_FILE" 2>&1 &
+CHILD_PID=$!
+wait "$CHILD_PID"
+RESULT=$?
+CHILD_PID=""
+
+# A failed test is when its captures are most useful. Package the guarded
+# result directory even when commission.sh exited before its normal archive
+# step, so Settings can download the evidence without requiring a terminal.
+if ! grep -Eq '^Results:[[:space:]]+.+\.(zip|tar\.gz)[[:space:]]*$' "$LOG_FILE" 2>/dev/null && [ -s "$RESULT_DIR_FILE" ]; then
+  RESULT_DIR="$(cat "$RESULT_DIR_FILE" 2>/dev/null || true)"
+  RESULT_ROOT="/boot/config/plugins/md12xx.fancontrol/commissioning"
+  case "$RESULT_DIR" in
+    "$RESULT_ROOT"/*-"$SHELF_ID")
+      if [ -d "$RESULT_DIR" ]; then
+        RESULT_NAME="$(basename "$RESULT_DIR")"
+        tar -czf "$RESULT_ROOT/${RESULT_NAME}.tar.gz" -C "$RESULT_ROOT" "$RESULT_NAME"
+        printf 'Results: %s\n' "$RESULT_ROOT/${RESULT_NAME}.tar.gz" >> "$LOG_FILE"
+      fi
+      ;;
+  esac
+fi
+
+printf '%s\n' "$RESULT" > "$EXIT_FILE.tmp"
+mv -f "$EXIT_FILE.tmp" "$EXIT_FILE"
+trap - INT TERM EXIT
+rm -f "$COMMISSION_MARKER"
+exit "$RESULT"
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -euo pipefail
+
+PLUGIN_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+CONFIG_FILE="/boot/config/plugins/md12xx.fancontrol/config.json"
+STATE_DIR="/var/run/md12xx.fancontrol"
+RESULT_ROOT="/boot/config/plugins/md12xx.fancontrol/commissioning"
+COMMISSION_MARKER="$STATE_DIR/commissioning.active"
+SHELF_ID="${1:-}"
+WAIT_SECONDS="${MD12XX_TEST_WAIT_SECONDS:-10}"
+RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
+SPEED_RESPONSE_SECONDS="${MD12XX_SPEED_RESPONSE_SECONDS:-4}"
+RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
+
+if [ "$(id -u)" -ne 0 ]; then echo "The commissioning service requires administrator privileges." >&2; exit 1; fi
+if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
+for REQUIRED in jq flock fuser sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
+[ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
+
+if jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
+  echo "Disable the MD12xx controller before identifying or commissioning hardware." >&2
+  exit 1
+fi
+if ! jq -e --arg id "$SHELF_ID" '.shelves[] | select(.id == $id)' "$CONFIG_FILE" >/dev/null; then
+  echo "Unknown shelf id: $SHELF_ID" >&2
+  exit 1
+fi
+
+SHELF_JSON="$(jq -c --arg id "$SHELF_ID" '.shelves[] | select(.id == $id)' "$CONFIG_FILE")"
+SHELF_NAME="$(jq -r '.name' <<< "$SHELF_JSON")"
+MODEL="$(jq -r '.model' <<< "$SHELF_JSON")"
+PORT="$(jq -r '.serialPort' <<< "$SHELF_JSON")"
+SES_ADDRESS="$(jq -r '.sesAddress' <<< "$SHELF_JSON")"
+SES_CONFIGURED="$(jq -r '.sesDevice' <<< "$SHELF_JSON")"
+ASSIGNMENT="$(jq -r '.diskAssignment // (if ((.disks // []) | length) > 0 then "manual" else "automatic" end)' <<< "$SHELF_JSON")"
+
+[[ "$PORT" == /dev/serial/by-id/* ]] || { echo "Select a persistent serial adapter and save the configuration first." >&2; exit 1; }
+[ -e "$PORT" ] || { echo "Serial adapter is missing: $PORT" >&2; exit 1; }
+
+if [ "$(php -r 'require $argv[1]; echo count(md12xx_competing_controllers(md12xx_read_config($argv[2])));' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE")" -gt 0 ]; then
+  echo "Another fan controller is active. Disable it, then retry Identify & test." >&2
+  exit 1
+fi
+
+STAMP="$(date +%Y%m%d-%H%M%S)"
+RESULT_DIR="$RESULT_ROOT/${STAMP}-${SHELF_ID}"
+mkdir -p "$RESULT_DIR" "$STATE_DIR"
+if [ -n "${MD12XX_JOB_DIR:-}" ] && [[ "$MD12XX_JOB_DIR" == "$STATE_DIR/commission-jobs/"* ]]; then
+  printf '%s\n' "$RESULT_DIR" > "$MD12XX_JOB_DIR/result-directory"
+fi
+HASH="$(printf '%s' "$PORT" | sha1sum | cut -c1-12)"
+LOCK_FILE="$STATE_DIR/serial-${HASH}.lock"
+IDENTITY_CAPTURE="$RESULT_DIR/identity.txt"
+printf '%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"
+trap 'rm -f "$COMMISSION_MARKER"' EXIT
+
+verify_console() {
+  (
+    flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
+    if fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
+      echo "Serial adapter is open in another process." >&2
+      exit 1
+    fi
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 1 time 0
+    timeout "$RESPONSE_SECONDS" cat "$PORT" > "$IDENTITY_CAPTURE" &
+    local READER=$!
+    sleep 0.25
+    exec 8>"$PORT"
+    printf '_who\r' >&8
+    exec 8>&-
+    wait "$READER" 2>/dev/null || true
+  ) 9>"$LOCK_FILE"
+
+  local FINGERPRINTS=0
+  grep -Eqi 'Host[[:space:]]+Links[[:space:]]+UP[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'Expansion[[:space:]]+Links[[:space:]]+UP[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'Drive\(s\)[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'EMM[[:space:]]*\(' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  grep -Eqi 'Power[[:space:]]+Supplies[[:space:]]*:' "$IDENTITY_CAPTURE" && FINGERPRINTS=$((FINGERPRINTS + 1))
+  if [ "$FINGERPRINTS" -lt 4 ] || ! grep -Eqi 'I.?m[[:space:]]+primary[[:space:]]+and[[:space:]]+active' "$IDENTITY_CAPTURE"; then
+    echo "The selected adapter did not prove a primary, active MD12xx console. No fan command was sent." >&2
+    return 1
+  fi
+}
+
+send_speed() {
+  local SPEED="$1" CAPTURE
+  CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
+  (
+    flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
+    if fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
+      echo "Serial adapter is open in another process." >&2
+      exit 1
+    fi
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 1 time 0
+    timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT" > "$CAPTURE" &
+    local READER=$!
+    sleep 0.3
+    exec 8>"$PORT"
+    for _ in 1 2 3 4 5; do printf 'set_speed %s\r' "$SPEED" >&8; sleep 0.1; done
+    exec 8>&-
+    wait "$READER" 2>/dev/null || true
+  ) 9>"$LOCK_FILE"
+  if ! grep -Eqi "set_speed[[:space:]]+$SPEED" "$CAPTURE"; then
+    echo "The console did not acknowledge set_speed $SPEED." >&2
+    return 1
+  fi
+}
+
+sample_device_rpm() {
+  local DEVICE="$1" LABEL="$2" SAFE RAW SPEEDS COUNT AVERAGE
+  SAFE="$(basename "$DEVICE")"
+  RAW="$RESULT_DIR/${LABEL}-${SAFE}-ses.txt"
+  timeout 10 sg_ses -p es "$DEVICE" > "$RAW" 2>&1 || return 1
+  SPEEDS="$(sed -n 's/.*Actual speed=\([0-9][0-9]*\) rpm.*/\1/p' "$RAW" | awk '$1 > 0')"
+  COUNT="$(printf '%s\n' "$SPEEDS" | sed '/^$/d' | wc -l | tr -d ' ')"
+  [ "$COUNT" -ge 2 ] || return 1
+  AVERAGE="$(printf '%s\n' "$SPEEDS" | awk '{sum += $1; count++} END {printf "%.0f", sum / count}')"
+  printf '%s\t%s\n' "$AVERAGE" "$COUNT"
+}
+
+restoration_proven() {
+  local LOW_RPM="$1" HIGH_RPM="$2" FINAL_RPM="$3"
+  awk -v low="$LOW_RPM" -v high="$HIGH_RPM" -v final="$FINAL_RPM" 'BEGIN {
+    tolerance=low*0.15;
+    if (tolerance < 300) tolerance=300;
+    exit !((final <= low+tolerance) && (high-final >= 250));
+  }'
+}
+
+candidate_ses() {
+  php -r '
+    require $argv[1];
+    foreach (md12xx_discover_ses() as $s) {
+      if (!empty($s["supportedCandidate"])) echo $s["address"], "\t", $s["device"], "\n";
+    }
+  ' "$PLUGIN_DIR/include/common.php"
+}
+
+restore_safe() {
+  echo "Returning the selected MD12xx console to 20%..."
+  if send_speed 20; then return 0; fi
+  echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+  return 1
+}
+
+restore_and_cleanup() {
+  restore_safe || true
+  rm -f "$COMMISSION_MARKER"
+}
+
+echo "Verifying the selected serial console with a read-only identity query..."
+verify_console
+echo "Primary, active MD12xx console verified."
+
+# A shelf is never left commissioned while a new control test is in progress.
+# Only telemetry-proven restoration at the end may set this back to true.
+php -r '
+  require $argv[1];
+  $config=md12xx_read_config($argv[2]);
+  foreach ($config["shelves"] as &$shelf) {
+    if ($shelf["id"] === $argv[3]) $shelf["commissioned"]=false;
+  }
+  unset($shelf);
+  md12xx_write_config($config, $argv[2]);
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID"
+
+CANDIDATES="$RESULT_DIR/candidates.tsv"
+candidate_ses > "$CANDIDATES"
+if [ -n "$SES_ADDRESS" ]; then
+  awk -F '\t' -v wanted="$SES_ADDRESS" '$1 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
+  mv "$CANDIDATES.selected" "$CANDIDATES"
+elif [ -n "$SES_CONFIGURED" ]; then
+  awk -F '\t' -v wanted="$SES_CONFIGURED" '$2 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
+  mv "$CANDIDATES.selected" "$CANDIDATES"
+fi
+[ -s "$CANDIDATES" ] || { echo "No supported MD1200/MD1220 SES enclosure is available for this test." >&2; exit 1; }
+
+LOW="$RESULT_DIR/20-percent.tsv"
+HIGH="$RESULT_DIR/50-percent.tsv"
+: > "$LOW"; : > "$HIGH"
+trap restore_and_cleanup EXIT
+trap 'exit 130' INT TERM
+
+echo "Commanding 20%, waiting ${WAIT_SECONDS}s, then recording every candidate enclosure..."
+send_speed 20
+sleep "$WAIT_SECONDS"
+while IFS=$'\t' read -r ADDRESS DEVICE; do
+  if SAMPLE="$(sample_device_rpm "$DEVICE" 20-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$LOW"; fi
+done < "$CANDIDATES"
+
+echo "Commanding 50%, waiting ${WAIT_SECONDS}s, then looking for the enclosure whose RPM rises..."
+send_speed 50
+sleep "$WAIT_SECONDS"
+while IFS=$'\t' read -r ADDRESS DEVICE; do
+  if SAMPLE="$(sample_device_rpm "$DEVICE" 50-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$HIGH"; fi
+done < "$CANDIDATES"
+
+RESTORE_SENT=true
+restore_safe || RESTORE_SENT=false
+
+MATCHES="$RESULT_DIR/matches.tsv"
+awk -F '\t' '
+  NR == FNR { low[$1]=$3; next }
+  ($1 in low) {
+    delta=$3-low[$1]; pct=(low[$1]>0 ? delta/low[$1]*100 : 0);
+    if (delta >= 250 && pct >= 10) printf "%s\t%s\t%d\t%d\t%d\t%.1f\n", $1, $2, low[$1], $3, delta, pct;
+  }
+' "$LOW" "$HIGH" > "$MATCHES"
+
+MATCH_COUNT="$(wc -l < "$MATCHES" | tr -d ' ')"
+if [ "$MATCH_COUNT" -ne 1 ]; then
+  echo "Identification was ambiguous: expected exactly one responding SES enclosure, found $MATCH_COUNT." >&2
+  echo "A 20% restore was attempted, but no unique enclosure was available for independent restoration proof." >&2
+  echo "Use Manual mapping only after checking the captured results in $RESULT_DIR." >&2
+  exit 1
+fi
+
+IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_50 DELTA PERCENT < "$MATCHES"
+
+echo "Waiting ${RESTORE_WAIT_SECONDS}s to prove the selected enclosure returned to 20%..."
+sleep "$RESTORE_WAIT_SECONDS"
+FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore || true)"
+FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
+
+if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+  echo "The first 20% restore was not proven by SES telemetry (${FINAL_RPM:-no RPM} RPM); retrying once." >&2
+  restore_safe || true
+  sleep "$RESTORE_WAIT_SECONDS"
+  FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore-retry || true)"
+  FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
+fi
+
+if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+  echo "SAFETY FAILURE: the enclosure did not prove a return to its 20% RPM range." >&2
+  echo "The shelf remains uncommissioned. Keep other controllers stopped, resolve the serial connection, then select Identify & test again; every retry begins by commanding 20%." >&2
+  exit 1
+fi
+
+echo "Final 20% restoration: PASS ($FINAL_RPM RPM)."
+# The hardware is safely back at 20%, but keep the commissioning marker until
+# the verified mapping and calibration are durably saved. This prevents a
+# Settings save from racing the final configuration write.
+trap 'rm -f "$COMMISSION_MARKER"' EXIT
+trap 'exit 130' INT TERM
+
+MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
+AUTO_DISKS="$(jq -c '.disks // []' <<< "$MAPPING_JSON")"
+AUTO_COUNT="$(jq '(.disks // []) | length' <<< "$MAPPING_JSON")"
+READY=false
+if [ "$ASSIGNMENT" = "manual" ]; then
+  [ "$(jq '(.disks // []) | length' <<< "$SHELF_JSON")" -gt 0 ] && READY=true
+elif [ "$AUTO_COUNT" -gt 0 ]; then
+  READY=true
+fi
+
+php -r '
+  require $argv[1];
+  $config=md12xx_read_config($argv[2]);
+  $automaticDisks=json_decode($argv[6], true) ?: [];
+  foreach ($config["shelves"] as &$shelf) {
+    if ($shelf["id"] !== $argv[3]) continue;
+    $shelf["sesAddress"]=$argv[4];
+    $shelf["sesDevice"]=$argv[5];
+    $assignment=$shelf["diskAssignment"] ?? (!empty($shelf["disks"]) ? "manual" : "automatic");
+    if ($assignment === "automatic") $shelf["disks"]=$automaticDisks;
+    $shelf["calibration"]=["rpmAt20"=>(int)$argv[8], "rpmAt50"=>(int)$argv[9]];
+    $shelf["commissioned"]=$argv[7] === "true";
+  }
+  unset($shelf);
+  $config=md12xx_disable_active_discovery_after_setup($config);
+  md12xx_write_config($config, $argv[2]);
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY" "$RPM_20" "$RPM_50"
+
+{
+  echo "MD12xx fan control identification and commissioning"
+  echo "Collected: $(date -Is)"
+  echo "Shelf: $SHELF_NAME ($MODEL)"
+  echo "Serial: $PORT"
+  echo "Matched SES: $SES_ADDRESS -> $SES_DEVICE"
+  echo "20%: $RPM_20 RPM"
+  echo "50%: $RPM_50 RPM"
+  echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
+  echo "Disk assignment: $ASSIGNMENT"
+  echo "Automatic disks: $(jq -r 'if length then join(", ") else "none" end' <<< "$AUTO_DISKS")"
+  echo "Final restore: PASS ($FINAL_RPM RPM after ${RESTORE_WAIT_SECONDS}s)"
+} | tee "$RESULT_DIR/result.txt"
+
+if [ "$READY" = true ]; then
+  echo "Identification and commissioning saved. The shelf may now be enabled from Settings."
+else
+  echo "The serial-to-SES pairing passed, but no usable disk assignment was found." >&2
+  echo "The pairing was saved without commissioning. Use Manual mapping, select the shelf disks, save, and rerun this test." >&2
+fi
+
+if command -v zip >/dev/null 2>&1; then
+  (cd "$RESULT_ROOT" && zip -qr "${STAMP}-${SHELF_ID}.zip" "${STAMP}-${SHELF_ID}")
+  echo "Results: $RESULT_ROOT/${STAMP}-${SHELF_ID}.zip"
+else
+  tar -czf "$RESULT_ROOT/${STAMP}-${SHELF_ID}.tar.gz" -C "$RESULT_ROOT" "${STAMP}-${SHELF_ID}"
+  echo "Results: $RESULT_ROOT/${STAMP}-${SHELF_ID}.tar.gz"
+fi
+[ "$READY" = true ]
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/controller-supervisor.sh">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -u
+
+RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+STATE_DIR="/var/run/md12xx.fancontrol"
+SUPERVISOR_PID_FILE="$STATE_DIR/supervisor.pid"
+CONTROLLER_PID_FILE="$STATE_DIR/controller.pid"
+WATCHDOG_FILE="$STATE_DIR/watchdog.json"
+CONTROLLER_LOG="$STATE_DIR/controller.log"
+NOTIFY_SCRIPT="/usr/local/emhttp/webGui/scripts/notify"
+ALERT_STAMP_FILE="$STATE_DIR/watchdog-alert.stamp"
+MAX_LOG_BYTES=65536
+ALERT_INTERVAL=900
+
+mkdir -p "$STATE_DIR"
+printf '%s\n' "$$" > "$SUPERVISOR_PID_FILE"
+
+running=true
+child_pid=""
+restart_count=0
+consecutive_failures=0
+failure_notified=false
+
+json_message() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/[[:cntrl:]]/ /g'
+}
+
+write_watchdog() {
+  local state="$1" message="$2" delay="${3:-0}" child="${4:-0}" tmp
+  tmp="$WATCHDOG_FILE.tmp.$$"
+  printf '{\n  "generatedAt": %s,\n  "state": "%s",\n  "message": "%s",\n  "restartCount": %s,\n  "restartDelaySeconds": %s,\n  "controllerPid": %s\n}\n' \
+    "$(date +%s)" "$state" "$(json_message "$message")" "$restart_count" "$delay" "$child" > "$tmp"
+  mv -f "$tmp" "$WATCHDOG_FILE"
+}
+
+notify_local() {
+  local importance="$1" subject="$2" description="$3" now last=0
+  now="$(date +%s)"
+  [ -r "$ALERT_STAMP_FILE" ] && last="$(cat "$ALERT_STAMP_FILE" 2>/dev/null || echo 0)"
+  if [ "$importance" != "normal" ] && [ $((now - last)) -lt "$ALERT_INTERVAL" ]; then
+    return
+  fi
+  printf '%s\n' "$now" > "$ALERT_STAMP_FILE"
+  if [ -x "$NOTIFY_SCRIPT" ]; then
+    "$NOTIFY_SCRIPT" -e "MD12xx Fan Control" -s "$subject" -d "$description" -i "$importance" >/dev/null 2>&1 || true
+  else
+    logger -t md12xx.fancontrol "$subject: $description" 2>/dev/null || true
+  fi
+}
+
+process_alive() {
+  local pid="$1" state
+  kill -0 "$pid" 2>/dev/null || return 1
+  [ -r "/proc/$pid/stat" ] || return 1
+  state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
+  [ "$state" != "Z" ]
+}
+
+trim_log() {
+  local size tmp
+  [ -f "$CONTROLLER_LOG" ] || return
+  size="$(wc -c < "$CONTROLLER_LOG" 2>/dev/null || echo 0)"
+  [ "$size" -le "$MAX_LOG_BYTES" ] && return
+  tmp="$CONTROLLER_LOG.tmp.$$"
+  tail -c "$MAX_LOG_BYTES" "$CONTROLLER_LOG" > "$tmp" 2>/dev/null && mv -f "$tmp" "$CONTROLLER_LOG"
+}
+
+shutdown() {
+  running=false
+  if [ -n "$child_pid" ] && process_alive "$child_pid"; then
+    kill "$child_pid" 2>/dev/null || true
+    for _ in 1 2 3 4 5; do
+      process_alive "$child_pid" || break
+      sleep 1
+    done
+  fi
+}
+
+cleanup() {
+  rm -f "$SUPERVISOR_PID_FILE"
+  if [ -z "$child_pid" ] || ! process_alive "$child_pid"; then
+    rm -f "$CONTROLLER_PID_FILE"
+  fi
+  write_watchdog "stopped" "Controller supervisor stopped intentionally" 0 0
+}
+
+trap shutdown INT TERM
+trap cleanup EXIT
+
+while $running; do
+  trim_log
+  started_at="$(date +%s)"
+  /usr/bin/php "$RUNTIME_DIR/include/controller.php" >> "$CONTROLLER_LOG" 2>&1 &
+  child_pid="$!"
+  printf '%s\n' "$child_pid" > "$CONTROLLER_PID_FILE"
+  if [ "$restart_count" -gt 0 ]; then
+    write_watchdog "recovering" "Controller restarted; monitoring recovery" 0 "$child_pid"
+  else
+    write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
+  fi
+  recovered=false
+
+  while $running && process_alive "$child_pid"; do
+    alive_for=$(( $(date +%s) - started_at ))
+    if [ "$alive_for" -ge 60 ] && [ "$recovered" = false ]; then
+      recovered=true
+      consecutive_failures=0
+      write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
+      if $failure_notified; then
+        notify_local normal "Controller recovered" "The fan controller restarted and has remained healthy for 60 seconds."
+        failure_notified=false
+      fi
+    fi
+    sleep 1
+  done
+
+  wait "$child_pid" 2>/dev/null
+  exit_code="$?"
+  rm -f "$CONTROLLER_PID_FILE"
+  child_pid=""
+  $running || break
+
+  restart_count=$((restart_count + 1))
+  consecutive_failures=$((consecutive_failures + 1))
+  if [ "$consecutive_failures" -ge 5 ]; then
+    delay=60
+  else
+    delay=$((5 << (consecutive_failures - 1)))
+  fi
+  write_watchdog "restarting" "Controller exited unexpectedly (exit $exit_code); restart scheduled" "$delay" 0
+  notify_local alert "Controller stopped unexpectedly" "The plugin will restart the fan controller in $delay seconds. Open Settings > Utilities > MD12xx Fan Control to review status."
+  failure_notified=true
+
+  for ((remaining=delay; remaining>0; remaining--)); do
+    $running || break
+    sleep 1
+  done
+done
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -euo pipefail
+
+CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
+STATE_DIR="/var/run/md12xx.fancontrol"
+RESULT_ROOT="$CONFIG_DIR/diagnostics"
+STAMP="$(date +%Y%m%d-%H%M%S)"
+RESULT_DIR="$RESULT_ROOT/$STAMP"
+mkdir -p "$STATE_DIR"
+exec 9>"$STATE_DIR/diagnostics.lock"
+flock -n 9 || { echo "A diagnostics export is already running." >&2; exit 1; }
+printf '%s\n' "$$" > "$STATE_DIR/diagnostics.pid"
+trap 'rm -f "$STATE_DIR/diagnostics.pid"' EXIT
+mkdir -p "$RESULT_DIR"
+
+{
+  echo "Collected: $(date -Is)"
+  echo "Unraid: $(cat /etc/unraid-version 2>/dev/null || true)"
+  echo "Kernel: $(uname -rmo)"
+  echo "sg_ses: $(command -v sg_ses 2>/dev/null || echo missing)"
+  echo "Privacy: local archive; hostname, serial identifiers, disk names, and paths redacted"
+} > "$RESULT_DIR/system.txt"
+
+if [ -f "$CONFIG_DIR/config.json" ]; then
+  jq '
+    .legacyContainerNames = ((.legacyContainerNames // []) | length) |
+    .shelves = ((.shelves // []) | to_entries | map(
+      (.key + 1) as $index | .value |
+      .name = ("Shelf " + ($index | tostring)) |
+      .serialPort = (if (.serialPort // "") == "" then "" else "/dev/serial/by-id/[redacted]" end) |
+      .sesAddress = (if (.sesAddress // "") == "" then "" else "[redacted]" end) |
+      .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
+      .disks = ((.disks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring)))
+    ))
+  ' "$CONFIG_DIR/config.json" > "$RESULT_DIR/config.redacted.json"
+fi
+
+if [ -f /var/run/md12xx.fancontrol/status.json ]; then
+  jq '
+    .shelves = ((.shelves // []) | to_entries | map(
+      (.key + 1) as $index | .value |
+      .name = ("Shelf " + ($index | tostring)) |
+      del(.serialPort) |
+      .sesAddress = (if (.sesAddress // "") == "" then "" else "[redacted]" end) |
+      .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
+      .assignedDisks = ((.assignedDisks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring))) |
+      .missingDisks = ((.missingDisks // []) | to_entries | map("missing-disk-" + ((.key + 1) | tostring))) |
+      if has("temperatureSource") and .temperatureSource != null then .temperatureSource = "mapped-disk" else . end
+    ))
+  ' /var/run/md12xx.fancontrol/status.json > "$RESULT_DIR/status.redacted.json"
+fi
+
+if [ -f /var/run/md12xx.fancontrol/watchdog.json ]; then
+  jq '{generatedAt, state, message, restartCount, restartDelaySeconds}' \
+    /var/run/md12xx.fancontrol/watchdog.json > "$RESULT_DIR/watchdog.json"
+fi
+
+if [ -f /var/run/md12xx.fancontrol/discovery.json ]; then
+  jq '
+    .serialPorts = ((.serialPorts // []) | map({
+      vendorId, productId, manufacturer, product, knownFtdiCandidate,
+      probeState, blueDressPrompt, md12xxResponse, primaryActive, consoleVerified, message
+    })) |
+    .sesDevices = ((.sesDevices // []) | map({
+      vendor, model, supportedCandidate, diskMappingState,
+      blockDeviceCount: ((.blockDevices // []) | length),
+      diskCount: ((.disks // []) | length), diskMappingMessage
+    })) |
+    .disks = ((.disks // []) | map({temperatureAvailable: (.temperatureC != null)}))
+  ' /var/run/md12xx.fancontrol/discovery.json > "$RESULT_DIR/discovery.redacted.json"
+fi
+
+ENCLOSURE_INDEX=0
+for GENERIC in /sys/class/scsi_generic/sg*; do
+  [ -e "$GENERIC/device" ] || continue
+  TYPE="$(cat "$GENERIC/device/type" 2>/dev/null || true)"
+  [ "$TYPE" = "13" ] || continue
+  ENCLOSURE_INDEX=$((ENCLOSURE_INDEX + 1))
+  SG="/dev/$(basename "$GENERIC")"
+  {
+    echo "Address: [redacted]"
+    echo "Vendor: $(cat "$GENERIC/device/vendor" 2>/dev/null || true)"
+    echo "Model: $(cat "$GENERIC/device/model" 2>/dev/null || true)"
+    timeout 10 sg_ses -p es "$SG" 2>&1 || true
+  } > "$RESULT_DIR/enclosure-${ENCLOSURE_INDEX}-ses.txt"
+done
+
+tar -czf "$RESULT_ROOT/${STAMP}.tar.gz" -C "$RESULT_ROOT" "$STAMP"
+rm -rf -- "$RESULT_DIR"
+echo "Read-only diagnostics: $RESULT_ROOT/${STAMP}.tar.gz"
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/start.sh">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -e
+
+RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+STATE_DIR="/var/run/md12xx.fancontrol"
+PID_FILE="$STATE_DIR/controller.pid"
+SUPERVISOR_PID_FILE="$STATE_DIR/supervisor.pid"
+DISCOVERY_PID_FILE="$STATE_DIR/discovery.pid"
+mkdir -p "$STATE_DIR"
+
+pid_matches() {
+  local pid_file="$1"
+  local marker="$2"
+  local pid
+  [ -s "$pid_file" ] || return 1
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ -r "/proc/$pid/cmdline" ] \
+    && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -Fq "$marker"
+}
+
+if ! pid_matches "$SUPERVISOR_PID_FILE" '/md12xx.fancontrol/scripts/controller-supervisor.sh'; then
+  if pid_matches "$PID_FILE" '/md12xx.fancontrol/include/controller.php'; then
+    ORPHAN_PID="$(cat "$PID_FILE")"
+    kill "$ORPHAN_PID" 2>/dev/null || true
+    for SECOND in 1 2 3 4 5; do
+      kill -0 "$ORPHAN_PID" 2>/dev/null || break
+      sleep 1
+    done
+    if kill -0 "$ORPHAN_PID" 2>/dev/null; then
+      echo "The existing fan controller could not be stopped; refusing to start a second writer." >&2
+      exit 1
+    fi
+  fi
+  rm -f "$PID_FILE" "$SUPERVISOR_PID_FILE"
+  nohup "$RUNTIME_DIR/scripts/controller-supervisor.sh" >/dev/null 2>&1 &
+  echo "$!" > "$SUPERVISOR_PID_FILE"
+fi
+
+if ! pid_matches "$DISCOVERY_PID_FILE" '/md12xx.fancontrol/include/discovery.php'; then
+  rm -f "$DISCOVERY_PID_FILE"
+  nohup /usr/bin/php "$RUNTIME_DIR/include/discovery.php" >/dev/null 2>&1 &
+  echo "$!" > "$DISCOVERY_PID_FILE"
+fi
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stop.sh">
+<INLINE>
+<![CDATA[
+#!/bin/bash
+set -e
+
+STATE_DIR="/var/run/md12xx.fancontrol"
+PID_FILE="$STATE_DIR/controller.pid"
+stop_pid() {
+  local FILE="$1" PATTERN="$2" WAIT_COUNT="${3:-5}" PID
+  if [ -s "$FILE" ]; then
+    PID="$(cat "$FILE" 2>/dev/null || true)"
+    if [ -n "$PID" ] && [ -r "/proc/$PID/cmdline" ] && tr '\0' ' ' < "/proc/$PID/cmdline" | grep -Fq "$PATTERN"; then
+      kill "$PID" 2>/dev/null || true
+      for ((SECOND=0; SECOND<WAIT_COUNT; SECOND++)); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
+      if kill -0 "$PID" 2>/dev/null; then
+        echo "Unable to stop $PATTERN safely; plugin files were not removed." >&2
+        return 1
+      fi
+    fi
+  fi
+  rm -f "$FILE"
+}
+stop_pid "$STATE_DIR/supervisor.pid" '/md12xx.fancontrol/scripts/controller-supervisor.sh' 20
+stop_pid "$PID_FILE" '/md12xx.fancontrol/include/controller.php' 20
+stop_pid "$STATE_DIR/discovery.pid" '/md12xx.fancontrol/include/discovery.php' 20
+stop_pid "$STATE_DIR/diagnostics.pid" '/md12xx.fancontrol/scripts/diagnose.sh' 20
+for JOB_PID_FILE in "$STATE_DIR"/commission-jobs/*/pid; do
+  [ -e "$JOB_PID_FILE" ] || continue
+  stop_pid "$JOB_PID_FILE" '/md12xx.fancontrol/scripts/commission-job.sh' 20
+done
+rm -f "$STATE_DIR/commissioning.active"
+rm -f "$STATE_DIR"/serial-*.lock
+rm -f "$STATE_DIR/diagnostics.lock"
+
+]]>
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+set -e
+RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+
+chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
+chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php"
+chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
+
+for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  cat > "$CONFIG_FILE" <<'MD12XX_CONFIG'
+{
+  "enabled": false,
+  "mode": "auto",
+  "manualSpeed": 20,
+  "pollSeconds": 5,
+  "reassertSeconds": 900,
+  "sensorFailureSpeed": 50,
+  "hysteresisC": 1,
+  "discovery": {
+    "autoProbeKnownFtdi": false,
+    "intervalSeconds": 300,
+    "responseSeconds": 3
+  },
+  "curve": [
+    {"temperatureC": 0, "speed": 20},
+    {"temperatureC": 35, "speed": 25},
+    {"temperatureC": 45, "speed": 30},
+    {"temperatureC": 50, "speed": 50}
+  ],
+  "legacyContainerNames": ["MD1200-Fan-Controller"],
+  "shelves": []
+}
+MD12XX_CONFIG
+fi
+
+chmod 0644 "$CONFIG_FILE"
+php -r '
+  require $argv[1];
+  $config = md12xx_read_config($argv[2]);
+  $updated = md12xx_disable_active_discovery_after_setup($config);
+  if (($config["discovery"]["autoProbeKnownFtdi"] ?? false) && !($updated["discovery"]["autoProbeKnownFtdi"] ?? false)) {
+    md12xx_write_config($updated, $argv[2]);
+    echo "Setup is already complete; active connection testing was turned off.\n";
+  }
+' "$RUNTIME_DIR/include/common.php" "$CONFIG_FILE"
+mkdir -p /var/run/md12xx.fancontrol
+"$RUNTIME_DIR/scripts/start.sh"
+cat <<'MD12XX_BANNER'
+
+              \   |   /
+            ---\  |  /---
+          -------(O)-------
+            ---/  |  \---
+              /   |   \
+
+             MD12xx FAN CONTROL
+      Storage is awesome. Quiet is power.
+
+MD12XX_BANNER
+echo "Version 0.4.6 installed. Configure it under Settings → Utilities."
+]]>
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+<![CDATA[
+set -e
+RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
+if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
+  "$RUNTIME_DIR/scripts/stop.sh"
+fi
+rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"
+rm -f "/boot/config/plugins/md12xx.fancontrol.plg"
+echo "MD12xx Fan Control removed. Configuration, commissioning results, and runtime state were deleted."
+]]>
+</INLINE>
+</FILE>
+</PLUGIN>
+
