@@ -8,6 +8,10 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues" icon="server">
 <CHANGES>
+### 0.4.6 Beta
+- Shows the friendly MD12xx Fan Control name and description on Unraid's Plugins page without changing the internal package ID.
+- Verifies that the Plugins-page display metadata remains in every built installer.
+
 ### 0.4.5 Beta
 - Uses Unraid's supported stock server icon on the Plugins page.
 - Restores the GitHub issue forms with native attachment-capable diagnostic text areas.
