@@ -30,14 +30,14 @@ body:
       label: Reproduction steps
     validations:
       required: true
-  - type: upload
+  - type: textarea
     id: diagnostics
     attributes:
       label: Optional redacted diagnostics archive
-      description: Use Export local diagnostics and inspect the archive before attaching it. Attachments to this public repository are public.
+      description: Use Export local diagnostics, inspect the archive, then drag the ZIP into this box or use GitHub's attachment button. Attachments to this public repository are public.
+      placeholder: Drag a reviewed .zip, .gz, or .tar.gz archive here, or leave this field empty.
     validations:
       required: false
-      accept: ".zip,.gz,.tar.gz"
   - type: checkboxes
     id: privacy
     attributes:
