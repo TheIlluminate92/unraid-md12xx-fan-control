@@ -160,6 +160,8 @@ grep -Fq "'timeout 10 '" "$PLUGIN_DIR/include/controller.php"
 grep -Fq "unset(\$controlConfig['discovery'], \$controlConfig['pollSeconds'])" "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'Setup is complete; turn off Test likely FTDI adapters' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Setup is already complete; active connection testing was turned off.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
+grep -Fq 'icon="server"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
+! grep -Fq 'icon="fan"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'Configuration, commissioning results, and runtime state were deleted.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq 'application/zip' "$PLUGIN_DIR/include/download.php"
@@ -287,3 +289,4 @@ if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP
 fi
 
 echo "MD12xx runtime verification passed."
+
