@@ -69,4 +69,3 @@ grep -Fq 'realpath(' "$RUNTIME_DIR/include/download.php"
 grep -Fq 'application/gzip' "$RUNTIME_DIR/include/download.php"
 
 echo "MD12xx local-only security policy passed."
-
