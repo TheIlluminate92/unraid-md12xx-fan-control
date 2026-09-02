@@ -7,6 +7,9 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 bash "$PROJECT_DIR/scripts/build.sh" "$TMP_DIR/md12xx.fancontrol.plg"
+grep -Fq '<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/README.md">' "$TMP_DIR/md12xx.fancontrol.plg"
+grep -Fq '**MD12xx Fan Control**' "$TMP_DIR/md12xx.fancontrol.plg"
+grep -Fq 'Dell PowerVault MD1200 and MD1220 disk shelves.' "$TMP_DIR/md12xx.fancontrol.plg"
 for FILE in "$PLUGIN_DIR"/include/*.php; do php -l "$FILE" >/dev/null; done
 for FILE in "$PLUGIN_DIR"/scripts/*.sh "$PROJECT_DIR/scripts/build.sh"; do bash -n "$FILE"; done
 node --check "$PLUGIN_DIR/assets/js/settings.js"
