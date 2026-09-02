@@ -653,4 +653,3 @@ function md12xx_discover_disks(string $path = '/var/local/emhttp/disks.ini'): ar
     usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
     return $result;
 }
-
