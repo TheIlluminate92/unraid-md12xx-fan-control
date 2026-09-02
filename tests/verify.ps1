@@ -191,8 +191,16 @@ $downloadSource = [System.IO.File]::ReadAllText((Join-Path $runtimeRoot 'include
 if (-not $downloadSource.Contains('basename(') -or -not $downloadSource.Contains('realpath(') -or -not $downloadSource.Contains('application/zip') -or -not $downloadSource.Contains('application/gzip')) { throw 'Local archive download validation is incomplete.' }
 if ($text.Contains('@@')) { throw 'An unexpanded build placeholder remains.' }
 
+$checksumPath = Join-Path $projectRoot 'releases/SHA256SUMS'
+foreach ($line in [System.IO.File]::ReadAllLines($checksumPath)) {
+    if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid release checksum entry: $line" }
+    $releasePath = Join-Path $projectRoot "releases/$($Matches[2])"
+    if (-not (Test-Path $releasePath)) { throw "Checksummed release is missing: $($Matches[2])" }
+    $actual = (Get-FileHash -Algorithm SHA256 $releasePath).Hash.ToLowerInvariant()
+    if ($actual -ne $Matches[1]) { throw "Release checksum mismatch: $($Matches[2])" }
+}
+
 $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
-
