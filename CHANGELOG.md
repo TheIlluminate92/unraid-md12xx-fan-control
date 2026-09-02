@@ -5,6 +5,7 @@
 - Rejects nested, traversal, control-character, and malformed serial adapter paths before any hardware access.
 - Uses method-specific GET and POST action parsing in the WebGUI API, matching Unraid's plugin security guidance.
 - Adds regression checks for crafted serial paths and method-specific request handling.
+- Uses the public Unraid support thread in release and Community Apps metadata.
 
 ## 0.4.6 - 2026-09-02
 
