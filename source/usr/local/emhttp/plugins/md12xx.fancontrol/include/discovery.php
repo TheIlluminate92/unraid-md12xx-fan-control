@@ -195,4 +195,3 @@ while ($running) {
     if ($runOnce) break;
     for ($second = 0; $running && $second < $interval; $second++) sleep(1);
 }
-
