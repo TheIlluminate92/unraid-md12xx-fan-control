@@ -148,9 +148,12 @@ foreach ($marker in 'md12xx_merge_settings_config', 'server-authoritative', "`$s
 }
 if ($commonSource.IndexOf('if (!is_file($marker)) return false;') -gt $commonSource.IndexOf("glob('/proc/[0-9]*/cmdline')")) { throw 'Idle controller still scans every process for commissioning.' }
 if (-not $commonSource.Contains('md12xx_fuser_binary')) { throw 'Fail-closed serial ownership check is missing.' }
+if (-not $commonSource.Contains('md12xx_serial_path_is_safe')) { throw 'Strict persistent serial path validation is missing.' }
 $apiSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/api.php'))
 if (-not $apiSource.Contains('md12xx_merge_settings_config($current, $decoded)')) { throw 'Settings saves do not use the server-authoritative shelf merge.' }
 if (-not $apiSource.Contains('$activeId === $id && md12xx_commission_active()')) { throw 'Stale commissioning jobs can still appear to run forever.' }
+if ($apiSource.Contains('$_REQUEST')) { throw 'The API must use method-specific GET and POST inputs.' }
+if (-not $apiSource.Contains("`$method === 'POST' ? (`$_POST['action'] ?? 'status') : (`$_GET['action'] ?? 'status')")) { throw 'Method-specific API action parsing is missing.' }
 foreach ($speed in 20, 30, 40, 50, 60, 70, 80, 90, 100) {
     if (-not $pageSource.Contains("value=`"$speed`">$speed%</option>")) { throw "Manual speed $speed% is missing from Settings." }
 }
@@ -215,3 +218,4 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
+
