@@ -119,7 +119,7 @@ function md12xx_controller_resolve_ses(string $configuredDevice, string $scsiAdd
 function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
 {
     if ($dryRun) return ['state' => 'dry-run', 'message' => 'Dry run; no serial write'];
-    if ($port === '' || !str_starts_with($port, '/dev/serial/by-id/') || !file_exists($port)) {
+    if ($port === '' || !md12xx_serial_path_is_safe($port) || !file_exists($port)) {
         return ['state' => 'fault', 'message' => 'Persistent serial adapter is missing'];
     }
     if (md12xx_fuser_binary() === null) return ['state' => 'fault', 'message' => 'Serial ownership check is unavailable'];
@@ -425,3 +425,4 @@ while ($running) {
     $previousMode = $mode;
     if ($runOnce) break;
 }
+
