@@ -198,6 +198,19 @@ php -r '
   $config["manualSpeed"] = 100;
   $validated = md12xx_validate_config($config);
   if ($validated["manualSpeed"] !== 100) exit(1);
+  foreach ([
+    "/dev/serial/by-id/../sda",
+    "/dev/serial/by-id/nested/device",
+    "/dev/serial/by-id/..\\sda",
+    "/dev/serial/by-id/",
+    "/dev/ttyUSB0"
+  ] as $unsafePort) {
+    if (md12xx_serial_path_is_safe($unsafePort)) exit(1);
+    $test = md12xx_defaults();
+    $test["shelves"] = [["id" => "shelf-a", "serialPort" => $unsafePort]];
+    try { md12xx_validate_config($test); exit(1); } catch (InvalidArgumentException $expected) {}
+  }
+  if (!md12xx_serial_path_is_safe("/dev/serial/by-id/usb-FTDI_USB_Serial_Converter_TEST-if00-port0")) exit(1);
   $config["shelves"] = [["id" => "shelf-a", "commissioned" => true]];
   $config["discovery"]["autoProbeKnownFtdi"] = true;
   $disabled = md12xx_disable_active_discovery_after_setup($config);
@@ -299,3 +312,4 @@ if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP
 fi
 
 echo "MD12xx runtime verification passed."
+
