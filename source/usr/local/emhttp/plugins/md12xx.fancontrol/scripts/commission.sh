@@ -351,7 +351,7 @@ php -r '
   echo "50%: $RPM_50 RPM"
   echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
   echo "Response first observed: ${FIRST_RESPONSE_SECONDS:-unknown}s"
-  echo "Stable response confirmed: ${RESPONSE_STABILIZED_SECONDS:-unknown}s (two consecutive samples within 5% or 250 RPM; ${RESPONSE_TIMEOUT_SECONDS}s timeout)"
+  echo "Stable response confirmed: ${RESPONSE_STABILIZED_SECONDS:-unknown}s (two consecutive samples within 10% or 250 RPM; ${RESPONSE_TIMEOUT_SECONDS}s timeout)"
   echo "Disk assignment: $ASSIGNMENT"
   echo "Automatic disks: $(jq -r 'if length then join(", ") else "none" end' <<< "$AUTO_DISKS")"
   echo "Final restore: PASS ($FINAL_RPM RPM after ${RESTORE_WAIT_SECONDS}s)"
@@ -372,3 +372,4 @@ else
   echo "Results: $RESULT_ROOT/${STAMP}-${SHELF_ID}.tar.gz"
 fi
 [ "$READY" = true ]
+
