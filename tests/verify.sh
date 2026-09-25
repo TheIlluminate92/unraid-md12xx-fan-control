@@ -105,7 +105,7 @@ if grep -n 'set_speed' "$PLUGIN_DIR/include/discovery.php"; then
   exit 1
 fi
 grep -Fq "printf '_who\\r'" "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq 'expected exactly one responding SES enclosure' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'two consecutive stable higher-RPM samples' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'Returning the selected MD12xx console to 20%' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'md12xx_ses_disk_mapping' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq '$reader = @fopen($port, '\''r'\'');' "$PLUGIN_DIR/include/controller.php"
