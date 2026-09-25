@@ -1,0 +1,8 @@
+elapsedSeconds	address	device	averageRpm	fanCount
+5	0:0:11:0	/dev/sg11	3500	4
+5	0:0:18:0	/dev/sg18	3480	4
+10	0:0:11:0	/dev/sg11	5000	4
+10	0:0:18:0	/dev/sg18	3480	4
+15	0:0:11:0	/dev/sg11	6300	4
+15	0:0:18:0	/dev/sg18	3480	4
+
