@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euxo pipefail
+set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PLUGIN_DIR="$PROJECT_DIR/source/usr/local/emhttp/plugins/md12xx.fancontrol"
@@ -117,7 +117,7 @@ grep -Fq 'SAMPLE_INTERVAL_SECONDS="${MD12XX_TEST_SAMPLE_INTERVAL_SECONDS:-5}"' "
 grep -Fq '20-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq '50-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'write_stable_response_match' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq 'difference > tolerance' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'difference > tolerance' "$PLUGIN_DIR/scripts/stable-response.awk"
 grep -Fq 'sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'Stable response confirmed:' "$PLUGIN_DIR/scripts/commission.sh"
