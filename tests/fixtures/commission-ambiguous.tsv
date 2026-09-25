@@ -3,4 +3,3 @@ elapsedSeconds	address	device	averageRpm	fanCount
 5	0:0:18:0	/dev/sg18	6200	4
 10	0:0:11:0	/dev/sg11	6350	4
 10	0:0:18:0	/dev/sg18	6250	4
-
