@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.8 - 2026-09-25
+
+- Records a 30-second baseline, then samples 50% commissioning telemetry every five seconds until one unique enclosure has two consecutive higher-RPM readings within a 10% stability band or a 60-second safety timeout is reached.
+- Includes the complete timed 20% and 50% RPM sample histories in commissioning result archives.
+
 ## 0.4.7 - 2026-09-02
 
 - Rejects nested, traversal, control-character, and malformed serial adapter paths before any hardware access.

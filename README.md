@@ -70,7 +70,7 @@ The Settings page supports between 2 and 10 Auto-curve points. Temperatures must
 
 ## Safety model
 
-The normal setup asks for one verified persistent serial adapter. The guarded identification test first repeats the read-only MD12xx console check, then measures every candidate SES enclosure at 20% and 50%. It accepts the pairing only when exactly one enclosure shows a clear RPM response, automatically maps that enclosure's Linux block devices to the current Unraid disk names, and refuses to commission until independent SES telemetry proves the final 20% restoration. Mapping uses standard enclosure-slot links when available and otherwise requires the disks to share the verified SES device's exact SAS expander. If neither relationship is available, the Settings page retains an explicit Manual mapping fallback.
+The normal setup asks for one verified persistent serial adapter. The guarded identification test first repeats the read-only MD12xx console check, records a 30-second 20% baseline, then samples every candidate SES enclosure every five seconds at 50%. The 50% phase finishes early when exactly one enclosure has two consecutive higher-RPM samples that agree within 10% or 250 RPM; otherwise it times out safely after 60 seconds. The adaptive window accommodates firmware that updates SES fan telemetry more slowly than the serial console acknowledges a command, and the complete sample history is included in the downloadable test results. It automatically maps the uniquely identified enclosure's Linux block devices to the current Unraid disk names and refuses to commission until independent SES telemetry proves the final 20% restoration. Mapping uses standard enclosure-slot links when available and otherwise requires the disks to share the verified SES device's exact SAS expander. If neither relationship is available, the Settings page retains an explicit Manual mapping fallback.
 
 The plugin does not treat a matching model name, USB vendor, prompt string, or drive count as proof of a serial-to-SES pairing. Ambiguous RPM results and empty automatic disk assignments are not commissioned. If the commissioned disk mapping changes or assigned disks disappear from Unraid's inventory, Auto mode selects the configured fail-safe speed instead of assuming the disks are asleep. Changing a shelf's model, serial adapter, SES pairing, assignment mode, or disk list clears commissioning and requires a new test.
 
@@ -123,15 +123,15 @@ This is an AI-assisted open-source project. Erik Boettcher / TheIlluminate92 own
 
 ## Status integration
 
-Other local plugins and authenticated Unraid WebGUI modules can read:
+Other local plugins can read:
 
 ```text
 /plugins/md12xx.fancontrol/include/api.php
 ```
 
-The default GET response is read-only JSON containing controller, watchdog, and per-shelf state. The supported Beta integration surface also includes a CSRF-protected Auto/Manual control action; setup and commissioning actions remain WebGUI-internal.
+The default GET response is intentionally read-only JSON containing controller and shelf state.
 
-See the [local API reference](docs/API.md) for request examples, response fields, error handling, polling guidance, authentication requirements, and the local-only security boundary.
+An optional compact dashboard module may be added after the standalone plugin has broader MD1220 validation.
 
 ## License and hardware disclaimer
 

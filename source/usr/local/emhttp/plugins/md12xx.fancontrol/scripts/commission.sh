@@ -7,7 +7,9 @@ STATE_DIR="/var/run/md12xx.fancontrol"
 RESULT_ROOT="/boot/config/plugins/md12xx.fancontrol/commissioning"
 COMMISSION_MARKER="$STATE_DIR/commissioning.active"
 SHELF_ID="${1:-}"
-WAIT_SECONDS="${MD12XX_TEST_WAIT_SECONDS:-10}"
+BASELINE_WAIT_SECONDS="${MD12XX_TEST_BASELINE_SECONDS:-30}"
+RESPONSE_TIMEOUT_SECONDS="${MD12XX_TEST_RESPONSE_TIMEOUT_SECONDS:-60}"
+SAMPLE_INTERVAL_SECONDS="${MD12XX_TEST_SAMPLE_INTERVAL_SECONDS:-5}"
 RESPONSE_SECONDS="${MD12XX_IDENTITY_WAIT_SECONDS:-3}"
 SPEED_RESPONSE_SECONDS="${MD12XX_SPEED_RESPONSE_SECONDS:-4}"
 RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
@@ -16,6 +18,9 @@ if [ "$(id -u)" -ne 0 ]; then echo "The commissioning service requires administr
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
 for REQUIRED in jq flock fuser sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
 [ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
+[[ "$BASELINE_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning baseline window must be a positive number of seconds." >&2; exit 1; }
+[[ "$RESPONSE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning response timeout must be a positive number of seconds." >&2; exit 1; }
+[[ "$SAMPLE_INTERVAL_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning sample interval must be a positive number of seconds." >&2; exit 1; }
 
 if jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
   echo "Disable the MD12xx controller before identifying or commissioning hardware." >&2
@@ -112,15 +117,78 @@ send_speed() {
 }
 
 sample_device_rpm() {
-  local DEVICE="$1" LABEL="$2" SAFE RAW SPEEDS COUNT AVERAGE
+  local DEVICE="$1" LABEL="$2" QUERY_TIMEOUT="${3:-10}" SAFE RAW SPEEDS COUNT AVERAGE
   SAFE="$(basename "$DEVICE")"
   RAW="$RESULT_DIR/${LABEL}-${SAFE}-ses.txt"
-  timeout 10 sg_ses -p es "$DEVICE" > "$RAW" 2>&1 || return 1
+  timeout "$QUERY_TIMEOUT" sg_ses -p es "$DEVICE" > "$RAW" 2>&1 || return 1
   SPEEDS="$(sed -n 's/.*Actual speed=\([0-9][0-9]*\) rpm.*/\1/p' "$RAW" | awk '$1 > 0')"
   COUNT="$(printf '%s\n' "$SPEEDS" | sed '/^$/d' | wc -l | tr -d ' ')"
   [ "$COUNT" -ge 2 ] || return 1
   AVERAGE="$(printf '%s\n' "$SPEEDS" | awk '{sum += $1; count++} END {printf "%.0f", sum / count}')"
   printf '%s\t%s\n' "$AVERAGE" "$COUNT"
+}
+
+write_stable_response_match() {
+  local HISTORY="$1" BASELINE="$2" OUTPUT="$3"
+  awk -f "$PLUGIN_DIR/scripts/stable-response.awk" "$BASELINE" "$HISTORY" > "$OUTPUT"
+}
+
+sample_candidates_for_window() {
+  local LABEL="$1" HISTORY="$2" SUMMARY="$3" SUMMARY_MODE="$4" WINDOW_SECONDS="$5"
+  local BASELINE="${6:-}" STABLE_MATCH="${7:-}"
+  local STARTED_AT NOW ELAPSED REMAINING DELAY QUERY_TIMEOUT ADDRESS DEVICE SAMPLE ROW WINDOW_EXPIRED
+
+  printf 'elapsedSeconds\taddress\tdevice\taverageRpm\tfanCount\n' > "$HISTORY"
+  : > "$SUMMARY"
+  STARTED_AT="$(date +%s)"
+  WINDOW_EXPIRED=false
+
+  while true; do
+    NOW="$(date +%s)"
+    ELAPSED=$((NOW - STARTED_AT))
+    [ "$ELAPSED" -lt "$WINDOW_SECONDS" ] || break
+    REMAINING=$((WINDOW_SECONDS - ELAPSED))
+    DELAY="$SAMPLE_INTERVAL_SECONDS"
+    [ "$DELAY" -le "$REMAINING" ] || DELAY="$REMAINING"
+    sleep "$DELAY"
+
+    while IFS=$'\t' read -r ADDRESS DEVICE; do
+      NOW="$(date +%s)"
+      ELAPSED=$((NOW - STARTED_AT))
+      REMAINING=$((WINDOW_SECONDS - ELAPSED))
+      if [ "$REMAINING" -le 0 ]; then
+        WINDOW_EXPIRED=true
+        break
+      fi
+      QUERY_TIMEOUT=10
+      [ "$QUERY_TIMEOUT" -le "$REMAINING" ] || QUERY_TIMEOUT="$REMAINING"
+      if SAMPLE="$(sample_device_rpm "$DEVICE" "${LABEL}-${ELAPSED}s" "$QUERY_TIMEOUT")"; then
+        NOW="$(date +%s)"
+        ELAPSED=$((NOW - STARTED_AT))
+        printf '%s\t%s\t%s\t%s\n' "$ELAPSED" "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$HISTORY"
+      fi
+    done < "$CANDIDATES"
+
+    [ "$WINDOW_EXPIRED" = false ] || break
+
+    if [ -n "$BASELINE" ] && [ -n "$STABLE_MATCH" ]; then
+      write_stable_response_match "$HISTORY" "$BASELINE" "$STABLE_MATCH"
+      if [ -s "$STABLE_MATCH" ]; then
+        RESPONSE_STABILIZED_SECONDS="$ELAPSED"
+        break
+      fi
+    fi
+  done
+
+  while IFS=$'\t' read -r ADDRESS DEVICE; do
+    ROW="$(awk -F '\t' -v wanted="$ADDRESS" -v mode="$SUMMARY_MODE" '
+      NR == 1 || $2 != wanted { next }
+      mode == "last" { rpm=$4; fans=$5; found=1; next }
+      !found || $4 > rpm { rpm=$4; fans=$5; found=1 }
+      END { if (found) printf "%s\t%s", rpm, fans }
+    ' "$HISTORY")"
+    [ -n "$ROW" ] && printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$ROW" >> "$SUMMARY"
+  done < "$CANDIDATES"
 }
 
 restoration_proven() {
@@ -182,45 +250,42 @@ fi
 
 LOW="$RESULT_DIR/20-percent.tsv"
 HIGH="$RESULT_DIR/50-percent.tsv"
-: > "$LOW"; : > "$HIGH"
+LOW_HISTORY="$RESULT_DIR/20-percent-history.tsv"
+HIGH_HISTORY="$RESULT_DIR/50-percent-history.tsv"
 trap restore_and_cleanup EXIT
 trap 'exit 130' INT TERM
 
-echo "Commanding 20%, waiting ${WAIT_SECONDS}s, then recording every candidate enclosure..."
+echo "Commanding 20% and sampling every ${SAMPLE_INTERVAL_SECONDS}s for ${BASELINE_WAIT_SECONDS}s..."
 send_speed 20
-sleep "$WAIT_SECONDS"
-while IFS=$'\t' read -r ADDRESS DEVICE; do
-  if SAMPLE="$(sample_device_rpm "$DEVICE" 20-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$LOW"; fi
-done < "$CANDIDATES"
+sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"
+[ -s "$LOW" ] || { echo "No valid SES fan telemetry was available for the 20% baseline." >&2; exit 1; }
 
-echo "Commanding 50%, waiting ${WAIT_SECONDS}s, then looking for the enclosure whose RPM rises..."
+STABLE_MATCH="$RESULT_DIR/stable-response.tsv"
+RESPONSE_STABILIZED_SECONDS=""
+echo "Commanding 50% and sampling every ${SAMPLE_INTERVAL_SECONDS}s until the response stabilizes or ${RESPONSE_TIMEOUT_SECONDS}s elapse..."
 send_speed 50
-sleep "$WAIT_SECONDS"
-while IFS=$'\t' read -r ADDRESS DEVICE; do
-  if SAMPLE="$(sample_device_rpm "$DEVICE" 50-percent)"; then printf '%s\t%s\t%s\n' "$ADDRESS" "$DEVICE" "$SAMPLE" >> "$HIGH"; fi
-done < "$CANDIDATES"
+sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"
 
 RESTORE_SENT=true
 restore_safe || RESTORE_SENT=false
 
 MATCHES="$RESULT_DIR/matches.tsv"
-awk -F '\t' '
-  NR == FNR { low[$1]=$3; next }
-  ($1 in low) {
-    delta=$3-low[$1]; pct=(low[$1]>0 ? delta/low[$1]*100 : 0);
-    if (delta >= 250 && pct >= 10) printf "%s\t%s\t%d\t%d\t%d\t%.1f\n", $1, $2, low[$1], $3, delta, pct;
-  }
-' "$LOW" "$HIGH" > "$MATCHES"
+cp "$STABLE_MATCH" "$MATCHES"
 
 MATCH_COUNT="$(wc -l < "$MATCHES" | tr -d ' ')"
 if [ "$MATCH_COUNT" -ne 1 ]; then
-  echo "Identification was ambiguous: expected exactly one responding SES enclosure, found $MATCH_COUNT." >&2
+  echo "Identification did not find exactly one enclosure with two consecutive stable higher-RPM samples before the ${RESPONSE_TIMEOUT_SECONDS}s timeout." >&2
   echo "A 20% restore was attempted, but no unique enclosure was available for independent restoration proof." >&2
   echo "Use Manual mapping only after checking the captured results in $RESULT_DIR." >&2
   exit 1
 fi
 
 IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_50 DELTA PERCENT < "$MATCHES"
+FIRST_RESPONSE_SECONDS="$(awk -F '\t' -v wanted="$SES_ADDRESS" -v low="$RPM_20" '
+  NR == 1 || $2 != wanted { next }
+  { delta=$4-low; pct=(low>0 ? delta/low*100 : 0) }
+  delta >= 250 && pct >= 10 { print $1; exit }
+' "$HIGH_HISTORY")"
 
 echo "Waiting ${RESTORE_WAIT_SECONDS}s to prove the selected enclosure returned to 20%..."
 sleep "$RESTORE_WAIT_SECONDS"
@@ -285,6 +350,8 @@ php -r '
   echo "20%: $RPM_20 RPM"
   echo "50%: $RPM_50 RPM"
   echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
+  echo "Response first observed: ${FIRST_RESPONSE_SECONDS:-unknown}s"
+  echo "Stable response confirmed: ${RESPONSE_STABILIZED_SECONDS:-unknown}s (two consecutive samples within 10% or 250 RPM; ${RESPONSE_TIMEOUT_SECONDS}s timeout)"
   echo "Disk assignment: $ASSIGNMENT"
   echo "Automatic disks: $(jq -r 'if length then join(", ") else "none" end' <<< "$AUTO_DISKS")"
   echo "Final restore: PASS ($FINAL_RPM RPM after ${RESTORE_WAIT_SECONDS}s)"
