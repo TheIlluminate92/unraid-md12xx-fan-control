@@ -31,7 +31,7 @@ END {
     latestPct=(low[address]>0 ? latestDelta/low[address]*100 : 0)
     difference=latest[address]-previous[address]
     if (difference < 0) difference=-difference
-    tolerance=latest[address]*0.05
+    tolerance=latest[address]*0.10
     if (tolerance < 250) tolerance=250
     if (previousDelta < 250 || previousPct < 10 || latestDelta < 250 || latestPct < 10 || difference > tolerance) exit
 
@@ -41,3 +41,4 @@ END {
     printf "%s\t%s\t%d\t%d\t%d\t%.1f\n", address, device[address], low[address], stableRpm, stableDelta, stablePct
   }
 }
+
