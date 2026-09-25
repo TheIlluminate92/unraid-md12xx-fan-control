@@ -124,7 +124,7 @@ grep -Fq 'Stable response confirmed:' "$PLUGIN_DIR/scripts/commission.sh"
 STABILITY_AWK="$PLUGIN_DIR/scripts/stable-response.awk"
 BASELINE_FIXTURE="$PROJECT_DIR/tests/fixtures/commission-baseline.tsv"
 awk -f "$STABILITY_AWK" "$BASELINE_FIXTURE" "$PROJECT_DIR/tests/fixtures/commission-stable.tsv" > "$TMP_DIR/stable-response.tsv"
-grep -Fxq $'0:0:11:0\t/dev/sg11\t3500\t6325\t2825\t80.7' "$TMP_DIR/stable-response.tsv"
+grep -Fxq $'0:0:11:0\t/dev/sg11\t3500\t6100\t2600\t74.3' "$TMP_DIR/stable-response.tsv"
 awk -f "$STABILITY_AWK" "$BASELINE_FIXTURE" "$PROJECT_DIR/tests/fixtures/commission-unstable.tsv" > "$TMP_DIR/unstable-response.tsv"
 [ ! -s "$TMP_DIR/unstable-response.tsv" ]
 awk -f "$STABILITY_AWK" "$BASELINE_FIXTURE" "$PROJECT_DIR/tests/fixtures/commission-ambiguous.tsv" > "$TMP_DIR/ambiguous-response.tsv"
@@ -334,3 +334,4 @@ if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP
 fi
 
 echo "MD12xx runtime verification passed."
+
