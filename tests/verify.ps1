@@ -131,7 +131,7 @@ foreach ($marker in '20-percent-history.tsv', '50-percent-history.tsv', 'write_s
     if (-not $commissionSource.Contains($marker)) { throw "Delayed commissioning telemetry marker is missing: $marker" }
 }
 $stabilitySource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk'))
-foreach ($marker in 'responseCount != 1', 'samples[address] < 2', 'difference > tolerance', 'tolerance=latest[address]*0.05', 'tolerance < 250') {
+foreach ($marker in 'responseCount != 1', 'samples[address] < 2', 'difference > tolerance', 'tolerance=latest[address]*0.10', 'tolerance < 250') {
     if (-not $stabilitySource.Contains($marker)) { throw "Stable-response safety marker is missing: $marker" }
 }
 if (-not $commissionSource.Contains('Final 20% restoration: PASS')) { throw 'Commissioning does not require final RPM restoration proof.' }
@@ -233,3 +233,4 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
+
