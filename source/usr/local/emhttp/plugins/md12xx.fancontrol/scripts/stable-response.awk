@@ -41,4 +41,3 @@ END {
     printf "%s\t%s\t%d\t%d\t%d\t%.1f\n", address, device[address], low[address], stableRpm, stableDelta, stablePct
   }
 }
-
