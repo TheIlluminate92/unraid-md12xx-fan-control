@@ -9,7 +9,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
 ### 0.4.8 Beta
-- Records a 30-second 20% baseline, then samples 50% SES telemetry every five seconds until one unique response is stable across two readings or a 60-second safety timeout is reached.
+- Records a 30-second 20% baseline, then samples 50% SES telemetry every five seconds until one unique response is stable within 10% across two readings or a 60-second safety timeout is reached.
 - Keeps timed 20% and 50% sample histories in the downloadable commissioning results for troubleshooting slower firmware telemetry.
 
 ### 0.4.7 Beta
@@ -205,3 +205,4 @@ echo "MD12xx Fan Control removed. Configuration, commissioning results, and runt
 </INLINE>
 </FILE>
 </PLUGIN>
+
