@@ -25,6 +25,7 @@ $required = @(
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/start.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stop.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/controller-supervisor.sh',
+    '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission-job.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh'
@@ -123,6 +124,16 @@ if (-not $settingsSource.Contains('persisted.calibration && typeof persisted.cal
 $commissionSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh'))
 if (-not $commissionSource.Contains('flock -w 15 9')) { throw 'Commissioning lock wait is missing.' }
 if (-not $commissionSource.Contains('timeout "$SPEED_RESPONSE_SECONDS" cat "$PORT"')) { throw 'Commissioning does not open its response reader before writing.' }
+if (-not $commissionSource.Contains('BASELINE_WAIT_SECONDS="${MD12XX_TEST_BASELINE_SECONDS:-30}"')) { throw 'Commissioning does not use the 30-second baseline window.' }
+if (-not $commissionSource.Contains('RESPONSE_TIMEOUT_SECONDS="${MD12XX_TEST_RESPONSE_TIMEOUT_SECONDS:-60}"')) { throw 'Commissioning does not use the 60-second response timeout.' }
+if (-not $commissionSource.Contains('SAMPLE_INTERVAL_SECONDS="${MD12XX_TEST_SAMPLE_INTERVAL_SECONDS:-5}"')) { throw 'Commissioning does not sample telemetry every five seconds.' }
+foreach ($marker in '20-percent-history.tsv', '50-percent-history.tsv', 'write_stable_response_match', 'stable-response.awk', 'sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"', 'sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"', 'Stable response confirmed:') {
+    if (-not $commissionSource.Contains($marker)) { throw "Delayed commissioning telemetry marker is missing: $marker" }
+}
+$stabilitySource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk'))
+foreach ($marker in 'responseCount != 1', 'samples[address] < 2', 'difference > tolerance', 'tolerance=latest[address]*0.05', 'tolerance < 250') {
+    if (-not $stabilitySource.Contains($marker)) { throw "Stable-response safety marker is missing: $marker" }
+}
 if (-not $commissionSource.Contains('Final 20% restoration: PASS')) { throw 'Commissioning does not require final RPM restoration proof.' }
 if (-not $commissionSource.Contains('md12xx_disable_active_discovery_after_setup')) { throw 'Commissioning does not disable active discovery after setup completes.' }
 if (-not $commissionSource.Contains('$shelf["calibration"]=[')) { throw 'Commissioning calibration persistence is missing.' }
@@ -222,3 +233,4 @@ $node = Get-Command node -ErrorAction SilentlyContinue
 if ($node) { & $node.Source --check (Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js') }
 
 Write-Output 'MD12xx plugin manifest verification passed.'
+
