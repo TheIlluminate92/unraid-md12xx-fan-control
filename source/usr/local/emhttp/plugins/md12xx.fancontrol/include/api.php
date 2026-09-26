@@ -130,6 +130,8 @@ try {
     }
 
     if ($action === 'commission') {
+        $mode = trim((string) ($_POST['mode'] ?? 'automatic'));
+        if (!in_array($mode, ['automatic', 'manual-identify'], true)) throw new InvalidArgumentException('Invalid identification mode');
         $rawId = trim((string) ($_POST['id'] ?? ''));
         if ($rawId === '') throw new InvalidArgumentException('Shelf id is required');
         $id = md12xx_slug($rawId);
@@ -157,7 +159,7 @@ try {
         if (@file_put_contents(MD12XX_RUNTIME_DIR . '/commissioning.active', $id . "\n", LOCK_EX) === false) {
             throw new RuntimeException('Unable to lock commissioning state');
         }
-        $command = 'nohup ' . escapeshellarg($runner) . ' ' . escapeshellarg($id) . ' ' . escapeshellarg($paths['directory']) . ' >/dev/null 2>&1 & echo $!';
+        $command = 'nohup ' . escapeshellarg($runner) . ' ' . escapeshellarg($id) . ' ' . escapeshellarg($paths['directory']) . ' ' . escapeshellarg($mode) . ' >/dev/null 2>&1 & echo $!';
         $pid = (int) trim((string) @shell_exec($command));
         if ($pid <= 1) {
             @unlink(MD12XX_RUNTIME_DIR . '/commissioning.active');
@@ -165,6 +167,57 @@ try {
         }
         @file_put_contents($paths['pid'], $pid . "\n", LOCK_EX);
         echo json_encode(['ok' => true, 'job' => md12xx_commission_status($id)], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        exit;
+    }
+
+    if ($action === 'confirm-manual-pairing') {
+        $id = md12xx_slug(trim((string) ($_POST['id'] ?? '')));
+        if (trim((string) ($_POST['acknowledged'] ?? '')) !== 'yes') throw new InvalidArgumentException('Physical shelf confirmation is required');
+        if (md12xx_commission_active()) throw new RuntimeException('Wait for the fan ramp to finish');
+        $config = md12xx_read_config();
+        if ((bool) $config['enabled'] || md12xx_competing_controllers($config)) throw new RuntimeException('Disable all fan controllers first');
+        $index = null;
+        foreach ($config['shelves'] as $key => $candidate) {
+            if ((string) ($candidate['id'] ?? '') === $id) { $index = $key; break; }
+        }
+        if ($index === null) throw new InvalidArgumentException('Unknown shelf');
+        $shelf = $config['shelves'][$index];
+        $proofPath = MD12XX_RUNTIME_DIR . '/manual-identify-' . $id . '.json';
+        $proof = is_file($proofPath) ? json_decode((string) @file_get_contents($proofPath), true) : null;
+        if (!is_array($proof) || (int) ($proof['completedAt'] ?? 0) < time() - 600 ||
+            (string) ($proof['serialPort'] ?? '') !== (string) ($shelf['serialPort'] ?? '')) {
+            throw new RuntimeException('Run the manual 50% ramp again; its confirmation has expired or the adapter changed');
+        }
+        $address = trim((string) ($shelf['sesAddress'] ?? ''));
+        $device = trim((string) ($shelf['sesDevice'] ?? ''));
+        if ($address === '' || $device === '') throw new InvalidArgumentException('Choose an SES enclosure and save first');
+        $matched = null;
+        foreach (md12xx_discover_ses() as $candidate) {
+            if (!empty($candidate['supportedCandidate']) && $candidate['address'] === $address && $candidate['device'] === $device) {
+                $matched = $candidate; break;
+            }
+        }
+        if ($matched === null) throw new RuntimeException('The chosen SES enclosure is no longer present');
+        if (preg_match('/MD12(?:00|20)/i', (string) ($matched['model'] ?? ''), $detectedModel) &&
+            strtoupper($detectedModel[0]) !== strtoupper((string) ($shelf['model'] ?? ''))) {
+            throw new RuntimeException('The selected SES enclosure model differs from the configured shelf model');
+        }
+        $mapping = md12xx_ses_disk_mapping($address);
+        if (($mapping['state'] ?? '') !== 'verified' || empty($mapping['disks'])) throw new RuntimeException('This SES enclosure has no verified Unraid disk mapping');
+        $disks = array_values($mapping['disks']);
+        foreach ($config['shelves'] as $other) {
+            if (($other['id'] ?? '') === $id) continue;
+            if (($other['sesAddress'] ?? '') === $address || ($other['serialPort'] ?? '') === ($shelf['serialPort'] ?? '')) throw new RuntimeException('The enclosure or adapter is already assigned');
+            if (array_intersect($disks, $other['disks'] ?? [])) throw new RuntimeException('An enclosure disk is assigned to another shelf');
+        }
+        $config['shelves'][$index]['diskAssignment'] = 'manual';
+        $config['shelves'][$index]['disks'] = $disks;
+        $config['shelves'][$index]['commissioned'] = true;
+        $config['shelves'][$index]['verificationMode'] = 'operator';
+        $config['shelves'][$index]['calibration'] = [];
+        $saved = md12xx_write_config($config);
+        @unlink($proofPath);
+        echo json_encode(['ok' => true, 'config' => $saved], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         exit;
     }
 

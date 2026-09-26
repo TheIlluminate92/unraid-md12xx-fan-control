@@ -135,6 +135,10 @@ grep -Fq 'RESULT_DIR_FILE' "$PLUGIN_DIR/scripts/commission-job.sh"
 grep -Fq 'MD12XX_JOB_DIR=' "$PLUGIN_DIR/scripts/commission-job.sh"
 grep -Fq 'Results: %s' "$PLUGIN_DIR/scripts/commission-job.sh"
 grep -Fq 'md12xx_controller_verify_target' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'operator-confirmed pairing; SES fan response is not verified' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'confirm-manual-pairing' "$PLUGIN_DIR/include/api.php"
+grep -Fq 'manual-identify' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'devils' "$PLUGIN_DIR/scripts/interrogate-emm.sh"
 grep -Fq 'assigned disk inventory incomplete; fail-safe' "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'automatic disk mapping changed; fail-safe' "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'Controller status is stale' "$PLUGIN_DIR/assets/js/settings.js"
@@ -213,6 +217,27 @@ for RELEASE_FILE in "$PROJECT_DIR"/releases/*.plg; do
   grep -Fq "  $(basename "$RELEASE_FILE")" "$PROJECT_DIR/releases/SHA256SUMS"
 done
 [ ! -d "$PROJECT_DIR/candidates" ]
+
+php -r '
+  require $argv[1];
+  $base = md12xx_defaults();
+  $base["shelves"] = [[
+    "id" => "shelf-a", "name" => "Upper", "model" => "MD1200", "commissioned" => true,
+    "serialPort" => "/dev/serial/by-id/adapter-a", "sesAddress" => "1:0:1:0",
+    "sesDevice" => "/dev/sg1", "diskAssignment" => "manual", "disks" => ["disk1"],
+    "verificationMode" => "operator"
+  ]];
+  $saved = md12xx_validate_config($base);
+  if ($saved["shelves"][0]["verificationMode"] !== "operator") exit(1);
+  $draft = $saved;
+  $draft["shelves"][0]["name"] = "Upper shelf";
+  $draft["shelves"][0]["verificationMode"] = "rpm";
+  $renamed = md12xx_validate_config(md12xx_merge_settings_config($saved, $draft));
+  if (!$renamed["shelves"][0]["commissioned"] || $renamed["shelves"][0]["verificationMode"] !== "operator") exit(1);
+  $draft["shelves"][0]["sesAddress"] = "1:0:2:0";
+  $changed = md12xx_validate_config(md12xx_merge_settings_config($saved, $draft));
+  if ($changed["shelves"][0]["commissioned"] || $changed["shelves"][0]["verificationMode"] !== "rpm") exit(1);
+' "$PLUGIN_DIR/include/common.php"
 
 php -r '
   require $argv[1];

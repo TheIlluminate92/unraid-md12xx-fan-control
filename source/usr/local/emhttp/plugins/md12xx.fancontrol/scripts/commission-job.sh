@@ -3,6 +3,7 @@ set -u
 
 SHELF_ID="${1:-}"
 JOB_DIR="${2:-}"
+MODE="${3:-automatic}"
 PLUGIN_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 
 if [[ ! "$SHELF_ID" =~ ^[a-z0-9][a-z0-9_-]{0,47}$ ]] || [ -z "$JOB_DIR" ]; then
@@ -30,7 +31,7 @@ date +%s > "$STARTED_FILE"
 rm -f "$EXIT_FILE"
 rm -f "$RESULT_DIR_FILE"
 
-MD12XX_JOB_DIR="$JOB_DIR" "$PLUGIN_DIR/scripts/commission.sh" "$SHELF_ID" > "$LOG_FILE" 2>&1 &
+MD12XX_JOB_DIR="$JOB_DIR" "$PLUGIN_DIR/scripts/commission.sh" "$SHELF_ID" "$MODE" > "$LOG_FILE" 2>&1 &
 CHILD_PID=$!
 wait "$CHILD_PID"
 RESULT=$?

@@ -8,6 +8,11 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.9 Beta
+- Adds a guarded manual shelf ramp and explicit operator-confirmed serial-to-SES pairing when SES fan RPM remains static.
+- Keeps operator-confirmed shelves visibly unverified by RPM; serial command acknowledgements and disk-temperature fail-safe control remain active.
+- Includes an opt-in EMM console inventory for `_who`, `_ver`, and the command listing, plus read-only SES and inquiry captures.
+
 ### 0.4.8 Beta
 - Records a 30-second 20% baseline, then samples 50% SES telemetry every five seconds until one unique response is stable within 10% across two readings or a 60-second safety timeout is reached.
 - Keeps timed 20% and 50% sample histories in the downloadable commissioning results for troubleshooting slower firmware telemetry.
@@ -129,7 +134,7 @@ CONFIG_FILE="$CONFIG_DIR/config.json"
 chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
 chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php"
 chmod 0644 "$RUNTIME_DIR/scripts/stable-response.awk"
-chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
+chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/interrogate-emm.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
 
 for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
 

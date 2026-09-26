@@ -262,6 +262,10 @@ while ($running) {
 
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
+        $operatorVerified = ($shelf['verificationMode'] ?? 'rpm') === 'operator';
+        if ($operatorVerified) {
+            unset($pendingVerifications[$id], $lastVerifications[$id], $verificationFaults[$id], $driftCounts[$id]);
+        }
         $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
         $assignedDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
         $savedAssignedDisks = $assignedDisks;
@@ -313,8 +317,15 @@ while ($running) {
             $write = md12xx_controller_send((string) $shelf['serialPort'], $target, $dryRun);
             if (in_array($write['state'], ['sent', 'unconfirmed', 'dry-run'], true)) $lastCommands[$id] = time();
             if (in_array($write['state'], ['sent', 'unconfirmed'], true)) {
-                $calibration = md12xx_controller_calibration($shelf);
-                if ($calibration === null) {
+                $calibration = $operatorVerified ? null : md12xx_controller_calibration($shelf);
+                if ($operatorVerified) {
+                    if ($write['state'] !== 'sent') {
+                        unset($lastCommands[$id]);
+                        $write = ['state' => 'fault', 'message' => 'Serial command was not acknowledged; operator-confirmed pairing has no live RPM proof'];
+                    } else {
+                        $write = ['state' => 'operator-confirmed', 'message' => 'Serial command acknowledged; physical pairing was operator-confirmed, SES RPM response is unverified'];
+                    }
+                } elseif ($calibration === null) {
                     $lastVerifications[$id] = ['target' => $target, 'state' => 'unverified', 'message' => 'Telemetry calibration is missing; run Identify & test again'];
                     $write = $lastVerifications[$id];
                 } else {
@@ -370,6 +381,7 @@ while ($running) {
         elseif ($operable && $write['state'] === 'unverified' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $write['state'] === 'pending' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $mappingChanged && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': automatic disk mapping changed'; }
+        elseif ($operable && $operatorVerified && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': operator-confirmed pairing; SES fan response is not verified'; }
         elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
         elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }
         elseif ($enabled && (bool) $shelf['enabled'] && !(bool) $shelf['commissioned'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': commissioning required'; }
@@ -381,6 +393,7 @@ while ($running) {
             'model' => $shelf['model'],
             'enabled' => (bool) $shelf['enabled'],
             'commissioned' => (bool) $shelf['commissioned'],
+            'verificationMode' => $shelf['verificationMode'] ?? 'rpm',
             'serialPort' => $shelf['serialPort'],
             'sesDevice' => $sesDevice,
             'sesAddress' => $shelf['sesAddress'],

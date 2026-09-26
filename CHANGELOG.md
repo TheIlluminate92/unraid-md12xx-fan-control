@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.9 - 2026-09-25
+
+- Add operator-confirmed physical shelf pairing for firmware with static SES fan RPM, with a timed 50% ramp and 20% restore.
+- Keep reduced verification visible during control and require serial acknowledgement; preserve disk-temperature and fail-safe control.
+- Add opt-in EMM identity, version, and command-list capture.
+
 ## 0.4.8 - 2026-09-25
 
 - Records a 30-second baseline, then samples 50% commissioning telemetry every five seconds until one unique enclosure has two consecutive higher-RPM readings within a 10% stability band or a 60-second safety timeout is reached.

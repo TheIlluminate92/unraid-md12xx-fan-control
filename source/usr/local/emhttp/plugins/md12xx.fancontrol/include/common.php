@@ -183,6 +183,7 @@ function md12xx_validate_config(array $input): array
         $calibration = ($rpmAt20 > 0 && $rpmAt50 >= ($rpmAt20 + 250))
             ? ['rpmAt20' => $rpmAt20, 'rpmAt50' => $rpmAt50]
             : [];
+        $verificationMode = ($shelf['verificationMode'] ?? '') === 'operator' ? 'operator' : 'rpm';
 
         $validatedShelves[] = [
             'id' => $id,
@@ -196,6 +197,7 @@ function md12xx_validate_config(array $input): array
             'diskAssignment' => $diskAssignment,
             'disks' => $disks,
             'calibration' => $calibration,
+            'verificationMode' => $verificationMode,
         ];
     }
     $config['shelves'] = $validatedShelves;
@@ -229,6 +231,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         if (!is_array($old)) {
             $shelf['commissioned'] = false;
             $shelf['calibration'] = [];
+            $shelf['verificationMode'] = 'rpm';
             continue;
         }
 
@@ -247,6 +250,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
             $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
             $shelf['commissioned'] = (bool) ($old['commissioned'] ?? false);
             $shelf['calibration'] = is_array($old['calibration'] ?? null) ? $old['calibration'] : [];
+            $shelf['verificationMode'] = (string) ($old['verificationMode'] ?? 'rpm');
             continue;
         }
 
@@ -259,6 +263,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
             $shelf['disks'] = [];
             $shelf['commissioned'] = false;
             $shelf['calibration'] = [];
+            $shelf['verificationMode'] = 'rpm';
             continue;
         }
 
@@ -275,6 +280,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         $shelf['calibration'] = $sameManualHardware && is_array($old['calibration'] ?? null)
             ? $old['calibration']
             : [];
+        $shelf['verificationMode'] = $sameManualHardware ? (string) ($old['verificationMode'] ?? 'rpm') : 'rpm';
     }
     unset($shelf);
 

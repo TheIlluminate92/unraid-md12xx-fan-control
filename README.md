@@ -42,6 +42,7 @@ MD1200 hardware validation currently covers the tested direct-attached arrangeme
 - Passively inventories candidate SES devices, persistent serial adapter paths, and Unraid disks.
 - Automatically maps the shelf's current Unraid disk names through standard enclosure links or the verified SES device's exact SAS expander.
 - Optionally verifies likely FTDI serial consoles with a read-only `_who` query while all fan controllers are stopped.
+- Offers a guarded 15-second physical 50% ramp and explicit operator-confirmed SES pairing for shelves whose SES RPM does not respond to fan commands.
 - Auto mode controls each shelf from its assigned disks independently.
 - Manual choices from 20% through 100% in 10% increments.
 - Reads independent fan RPM telemetry through `sg_ses`.
@@ -73,6 +74,8 @@ The Settings page supports between 2 and 10 Auto-curve points. Temperatures must
 The normal setup asks for one verified persistent serial adapter. The guarded identification test first repeats the read-only MD12xx console check, records a 30-second 20% baseline, then samples every candidate SES enclosure every five seconds at 50%. The 50% phase finishes early when exactly one enclosure has two consecutive higher-RPM samples that agree within 10% or 250 RPM; otherwise it times out safely after 60 seconds. The adaptive window accommodates firmware that updates SES fan telemetry more slowly than the serial console acknowledges a command, and the complete sample history is included in the downloadable test results. It automatically maps the uniquely identified enclosure's Linux block devices to the current Unraid disk names and refuses to commission until independent SES telemetry proves the final 20% restoration. Mapping uses standard enclosure-slot links when available and otherwise requires the disks to share the verified SES device's exact SAS expander. If neither relationship is available, the Settings page retains an explicit Manual mapping fallback.
 
 The plugin does not treat a matching model name, USB vendor, prompt string, or drive count as proof of a serial-to-SES pairing. Ambiguous RPM results and empty automatic disk assignments are not commissioned. If the commissioned disk mapping changes or assigned disks disappear from Unraid's inventory, Auto mode selects the configured fail-safe speed instead of assuming the disks are asleep. Changing a shelf's model, serial adapter, SES pairing, assignment mode, or disk list clears commissioning and requires a new test.
+
+For firmware that reports static SES fan RPM, disable all fan controllers and use **Ramp this adapter to 50%**. Watch which physical shelf responds, name it, select the SES enclosure using its discovered Unraid disks, and select **Confirm physical pairing** within 10 minutes. This path commissions only after an explicit physical confirmation and a verified SES-to-disk mapping. The controller still requires a serial command acknowledgement and uses assigned disk temperatures and fail-safe behavior, but cannot verify physical fan response or detect fan-speed drift through SES. The UI and controller status show this reduced verification. Incorrect operator pairing can cool the wrong disks; check the mapped disks and physical shelf carefully before enabling control.
 
 If commissioning cannot prove the final 20% state, the shelf remains uncommissioned and the controller must remain disabled. Keep competing fan writers stopped and use **Identify & test** again; each retry begins by commanding 20%. If another attempt still cannot verify the restoration, stop setup, leave the shelf uncommissioned, restore a known-safe state using the enclosure's previously proven control method, and attach reviewed diagnostics to a support report.
 
@@ -116,6 +119,17 @@ Run `bash tests/verify.sh` on Linux before publishing. The suite builds the pack
 **Export local diagnostics** creates and downloads a redacted archive from `/boot/config/plugins/md12xx.fancontrol/diagnostics`. It does not upload anything. Review the archive before sharing it, then use **Report issue on GitHub** to open the public issue form and attach the archive yourself. Files attached to this public repository can be accessed without authentication. See [SECURITY.md](SECURITY.md) for the exact read/write and network boundaries.
 
 The plugin intentionally does not authenticate to GitHub or upload diagnostics automatically. That keeps repository credentials off the server and leaves the final privacy decision with the operator.
+
+The optional terminal-only `interrogate-emm.sh` script captures `_who`, `_ver`, and the console's command listing from explicitly supplied persistent serial adapters, plus read-only SES status and SCSI inquiry pages from connected enclosures. It requires the controller and competing fan writers to be stopped, never executes discovered commands, and saves an archive locally for review. The command listing can include dangerous commands; it is data, not an execution plan.
+
+After updating the plugin and disabling all fan controllers, list the adapters with `ls -l /dev/serial/by-id/`, then run:
+
+```bash
+/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/interrogate-emm.sh \
+  /dev/serial/by-id/ADAPTER_ONE /dev/serial/by-id/ADAPTER_TWO
+```
+
+Replace both placeholders with the actual persistent adapter paths. Review the archive path printed by the script before attaching it to a public report; it contains unredacted console identity and adapter paths.
 
 ## Development transparency
 

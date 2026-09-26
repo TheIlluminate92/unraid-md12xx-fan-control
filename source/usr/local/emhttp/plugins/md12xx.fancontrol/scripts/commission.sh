@@ -7,6 +7,7 @@ STATE_DIR="/var/run/md12xx.fancontrol"
 RESULT_ROOT="/boot/config/plugins/md12xx.fancontrol/commissioning"
 COMMISSION_MARKER="$STATE_DIR/commissioning.active"
 SHELF_ID="${1:-}"
+MODE="${2:-automatic}"
 BASELINE_WAIT_SECONDS="${MD12XX_TEST_BASELINE_SECONDS:-30}"
 RESPONSE_TIMEOUT_SECONDS="${MD12XX_TEST_RESPONSE_TIMEOUT_SECONDS:-60}"
 SAMPLE_INTERVAL_SECONDS="${MD12XX_TEST_SAMPLE_INTERVAL_SECONDS:-5}"
@@ -16,6 +17,7 @@ RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "The commissioning service requires administrator privileges." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
+[[ "$MODE" == automatic || "$MODE" == manual-identify ]] || { echo "Invalid identification mode." >&2; exit 1; }
 for REQUIRED in jq flock fuser sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
 [ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
 [[ "$BASELINE_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning baseline window must be a positive number of seconds." >&2; exit 1; }
@@ -224,6 +226,34 @@ restore_and_cleanup() {
 echo "Verifying the selected serial console with a read-only identity query..."
 verify_console
 echo "Primary, active MD12xx console verified."
+
+if [ "$MODE" = manual-identify ]; then
+  # A manual ramp only identifies the physical shelf reached by this adapter.
+  # It cannot certify a serial-to-SES pairing or commission control.
+  rm -f "$STATE_DIR/manual-identify-${SHELF_ID}.json"
+  php -r '
+    require $argv[1];
+    $config=md12xx_read_config($argv[2]);
+    foreach ($config["shelves"] as &$shelf) {
+      if ($shelf["id"] === $argv[3]) $shelf["commissioned"]=false;
+    }
+    unset($shelf);
+    md12xx_write_config($config, $argv[2]);
+  ' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID"
+  trap restore_and_cleanup EXIT
+  trap 'exit 130' INT TERM
+  echo "Commanding 20% before the manual identification ramp..."
+  send_speed 20
+  echo "Commanding 50% for 15 seconds. Observe which physical shelf changes."
+  send_speed 50
+  sleep 15
+  restore_safe
+  jq -n --arg port "$PORT" --argjson time "$(date +%s)" '{serialPort:$port,completedAt:$time}' > "$STATE_DIR/manual-identify-${SHELF_ID}.json.tmp"
+  mv -f "$STATE_DIR/manual-identify-${SHELF_ID}.json.tmp" "$STATE_DIR/manual-identify-${SHELF_ID}.json"
+  trap 'rm -f "$COMMISSION_MARKER"' EXIT
+  echo "Manual ramp complete. Name the physical shelf, choose its SES enclosure using mapped disks, and explicitly confirm the pairing within 10 minutes. The ramp alone does not commission the shelf."
+  exit 0
+fi
 
 # A shelf is never left commissioned while a new control test is in progress.
 # Only telemetry-proven restoration at the end may set this back to true.

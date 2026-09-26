@@ -10,6 +10,7 @@
   var stateById = {};
   var controllerState = {};
   var commissionJobs = {};
+  var manualIdentification = {};
   var commissionTimers = {};
   var curveResizeTimer = null;
 
@@ -164,6 +165,7 @@
     var low = Number(calibration.rpmAt20 || 0);
     var high = Number(calibration.rpmAt50 || 0);
     if (!shelf.commissioned) return "Commissioned: no";
+    if (shelf.verificationMode === "operator") return "Commissioned by operator · SES RPM response unverified";
     if (low > 0 && high > low) return "Commissioned: yes · 20% " + low + " RPM · 50% " + high + " RPM";
     return "Commissioned: yes · telemetry calibration missing; run Identify & test again";
   }
@@ -226,10 +228,14 @@
     if (!card) return;
     var job = commissionJobs[id] || { phase: "not-started", running: false, output: "" };
     var button = card.querySelector(".md12xx-commission-start");
+    var manualButton = card.querySelector(".md12xx-manual-identify");
+    var confirmButton = card.querySelector(".md12xx-confirm-pairing");
     var phase = card.querySelector(".md12xx-commission-phase");
     var output = card.querySelector(".md12xx-commission-output");
     var result = card.querySelector(".md12xx-commission-result");
     button.disabled = !!job.running || !!config.enabled || byId("md12xx-enabled").checked || !card.querySelector(".md12xx-port").value;
+    manualButton.disabled = button.disabled;
+    confirmButton.disabled = !!job.running || !!config.enabled || byId("md12xx-enabled").checked || !card.querySelector(".md12xx-port").value || !card.querySelector(".md12xx-ses").value.split("|")[0];
     button.textContent = job.running ? "Identify & test running…" : "Identify & test";
     phase.textContent = commissionPhaseLabel(job.phase);
     phase.className = "md12xx-commission-phase is-" + (job.phase === "passed" ? "passed" : job.phase === "failed" ? "failed" : job.running ? "running" : "ready");
@@ -305,8 +311,9 @@
           '<span>Command<b data-status="command" title="' + esc(status.writeMessage || "") + '">' + esc(status.writeState || "—") + '</b></span>' +
           '<span>Mapping<b data-status="mapping" title="' + esc(status.diskMappingMessage || "") + '">' + esc(status.diskMappingState || "—") + '</b></span>' +
         '</div>' +
-        '<div class="md12xx-commission"><div class="md12xx-commission-head"><button type="button" class="md12xx-commission-start">Identify &amp; test</button><strong class="md12xx-commission-phase">Ready</strong></div>' +
+        '<div class="md12xx-commission"><div class="md12xx-commission-head"><button type="button" class="md12xx-commission-start">Identify &amp; test</button><button type="button" class="md12xx-manual-identify">Ramp this adapter to 50%</button><button type="button" class="md12xx-confirm-pairing">Confirm physical pairing</button><strong class="md12xx-commission-phase">Ready</strong></div>' +
           '<p>Verifies the console, runs 20% → 50% → 20%, identifies the responding SES enclosure, saves its disks, and proves the final 20% state.</p>' +
+          '<p>Manual identification: observe which physical shelf ramps for 15 seconds, name it, and select its SES enclosure using the associated disks. Confirm physical pairing within 10 minutes to commission without live RPM proof. The controller will report this reduced verification.</p>' +
           '<pre class="md12xx-commission-output" hidden></pre><a class="md12xx-commission-result" href="#" hidden>Download test results (review identifiers before sharing)</a></div>' +
       '</article>';
     }).join("");
@@ -329,7 +336,7 @@
       });
     });
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-ses, .md12xx-disks"), function (input) {
-      input.addEventListener("change", function () { config = collect(); syncHardwareOptions(); updateMappingPreview(input.closest(".md12xx-shelf")); });
+      input.addEventListener("change", function () { config = collect(); syncHardwareOptions(); updateMappingPreview(input.closest(".md12xx-shelf")); updateCommissionCard(input.closest(".md12xx-shelf").getAttribute("data-id")); });
     });
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-port"), function (input) {
       input.addEventListener("change", function () {
@@ -355,6 +362,16 @@
       button.addEventListener("click", function () {
         var id = button.closest(".md12xx-shelf").getAttribute("data-id");
         startCommission(id);
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-manual-identify"), function (button) {
+      button.addEventListener("click", function () {
+        startCommission(button.closest(".md12xx-shelf").getAttribute("data-id"), "manual-identify");
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll(".md12xx-confirm-pairing"), function (button) {
+      button.addEventListener("click", function () {
+        confirmManualPairing(button.closest(".md12xx-shelf").getAttribute("data-id"));
       });
     });
     updateShelfStatus();
@@ -621,7 +638,24 @@
       } else if (job.phase === "passed") {
         await loadFreshConfig();
         await discover();
-        message("Identify & test passed. Review the detected enclosure and associated disks before enabling control.", false);
+        if (manualIdentification[id]) {
+          delete manualIdentification[id];
+          var card = Array.prototype.find.call(document.querySelectorAll(".md12xx-shelf"), function (item) { return item.getAttribute("data-id") === id; });
+          if (card) {
+            var nameField = card.querySelector(".md12xx-name");
+            var observed = window.prompt("Which physical shelf ramped? Give it a recognizable name, then select its SES enclosure from the mapped disks and save.", nameField.value);
+            if (observed && observed.trim()) {
+              nameField.value = observed.trim();
+              card.querySelector(".md12xx-shelf-title").textContent = observed.trim();
+            }
+            card.querySelector(".md12xx-assignment").value = "manual";
+            card.querySelector(".md12xx-manual").open = true;
+            updateMappingPreview(card);
+          }
+          message("Physical ramp completed and 20% was acknowledged. Select the SES enclosure using its mapped disks, then click Confirm physical pairing within 10 minutes.", false);
+        } else {
+          message("Identify & test passed. Review the detected enclosure and associated disks before enabling control.", false);
+        }
       } else if (job.phase === "failed") {
         await loadFreshConfig();
         message("Identify & test failed. Review the result below; the shelf remains uncommissioned.", true);
@@ -632,23 +666,49 @@
     }
   }
 
-  async function startCommission(id) {
+  async function startCommission(id, mode) {
+    mode = mode === "manual-identify" ? mode : "automatic";
     if (config.enabled || byId("md12xx-enabled").checked) {
       message("Disable this controller before running Identify & test.", true);
       return;
     }
-    if (!window.confirm("Identify this shelf now? Its fans will run at 20%, then 50%, then return to 20%. The test takes about one minute and must not be interrupted.")) return;
+    if (!window.confirm(mode === "manual-identify"
+      ? "Ramp the selected serial adapter's shelf to 50% for 15 seconds, then restore 20%? Watch which physical shelf changes. This does not commission control."
+      : "Identify this shelf now? Its fans will run at 20%, then 50%, then return to 20%. The test takes about one minute and must not be interrupted.")) return;
     if (!await save(false)) return;
     try {
       var token = String(window.csrf_token || "");
       if (!token) throw new Error("The current Unraid session token is unavailable; reload this page");
-      var body = new URLSearchParams({ action: "commission", csrf_token: token, id: id });
+      var body = new URLSearchParams({ action: "commission", mode: mode, csrf_token: token, id: id });
       var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
       var payload = await readJson(response, "Unable to start Identify & test");
+      if (mode === "manual-identify") manualIdentification[id] = true;
       commissionJobs[id] = payload.job;
       updateCommissionCard(id);
       message("Identify & test started. It continues safely even if this page is closed.", false);
       pollCommission(id, false);
+    } catch (error) { message(error.message || String(error), true); }
+  }
+
+  async function confirmManualPairing(id) {
+    var card = Array.prototype.find.call(document.querySelectorAll(".md12xx-shelf"), function (item) { return item.getAttribute("data-id") === id; });
+    if (!card) return;
+    var draft = shelfDraft(card);
+    var ses = (discovery.sesDevices || []).find(function (item) { return item.address === draft.sesAddress && item.device === draft.sesDevice; });
+    if (!ses || !Array.isArray(ses.disks) || !ses.disks.length) {
+      message("Select a detected SES enclosure with mapped Unraid disks first.", true); return;
+    }
+    if (!window.confirm("I watched " + draft.name + " physically ramp from this adapter and return to 20%. Pair it with " + draft.sesDevice + " (" + draft.sesAddress + "), mapped disks: " + ses.disks.join(", ") + "? SES RPM does not prove fan response on this shelf.")) return;
+    if (!await save(false)) return;
+    try {
+      var token = String(window.csrf_token || "");
+      if (!token) throw new Error("The Unraid session token is unavailable; reload this page");
+      var body = new URLSearchParams({ action: "confirm-manual-pairing", csrf_token: token, id: id, acknowledged: "yes" });
+      var response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }, body: body.toString() });
+      await readJson(response, "Manual pairing failed");
+      await loadFreshConfig();
+      await discover();
+      message("Physical pairing saved. Fan commands require serial acknowledgement; SES fan RPM response remains unverified.", false);
     } catch (error) { message(error.message || String(error), true); }
   }
 
