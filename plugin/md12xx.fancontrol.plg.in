@@ -8,6 +8,10 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.10 Beta
+- Matches a serial EMM's reported ELI address to the SES enclosure logical identifier when independent SES RPM proof fails.
+- Keeps RPM-verified commissioning where it works; SAS-matched shelves show reduced fan-response verification.
+
 ### 0.4.9 Beta
 - Adds a guarded manual shelf ramp and explicit operator-confirmed serial-to-SES pairing when SES fan RPM remains static.
 - Keeps operator-confirmed shelves visibly unverified by RPM; serial command acknowledgements and disk-temperature fail-safe control remain active.

@@ -135,7 +135,12 @@ grep -Fq 'RESULT_DIR_FILE' "$PLUGIN_DIR/scripts/commission-job.sh"
 grep -Fq 'MD12XX_JOB_DIR=' "$PLUGIN_DIR/scripts/commission-job.sh"
 grep -Fq 'Results: %s' "$PLUGIN_DIR/scripts/commission-job.sh"
 grep -Fq 'md12xx_controller_verify_target' "$PLUGIN_DIR/include/controller.php"
-grep -Fq 'operator-confirmed pairing; SES fan response is not verified' "$PLUGIN_DIR/include/controller.php"
+grep -Fq '$identityLabel . '\'' pairing; SES fan response is not verified' "$PLUGIN_DIR/include/controller.php"
+grep -Fq 'sas_pairing_fallback' "$PLUGIN_DIR/scripts/commission.sh"
+SERIAL_ELI="$(printf 'ELI ADDRESS:          500c04f200000100\n' | sed -nE 's/.*ELI ADDRESS:[[:space:]]*([[:xdigit:]]{16}).*/\1/p' | tr A-F a-f)"
+SES_ELI="$(printf 'enclosure logical identifier (hex): 500c04f200000100\n' | sed -nE 's/.*enclosure logical identifier \(hex\):[[:space:]]*([[:xdigit:]]{16}).*/\1/p' | tr A-F a-f)"
+[ "$SERIAL_ELI" = "$SES_ELI" ]
+[ "$SERIAL_ELI" != 500c04f200000200 ]
 grep -Fq 'confirm-manual-pairing' "$PLUGIN_DIR/include/api.php"
 grep -Fq 'manual-identify' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'devils' "$PLUGIN_DIR/scripts/interrogate-emm.sh"
@@ -229,6 +234,8 @@ php -r '
   ]];
   $saved = md12xx_validate_config($base);
   if ($saved["shelves"][0]["verificationMode"] !== "operator") exit(1);
+  $base["shelves"][0]["verificationMode"] = "sas";
+  if (md12xx_validate_config($base)["shelves"][0]["verificationMode"] !== "sas") exit(1);
   $draft = $saved;
   $draft["shelves"][0]["name"] = "Upper shelf";
   $draft["shelves"][0]["verificationMode"] = "rpm";

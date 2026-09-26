@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.10 - 2026-09-25
+
+- Correlate the EMM `sas_address` ELI with the SES configuration-page enclosure identifier when RPM proof fails.
+- Preserve independent RPM commissioning where it works and mark SAS-matched shelves as lacking live RPM fan-response verification.
+
 ## 0.4.9 - 2026-09-25
 
 - Add operator-confirmed physical shelf pairing for firmware with static SES fan RPM, with a timed 50% ramp and 20% restore.

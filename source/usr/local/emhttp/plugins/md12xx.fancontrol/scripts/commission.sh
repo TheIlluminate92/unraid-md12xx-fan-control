@@ -94,6 +94,22 @@ verify_console() {
   fi
 }
 
+query_sas_identity() {
+  local CAPTURE="$1"
+  (
+    flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
+    if fuser "$(readlink -f "$PORT")" >/dev/null 2>&1; then
+      echo "Serial adapter is open in another process." >&2; exit 1
+    fi
+    stty -F "$PORT" 38400 raw -echo -crtscts -hupcl cs8 -cstopb -parenb min 1 time 0
+    timeout 8 cat "$PORT" > "$CAPTURE" &
+    local READER=$!
+    sleep 0.3
+    printf 'sas_address\r' > "$PORT"
+    wait "$READER" 2>/dev/null || true
+  ) 9>"$LOCK_FILE"
+}
+
 send_speed() {
   local SPEED="$1" CAPTURE
   CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
@@ -269,6 +285,73 @@ php -r '
 
 CANDIDATES="$RESULT_DIR/candidates.tsv"
 candidate_ses > "$CANDIDATES"
+SAS_CAPTURE="$RESULT_DIR/serial-sas-address.txt"
+SAS_MATCHES="$RESULT_DIR/sas-identity-matches.tsv"
+: > "$SAS_MATCHES"
+echo "Checking for an exact EMM-to-SES SAS identity match..."
+if query_sas_identity "$SAS_CAPTURE"; then
+  SERIAL_ELI="$(sed -nE 's/.*ELI ADDRESS:[[:space:]]*([[:xdigit:]]{16}).*/\1/p' "$SAS_CAPTURE" | tr 'A-F' 'a-f' | sort -u)"
+  if [[ "$SERIAL_ELI" =~ ^[0-9a-f]{16}$ ]] && [ "$SERIAL_ELI" != 0000000000000000 ]; then
+    while IFS=$'\t' read -r ADDRESS DEVICE; do
+      SES_CAPTURE="$RESULT_DIR/sas-$(basename "$DEVICE")-configuration.txt"
+      timeout 10 sg_ses -R -p 0x01 "$DEVICE" > "$SES_CAPTURE" 2>&1 || continue
+      SES_ELI="$(sed -nE 's/.*enclosure logical identifier \(hex\):[[:space:]]*([[:xdigit:]]{16}).*/\1/p' "$SES_CAPTURE" | tr 'A-F' 'a-f' | sort -u)"
+      if [ "$SES_ELI" = "$SERIAL_ELI" ]; then printf '%s\t%s\n' "$ADDRESS" "$DEVICE" >> "$SAS_MATCHES"; fi
+    done < "$CANDIDATES"
+  fi
+fi
+sas_pairing_fallback() {
+  [ "$(wc -l < "$SAS_MATCHES")" -eq 1 ] || return 1
+  IFS=$'\t' read -r SES_ADDRESS SES_DEVICE < "$SAS_MATCHES"
+  echo "RPM proof unavailable. Exact SAS identity match: selected EMM and $SES_DEVICE share enclosure logical identifier $SERIAL_ELI."
+  trap restore_and_cleanup EXIT
+  trap 'exit 130' INT TERM
+  echo "Commanding 20%, then 50% for 15 seconds, then restoring 20%..."
+  send_speed 20
+  send_speed 50
+  sleep 15
+  restore_safe
+  # Both interfaces have the same enclosure identity. SES fan RPM is not
+  # claimed as live proof of the acknowledged serial speed commands.
+  MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
+  AUTO_DISKS="$(jq -c '.disks // []' <<< "$MAPPING_JSON")"
+  READY=false
+  if [ "$(jq -r '.state' <<< "$MAPPING_JSON")" = verified ] && [ "$(jq '(.disks // []) | length' <<< "$MAPPING_JSON")" -gt 0 ]; then
+    if [ "$ASSIGNMENT" = automatic ]; then
+      READY=true
+    elif jq -e --argjson mapped "$AUTO_DISKS" '(.disks // []) as $chosen | ($chosen | length > 0) and ([$chosen[] | select(. as $disk | $mapped | index($disk) == null)] | length == 0)' <<< "$SHELF_JSON" >/dev/null; then
+      READY=true
+    fi
+  fi
+  php -r '
+    require $argv[1];
+    $config=md12xx_read_config($argv[2]);
+    $automaticDisks=json_decode($argv[6], true) ?: [];
+    foreach ($config["shelves"] as &$shelf) {
+      if ($shelf["id"] !== $argv[3]) continue;
+      $shelf["sesAddress"]=$argv[4];
+      $shelf["sesDevice"]=$argv[5];
+      if (($shelf["diskAssignment"] ?? "automatic") === "automatic") $shelf["disks"]=$automaticDisks;
+      $shelf["calibration"]=[];
+      $shelf["verificationMode"]="sas";
+      $shelf["commissioned"]=$argv[7] === "true";
+    }
+    unset($shelf);
+    $config=md12xx_disable_active_discovery_after_setup($config);
+    md12xx_write_config($config, $argv[2]);
+  ' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY"
+  trap 'rm -f "$COMMISSION_MARKER"' EXIT
+  echo "SAS identity pairing: PASS; 20% restoration acknowledged. SES fan RPM response remains unverified." | tee "$RESULT_DIR/result.txt"
+  echo "Matched SES: $SES_ADDRESS -> $SES_DEVICE" | tee -a "$RESULT_DIR/result.txt"
+  echo "Mapped Unraid disks: $(jq -r 'if length then join(", ") else "none" end' <<< "$AUTO_DISKS")" | tee -a "$RESULT_DIR/result.txt"
+  if [ "$READY" = true ]; then
+    echo "Identity pairing commissioned with reduced RPM verification. Review the shelf and disks before enabling control."
+    exit 0
+  fi
+  echo "Identity matched, but no verified disk assignment was available. The shelf remains uncommissioned." >&2
+  exit 1
+}
+echo "Trying independent RPM proof first; an exact SAS identity match is available as a fallback when SES RPM stays static."
 if [ -n "$SES_ADDRESS" ]; then
   awk -F '\t' -v wanted="$SES_ADDRESS" '$1 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
   mv "$CANDIDATES.selected" "$CANDIDATES"
@@ -288,7 +371,11 @@ trap 'exit 130' INT TERM
 echo "Commanding 20% and sampling every ${SAMPLE_INTERVAL_SECONDS}s for ${BASELINE_WAIT_SECONDS}s..."
 send_speed 20
 sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"
-[ -s "$LOW" ] || { echo "No valid SES fan telemetry was available for the 20% baseline." >&2; exit 1; }
+if [ ! -s "$LOW" ]; then
+  echo "No valid SES fan telemetry was available for the 20% baseline." >&2
+  sas_pairing_fallback
+  exit 1
+fi
 
 STABLE_MATCH="$RESULT_DIR/stable-response.tsv"
 RESPONSE_STABILIZED_SECONDS=""
@@ -304,6 +391,9 @@ cp "$STABLE_MATCH" "$MATCHES"
 
 MATCH_COUNT="$(wc -l < "$MATCHES" | tr -d ' ')"
 if [ "$MATCH_COUNT" -ne 1 ]; then
+  if [ "$RESTORE_SENT" = true ] && [ "$(wc -l < "$SAS_MATCHES")" -eq 1 ]; then
+    sas_pairing_fallback
+  fi
   echo "Identification did not find exactly one enclosure with two consecutive stable higher-RPM samples before the ${RESPONSE_TIMEOUT_SECONDS}s timeout." >&2
   echo "A 20% restore was attempted, but no unique enclosure was available for independent restoration proof." >&2
   echo "Use Manual mapping only after checking the captured results in $RESULT_DIR." >&2
@@ -331,6 +421,9 @@ if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$
 fi
 
 if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+  if [ "$(wc -l < "$SAS_MATCHES")" -eq 1 ]; then
+    sas_pairing_fallback
+  fi
   echo "SAFETY FAILURE: the enclosure did not prove a return to its 20% RPM range." >&2
   echo "The shelf remains uncommissioned. Keep other controllers stopped, resolve the serial connection, then select Identify & test again; every retry begins by commanding 20%." >&2
   exit 1

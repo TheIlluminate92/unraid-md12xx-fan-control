@@ -183,7 +183,8 @@ function md12xx_validate_config(array $input): array
         $calibration = ($rpmAt20 > 0 && $rpmAt50 >= ($rpmAt20 + 250))
             ? ['rpmAt20' => $rpmAt20, 'rpmAt50' => $rpmAt50]
             : [];
-        $verificationMode = ($shelf['verificationMode'] ?? '') === 'operator' ? 'operator' : 'rpm';
+        $verificationMode = in_array(($shelf['verificationMode'] ?? ''), ['operator', 'sas'], true)
+            ? (string) $shelf['verificationMode'] : 'rpm';
 
         $validatedShelves[] = [
             'id' => $id,

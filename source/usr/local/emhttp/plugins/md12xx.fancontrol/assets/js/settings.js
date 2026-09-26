@@ -165,6 +165,7 @@
     var low = Number(calibration.rpmAt20 || 0);
     var high = Number(calibration.rpmAt50 || 0);
     if (!shelf.commissioned) return "Commissioned: no";
+    if (shelf.verificationMode === "sas") return "Commissioned by matching EMM/SES SAS identity · RPM response unverified";
     if (shelf.verificationMode === "operator") return "Commissioned by operator · SES RPM response unverified";
     if (low > 0 && high > low) return "Commissioned: yes · 20% " + low + " RPM · 50% " + high + " RPM";
     return "Commissioned: yes · telemetry calibration missing; run Identify & test again";
@@ -312,7 +313,7 @@
           '<span>Mapping<b data-status="mapping" title="' + esc(status.diskMappingMessage || "") + '">' + esc(status.diskMappingState || "—") + '</b></span>' +
         '</div>' +
         '<div class="md12xx-commission"><div class="md12xx-commission-head"><button type="button" class="md12xx-commission-start">Identify &amp; test</button><button type="button" class="md12xx-manual-identify">Ramp this adapter to 50%</button><button type="button" class="md12xx-confirm-pairing">Confirm physical pairing</button><strong class="md12xx-commission-phase">Ready</strong></div>' +
-          '<p>Verifies the console, runs 20% → 50% → 20%, identifies the responding SES enclosure, saves its disks, and proves the final 20% state.</p>' +
+          '<p>Verifies the console, runs 20% → 50% → 20%, and prefers independent SES RPM proof. If RPM stays static, an exact EMM/SES SAS identity match can pair the enclosure with reduced fan-response verification.</p>' +
           '<p>Manual identification: observe which physical shelf ramps for 15 seconds, name it, and select its SES enclosure using the associated disks. Confirm physical pairing within 10 minutes to commission without live RPM proof. The controller will report this reduced verification.</p>' +
           '<pre class="md12xx-commission-output" hidden></pre><a class="md12xx-commission-result" href="#" hidden>Download test results (review identifiers before sharing)</a></div>' +
       '</article>';
