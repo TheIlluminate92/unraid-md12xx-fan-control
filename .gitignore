@@ -1,5 +1,22 @@
+# Generated packages and local output
 dist/
 *.tmp
 *.log
-.DS_Store
 
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.*
+secrets.*
+
+# Diagnostics and editor/OS noise
+*.zip
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
