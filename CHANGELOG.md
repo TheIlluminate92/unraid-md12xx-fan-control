@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.13 — 2026-10-12 (build 2026.10.12.01)
+
+- Reject noncanonical installer names and duplicate internal-name registrations before runtime/configuration changes.
+- Document backed-up registration migration, filename-keyed update caching, and sequential duplicate checks; no automatic server cleanup.
+- Use TheIlluminate92 attribution while retaining project credits and separate application/build metadata.
+
+
 ## 0.4.12 - 2026-10-11
 
 - Fix Installed Plugins reporting test2 as up-to-date after the final release. Unraid uses text comparison, under which `0.4.11` sorts below `0.4.11-test2`; semantic minor versions also compare incorrectly across values such as `0.4.9` and `0.4.11`.
