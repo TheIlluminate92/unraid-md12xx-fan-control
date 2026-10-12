@@ -18,6 +18,7 @@ function md12xx_defaults(): array
         'enabled' => false,
         'mode' => 'auto',
         'manualSpeed' => 20,
+        'startupRecovery35' => true,
         'pollSeconds' => 5,
         'reassertSeconds' => 900,
         'sensorFailureSpeed' => 50,
@@ -80,6 +81,7 @@ function md12xx_validate_config(array $input): array
         throw new InvalidArgumentException('Manual speed must be between 20 and 100 percent in 10 percent increments');
     }
     $config['manualSpeed'] = $manualSpeed;
+    $config['startupRecovery35'] = filter_var($input['startupRecovery35'] ?? true, FILTER_VALIDATE_BOOL);
     $config['pollSeconds'] = max(5, min(300, (int) ($input['pollSeconds'] ?? 5)));
     $config['reassertSeconds'] = max(60, min(3600, (int) ($input['reassertSeconds'] ?? 900)));
     $config['sensorFailureSpeed'] = max(20, min(100, (int) ($input['sensorFailureSpeed'] ?? 50)));
@@ -132,6 +134,7 @@ function md12xx_validate_config(array $input): array
     $serialPorts = [];
     $sesAddresses = [];
     $sesDevices = [];
+    $sesIdentities = [];
     $diskOwners = [];
     $validatedShelves = [];
     foreach ($shelves as $index => $shelf) {
@@ -148,14 +151,21 @@ function md12xx_validate_config(array $input): array
         }
         if ($port !== '' && isset($serialPorts[$port])) throw new InvalidArgumentException('A serial adapter cannot be assigned to more than one shelf');
         if ($port !== '') $serialPorts[$port] = $id;
+        $sesIdentity = strtolower(trim((string) ($shelf['sesIdentity'] ?? '')));
+        if ($sesIdentity !== '' && (!preg_match('/^[0-9a-f]{16}$/', $sesIdentity) || in_array($sesIdentity, ['0000000000000000', 'ffffffffffffffff'], true))) {
+            throw new InvalidArgumentException('Invalid SES enclosure identity');
+        }
+        if ($sesIdentity !== '' && isset($sesIdentities[$sesIdentity])) throw new InvalidArgumentException('An SES identity cannot be assigned to more than one shelf');
+        if ($sesIdentity !== '') $sesIdentities[$sesIdentity] = $id;
+
         $sesDevice = trim((string) ($shelf['sesDevice'] ?? ''));
         if ($sesDevice !== '' && !preg_match('#^/dev/sg[0-9]+$#', $sesDevice)) throw new InvalidArgumentException('Invalid SES device');
-        if ($sesDevice !== '' && isset($sesDevices[$sesDevice])) throw new InvalidArgumentException('An SES device cannot be assigned to more than one shelf');
-        if ($sesDevice !== '') $sesDevices[$sesDevice] = $id;
+        if ($sesDevice !== '' && isset($sesDevices[$sesDevice]) && ($sesIdentity === '' || $sesDevices[$sesDevice] === '')) throw new InvalidArgumentException('An SES device cannot be assigned to more than one shelf');
+        if ($sesDevice !== '') $sesDevices[$sesDevice] = $sesIdentity;
         $sesAddress = trim((string) ($shelf['sesAddress'] ?? ''));
-        if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid stable SCSI address');
-        if ($sesAddress !== '' && isset($sesAddresses[$sesAddress])) throw new InvalidArgumentException('An SES enclosure cannot be assigned to more than one shelf');
-        if ($sesAddress !== '') $sesAddresses[$sesAddress] = $id;
+        if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid SCSI address');
+        if ($sesAddress !== '' && isset($sesAddresses[$sesAddress]) && ($sesIdentity === '' || $sesAddresses[$sesAddress] === '')) throw new InvalidArgumentException('An SES enclosure cannot be assigned to more than one shelf');
+        if ($sesAddress !== '') $sesAddresses[$sesAddress] = $sesIdentity;
 
         $diskAssignment = strtolower(trim((string) ($shelf['diskAssignment'] ?? '')));
         if ($diskAssignment === '') {
@@ -195,6 +205,7 @@ function md12xx_validate_config(array $input): array
             'serialPort' => $port,
             'sesDevice' => $sesDevice,
             'sesAddress' => $sesAddress,
+            'sesIdentity' => $sesIdentity,
             'diskAssignment' => $diskAssignment,
             'disks' => $disks,
             'calibration' => $calibration,
@@ -217,7 +228,7 @@ function md12xx_disable_active_discovery_after_setup(array $config): array
     return $config;
 }
 
-function md12xx_merge_settings_config(array $current, array $requested): array
+function md12xx_merge_settings_config(array $current, array $requested, ?array $identityInventory = null): array
 {
     $existing = [];
     foreach (($current['shelves'] ?? []) as $shelf) {
@@ -231,6 +242,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         $old = $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] ?? null;
         if (!is_array($old)) {
             $shelf['commissioned'] = false;
+            $shelf['sesIdentity'] = '';
             $shelf['calibration'] = [];
             $shelf['verificationMode'] = 'rpm';
             continue;
@@ -248,6 +260,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         if ($oldAutomatic && $newAutomatic && $sameModel && $sameSerial) {
             $shelf['sesAddress'] = (string) ($old['sesAddress'] ?? '');
             $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
+            $shelf['sesIdentity'] = (string) ($old['sesIdentity'] ?? '');
             $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
             $shelf['commissioned'] = (bool) ($old['commissioned'] ?? false);
             $shelf['calibration'] = is_array($old['calibration'] ?? null) ? $old['calibration'] : [];
@@ -261,6 +274,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         if ($newAutomatic) {
             $shelf['sesAddress'] = '';
             $shelf['sesDevice'] = '';
+            $shelf['sesIdentity'] = '';
             $shelf['disks'] = [];
             $shelf['commissioned'] = false;
             $shelf['calibration'] = [];
@@ -272,11 +286,21 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         $newDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
         sort($oldDisks, SORT_NATURAL | SORT_FLAG_CASE);
         sort($newDisks, SORT_NATURAL | SORT_FLAG_CASE);
+        $sameSesHardware = (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
+            && (string) ($old['sesDevice'] ?? '') === (string) ($shelf['sesDevice'] ?? '');
+        if (!$sameSesHardware && (string) ($old['sesIdentity'] ?? '') !== '') {
+            $identityInventory = $identityInventory ?? md12xx_ses_identity_inventory();
+            $resolved = md12xx_resolve_ses_identity($old, $identityInventory);
+            $sameSesHardware = $resolved['state'] === 'normal'
+                && $resolved['address'] === (string) ($shelf['sesAddress'] ?? '')
+                && $resolved['device'] === (string) ($shelf['sesDevice'] ?? '');
+        }
         $sameManualHardware = !$oldAutomatic
             && $sameModel
             && $sameSerial
-            && (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
+            && $sameSesHardware
             && $oldDisks === $newDisks;
+        $shelf['sesIdentity'] = $sameManualHardware ? (string) ($old['sesIdentity'] ?? '') : '';
         $shelf['commissioned'] = $sameManualHardware && (bool) ($old['commissioned'] ?? false);
         $shelf['calibration'] = $sameManualHardware && is_array($old['calibration'] ?? null)
             ? $old['calibration']
@@ -490,6 +514,87 @@ function md12xx_serial_port_details(): array
     return $result;
 }
 
+// Only the primary enclosure descriptor identifies the physical shelf.
+// Reject missing, placeholder, conflicting, or malformed identifiers.
+function md12xx_parse_ses_identity(string $output): string
+{
+    if (!preg_match('/Subenclosure identifier:\s*0\s*\[primary\]([\s\S]*?)(?=\n\s*Subenclosure identifier:|\n\s*type descriptor header|$)/i', $output, $primary)) return '';
+    preg_match_all('/enclosure logical identifier \(hex\):\s*([0-9a-f]{16})(?![0-9a-f])/i', $primary[1], $matches);
+    $identities = array_unique(array_map('strtolower', $matches[1] ?? []));
+    if (count($identities) !== 1) return '';
+    $identity = (string) reset($identities);
+    return in_array($identity, ['0000000000000000', 'ffffffffffffffff'], true) ? '' : $identity;
+}
+
+function md12xx_read_ses_identity(string $device): string
+{
+    if (!preg_match('#^/dev/sg[0-9]+$#', $device)) return '';
+    $binary = trim((string) @shell_exec('command -v sg_ses 2>/dev/null'));
+    if ($binary === '') return '';
+    $lines = [];
+    $exitCode = 1;
+    @exec('timeout 3 ' . escapeshellarg($binary) . ' -p cf ' . escapeshellarg($device) . ' 2>/dev/null', $lines, $exitCode);
+    return $exitCode === 0 ? md12xx_parse_ses_identity(implode("\n", $lines)) : '';
+}
+
+function md12xx_ses_identity_inventory(string $sysfsRoot = '/sys', ?callable $reader = null): array
+{
+    $reader = $reader ?? 'md12xx_read_ses_identity';
+    $result = [];
+    foreach (glob(rtrim($sysfsRoot, '/\\') . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
+        $path = $genericPath . '/device';
+        $resolved = @realpath($path);
+        if ($resolved === false || trim((string) @file_get_contents($path . '/type')) !== '13') continue;
+        $device = '/dev/' . basename($genericPath);
+        $result[] = [
+            'device' => $device,
+            'address' => basename($resolved),
+            'vendor' => trim((string) @file_get_contents($path . '/vendor')),
+            'model' => trim((string) @file_get_contents($path . '/model')),
+            'sesIdentity' => (string) $reader($device),
+        ];
+    }
+    return $result;
+}
+
+function md12xx_resolve_ses_identity(array $shelf, array $inventory): array
+{
+    $base = ['state' => 'fault', 'device' => '', 'address' => '', 'message' => 'Saved enclosure identity is missing; re-pair the shelf once to enable persistent identity tracking'];
+    $identity = (string) ($shelf['sesIdentity'] ?? '');
+    if ($identity === '') return $base;
+    $matches = array_values(array_filter($inventory, static fn(array $item): bool => ($item['sesIdentity'] ?? '') === $identity));
+    if (count($matches) !== 1) {
+        $base['message'] = count($matches) > 1
+            ? 'Saved enclosure identity has multiple paths or matches; resolve the ambiguity before control'
+            : 'Saved enclosure identity was not found; check the SAS connection and enclosure identity';
+        return $base;
+    }
+    foreach ($inventory as $candidate) {
+        if (($candidate['sesIdentity'] ?? '') === '' && strtoupper(trim((string) ($candidate['model'] ?? ''))) === (string) $shelf['model']) {
+            $base['message'] = 'An enclosure identity could not be read; a unique hardware match cannot be verified';
+            return $base;
+        }
+    }
+    $match = $matches[0];
+    if (strtoupper(trim((string) ($match['vendor'] ?? ''))) !== 'DELL' || strtoupper(trim((string) ($match['model'] ?? ''))) !== (string) $shelf['model']) {
+        $base['message'] = 'Enclosure identity matched but the hardware model differs; re-pair the shelf';
+        return $base;
+    }
+    return ['state' => 'normal', 'device' => $match['device'], 'address' => $match['address'], 'message' => 'Matched persistent enclosure identity'];
+}
+
+// Called only after the existing RPM/SAS/operator commissioning proof.
+function md12xx_commissioned_ses_identity(string $device, string $address, string $model, ?array $inventory = null): string
+{
+    $inventory = $inventory ?? md12xx_ses_identity_inventory();
+    foreach ($inventory as $candidate) {
+        if ($candidate['device'] !== $device || $candidate['address'] !== $address) continue;
+        $resolved = md12xx_resolve_ses_identity(['sesIdentity' => $candidate['sesIdentity'], 'model' => $model], $inventory);
+        if ($resolved['state'] === 'normal') return $candidate['sesIdentity'];
+    }
+    throw new RuntimeException('The proven SES enclosure has no unique persistent identity; pairing was not commissioned');
+}
+
 function md12xx_ses_disk_mapping(
     string $address,
     string $disksPath = '/var/local/emhttp/disks.ini',
@@ -545,6 +650,9 @@ function md12xx_ses_disk_mapping(
         foreach (glob($root . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
             $resolved = @realpath($genericPath . '/device');
             if ($resolved !== false && basename($resolved) === $address) {
+                if (trim((string) @file_get_contents($genericPath . '/device/type')) !== '13') {
+                    return array_replace($base, ['state' => 'invalid', 'message' => 'Saved SES address is not an enclosure; refresh discovery and re-pair the shelf']);
+                }
                 $sesPath = str_replace('\\', '/', $resolved);
                 break;
             }
@@ -624,13 +732,14 @@ function md12xx_discover_ses(
         $vendor = trim((string) @file_get_contents($devicePath . '/vendor'));
         $model = trim((string) @file_get_contents($devicePath . '/model'));
         $type = trim((string) @file_get_contents($devicePath . '/type'));
-        if ($type !== '13' && stripos($model, 'MD12') === false) continue;
+        if ($type !== '13') continue;
         $mapping = md12xx_ses_disk_mapping(basename($resolved), $disksPath, $sysfsRoot);
         $result[] = [
             'device' => '/dev/' . basename($genericPath),
             'address' => basename($resolved),
             'vendor' => $vendor,
             'model' => $model,
+            'sesIdentity' => md12xx_read_ses_identity('/dev/' . basename($genericPath)),
             'supportedCandidate' => stripos($vendor . ' ' . $model, 'DELL') !== false || stripos($model, 'MD12') !== false,
             'diskMappingState' => $mapping['state'],
             'blockDevices' => $mapping['blockDevices'],
@@ -658,5 +767,68 @@ function md12xx_discover_disks(string $path = '/var/local/emhttp/disks.ini'): ar
         ];
     }
     usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
+    return $result;
+}
+
+// Recovery must not hide an unknown temperature behind another disk's valid reading.
+function md12xx_quiet_temperature_policy(array $config, array $disks): array
+{
+    $safe = !empty($config['enabled']) && ($config['mode'] ?? '') === 'auto' && !empty($config['startupRecovery35']);
+    $required = ($config['mode'] ?? '') === 'manual' ? (int) $config['manualSpeed'] : 20;
+    $shelves = $config['shelves'] ?? [];
+    if (!$shelves) { $safe = false; $required = max($required, (int) $config['sensorFailureSpeed']); }
+    foreach ($shelves as $shelf) {
+        if (empty($shelf['serialPort']) || !md12xx_serial_path_is_safe((string) $shelf['serialPort']) || empty($shelf['enabled']) || empty($shelf['commissioned']) || empty($shelf['sesIdentity']) || ($shelf['verificationMode'] ?? 'rpm') !== 'rpm' || md12xx_controller_calibration($shelf) === null || empty($shelf['disks'])) $safe = false;
+        $speed = (int) $config['curve'][0]['speed'];
+        if (empty($shelf['disks'])) $speed = max($speed, (int) $config['sensorFailureSpeed']);
+        foreach (($shelf['disks'] ?? []) as $name) {
+            $disk = $disks[$name] ?? null;
+            if (!is_array($disk)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
+            $asleep = in_array($explicit, ['1', 'yes', 'true', 'on'], true) || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
+            $raw = trim((string) ($disk['temp'] ?? ''));
+            if (!$asleep && (!is_numeric($raw) || (float) $raw <= 0)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            if (is_numeric($raw) && (float) $raw > 0) {
+                if ((float) $raw >= 35) $safe = false;
+                foreach ($config['curve'] as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
+            }
+        }
+        if ($speed !== 20) $safe = false;
+        $required = max($required, $speed);
+    }
+    return ['safe' => $safe, 'restoreSpeed' => $required];
+}
+
+function md12xx_quiet_baseline_valid(array $config, array $candidates): bool
+{
+    $matched = [];
+    foreach ($candidates as $candidate) {
+        $found = null;
+        foreach ($config['shelves'] as $shelf) {
+            $saved = $shelf['disks']; $current = $candidate['disks'] ?? [];
+            sort($saved); sort($current);
+            if ($saved === $current && $saved !== [] && ($candidate['model'] ?? '') === $shelf['model']) {
+                if ($found !== null) return false;
+                $found = $shelf;
+            }
+        }
+        if ($found === null || isset($matched[$found['id']]) || ($candidate['fanCount'] ?? 0) !== 4) return false;
+        $calibration = md12xx_controller_calibration($found);
+        if ($calibration === null || !md12xx_controller_verify_target(20, (int) ($candidate['averageRpm'] ?? 0), $calibration)['passed']) return false;
+        $matched[$found['id']] = true;
+    }
+    return count($matched) === count($config['shelves']) && count($matched) > 0;
+}
+
+function md12xx_read_disk_state(string $path): array
+{
+    $values = is_file($path) ? @parse_ini_file($path, true, INI_SCANNER_RAW) : [];
+    if (!is_array($values)) return [];
+    $result = [];
+    foreach ($values as $section => $disk) {
+        if (!is_array($disk)) continue;
+        $name = strtolower(trim((string) ($disk['name'] ?? $section)));
+        if ($name !== '') $result[$name] = $disk;
+    }
     return $result;
 }

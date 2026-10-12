@@ -100,6 +100,8 @@ Fields can be added during Beta. Consumers should ignore fields they do not reco
 | `version` | Installed plugin version. |
 | `enabled` | Whether the controller is enabled. |
 | `mode` | Current `auto` or `manual` mode. |
+| `controller.startupRecovery35` | Whether quiet startup recovery is enabled. |
+| `controller.quietRecoveryActive` | Whether the bounded 35% worker is running; regular writes are paused. |
 | `manualSpeed` | Saved manual target, even when Auto is selected. |
 | `allowedManualSpeeds` | Accepted manual targets. |
 | `stale` | `true` when current controller state is missing or older than the allowed telemetry window. |
@@ -116,6 +118,8 @@ The exact shelf object can grow during Beta. These are the integration fields da
 | --- | --- |
 | `id`, `name`, `model` | Saved shelf identity and display information. |
 | `enabled`, `commissioned` | Whether the shelf may be controlled and whether its hardware pairing passed Identify & test. |
+| `sesIdentity` | Commissioned primary enclosure logical identifier; empty for legacy configurations awaiting re-pairing. |
+| `sesDevice`, `sesAddress` | Current identity-resolved host paths, or empty when identity verification fails. Saved configuration paths are historical hints. |
 | `assignedDisks` | Current Unraid disk names assigned to the shelf. |
 | `activeDisks` | Assigned disks that are currently active. |
 | `temperatureC` | Temperature of the hottest active assigned disk. It is not an average. It can be `null` when all assigned disks are spun down. |

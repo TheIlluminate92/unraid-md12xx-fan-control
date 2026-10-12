@@ -7,6 +7,10 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 bash "$PROJECT_DIR/scripts/build.sh" "$TMP_DIR/md12xx.fancontrol.plg"
+if LC_ALL=C grep -q $'\r' "$TMP_DIR/md12xx.fancontrol.plg"; then
+  echo "Built installer contains CRLF bytes that Git would normalize" >&2
+  exit 1
+fi
 grep -Fq '<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/README.md">' "$TMP_DIR/md12xx.fancontrol.plg"
 grep -Fq '<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk">' "$TMP_DIR/md12xx.fancontrol.plg"
 grep -Fq '**MD12xx Fan Control**' "$TMP_DIR/md12xx.fancontrol.plg"
@@ -67,17 +71,55 @@ ln -s "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:11/end
   "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device"
 ln -s "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:0/end_device-9:1:0/target9:0:0/9:0:0:0" \
   "$TMP_DIR/sys-topology/class/scsi_disk/9:0:0:0/device"
+printf "13\n" > "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device/type"
 php -r '
   require $argv[1];
   echo json_encode(md12xx_ses_disk_mapping("9:0:11:0", $argv[2], $argv[3]), JSON_UNESCAPED_SLASHES);
 ' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys-topology" > "$TMP_DIR/topology-mapping.json"
 jq -e '.state == "verified" and .source == "sas-expander" and .blockDevices == ["sda"] and .disks == ["disk1"]' "$TMP_DIR/topology-mapping.json" >/dev/null
 
+# Regression: a previously commissioned SES target is now a disk on the same expander.
+printf '0\n' > "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device/type"
+php -r '
+  require $argv[1];
+  $mapping = md12xx_ses_disk_mapping("9:0:11:0", $argv[2], $argv[3]);
+  if ($mapping["state"] !== "invalid" || $mapping["disks"] !== []) exit(1);
+' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys-topology"
+# A commissioned shelf with a missing enclosure must not enter command verification.
+jq '.shelves[0].sesAddress = "99:99:99:99" | .shelves[0].sesDevice = "/dev/sg99999"' \
+  "$PROJECT_DIR/tests/fixtures/auto.json" > "$TMP_DIR/stale-ses.json"
+php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+  --config="$TMP_DIR/stale-ses.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+  --state="$TMP_DIR/stale-ses-state.json"
+jq -e '.controller.state == "fault" and .shelves[0].writeState == "fault" and .shelves[0].telemetryState == "fault" and .shelves[0].diskMappingState == "invalid" and .shelves[0].averageRpm == null and (.shelves[0].writeMessage | contains("re-pair"))' "$TMP_DIR/stale-ses-state.json" >/dev/null
+
+# Synthetic identity/RPM data must never authorize a live serial write.
+if php "$PLUGIN_DIR/include/controller.php" --once --fixture-dir="$PROJECT_DIR/tests/fixtures/ses" 2> "$TMP_DIR/fixture-guard.txt"; then
+  echo "Controller accepted telemetry fixtures without dry-run" >&2
+  exit 1
+fi
+grep -Fq 'Telemetry fixtures require --dry-run' "$TMP_DIR/fixture-guard.txt"
+
+php "$PROJECT_DIR/tests/quiet.php" "$PLUGIN_DIR/include/common.php"
+php "$PROJECT_DIR/tests/identity.php" "$PLUGIN_DIR/include/common.php" "$TMP_DIR" "$PROJECT_DIR"
+php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+  --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+  --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/identity-state.json"
+jq -e '.controller.state == "normal" and .shelves[0].sesDevice == "/dev/sg200" and .shelves[0].sesAddress == "5:0:200:0" and .shelves[0].diskMappingState == "verified" and .shelves[0].assignedDisks == ["disk1"] and .shelves[0].averageRpm == 3500 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/identity-state.json" >/dev/null
+for BAD_INVENTORY in identity-missing identity-duplicate; do
+  cp "$TMP_DIR/$BAD_INVENTORY.json" "$TMP_DIR/identity-fixture/ses-inventory.json"
+  php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+    --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+    --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/identity-state.json"
+  jq -e '.controller.state == "fault" and .shelves[0].writeState == "fault" and .shelves[0].telemetryState == "fault" and .shelves[0].averageRpm == null' "$TMP_DIR/identity-state.json" >/dev/null
+done
+
 MD1220_SYS="$TMP_DIR/sys-md1220"
 MD1220_EXPANDER="$MD1220_SYS/devices/host7/port-7:3/expander-7:3"
 MD1220_SES="$MD1220_EXPANDER/port-7:3:31/end_device-7:3:31/target7:0:31/7:0:31:0"
 mkdir -p "$MD1220_SES" "$MD1220_SYS/class/scsi_generic/sg31"
 ln -s "$MD1220_SES" "$MD1220_SYS/class/scsi_generic/sg31/device"
+printf "13\n" > "$MD1220_SES/type"
 INDEX=0
 for BLOCK in sda sdb sdc sdd sde sdf sdg sdh sdi sdj sdk sdl sdm sdn sdo sdp sdq sdr sds sdt sdu sdv sdw sdx; do
   DISK_PATH="$MD1220_EXPANDER/port-7:3:$INDEX/end_device-7:3:$INDEX/target7:0:$INDEX/7:0:$INDEX:0"
@@ -106,7 +148,7 @@ if grep -n 'set_speed' "$PLUGIN_DIR/include/discovery.php"; then
 fi
 grep -Fq "printf '_who\\r'" "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'two consecutive stable higher-RPM samples' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq 'Returning the selected MD12xx console to 20%' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'Returning the selected MD12xx console to ${RESTORE_SPEED}%' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'md12xx_ses_disk_mapping' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq '$reader = @fopen($port, '\''r'\'');' "$PLUGIN_DIR/include/controller.php"
 grep -Fq '$writer = @fopen($port, '\''w'\'');' "$PLUGIN_DIR/include/controller.php"
@@ -115,13 +157,33 @@ grep -Fq 'BASELINE_WAIT_SECONDS="${MD12XX_TEST_BASELINE_SECONDS:-30}"' "$PLUGIN_
 grep -Fq 'RESPONSE_TIMEOUT_SECONDS="${MD12XX_TEST_RESPONSE_TIMEOUT_SECONDS:-60}"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'SAMPLE_INTERVAL_SECONDS="${MD12XX_TEST_SAMPLE_INTERVAL_SECONDS:-5}"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq '20-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq '50-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq '${HIGH_SPEED}-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'write_stable_response_match' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'difference > tolerance' "$PLUGIN_DIR/scripts/stable-response.awk"
 grep -Fq 'sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq 'sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'sample_candidates_for_window "${HIGH_SPEED}-percent" "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'Stable response confirmed:' "$PLUGIN_DIR/scripts/commission.sh"
 STABILITY_AWK="$PLUGIN_DIR/scripts/stable-response.awk"
+CANDIDATE_AWK="$PLUGIN_DIR/scripts/select-candidates.awk"
+printf '0:0:11:0\t/dev/sg11\n0:0:22:0\t/dev/sg22\n' > "$TMP_DIR/selection-candidates.tsv"
+printf '0:0:22:0\t/dev/sg22\n' > "$TMP_DIR/selection-exact.tsv"
+awk -v assignment=automatic -v address=0:0:18:0 -v device=/dev/sg18 \
+  -f "$CANDIDATE_AWK" "$TMP_DIR/selection-exact.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"
+cmp "$TMP_DIR/selection-result.tsv" "$TMP_DIR/selection-exact.tsv"
+: > "$TMP_DIR/selection-none.tsv"
+awk -v assignment=automatic -v address=0:0:18:0 -v device=/dev/sg18 \
+  -f "$CANDIDATE_AWK" "$TMP_DIR/selection-none.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"
+cmp "$TMP_DIR/selection-result.tsv" "$TMP_DIR/selection-candidates.tsv"
+awk -v assignment=manual -v address=0:0:22:0 \
+  -f "$CANDIDATE_AWK" "$TMP_DIR/selection-none.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"
+cmp "$TMP_DIR/selection-result.tsv" "$TMP_DIR/selection-exact.tsv"
+if awk -v assignment=automatic -f "$CANDIDATE_AWK" "$TMP_DIR/selection-candidates.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"; then
+  echo "Commissioning accepted an ambiguous serial identity match" >&2
+  exit 1
+fi
+[ ! -s "$TMP_DIR/selection-result.tsv" ]
+grep -Fq 'scripts/select-candidates.awk' "$TMP_DIR/md12xx.fancontrol.plg"
+
 BASELINE_FIXTURE="$PROJECT_DIR/tests/fixtures/commission-baseline.tsv"
 awk -f "$STABILITY_AWK" "$BASELINE_FIXTURE" "$PROJECT_DIR/tests/fixtures/commission-stable.tsv" > "$TMP_DIR/stable-response.tsv"
 grep -Fxq $'0:0:11:0\t/dev/sg11\t3500\t6100\t2600\t74.3' "$TMP_DIR/stable-response.tsv"

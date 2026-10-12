@@ -2,12 +2,22 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "0.4.10">
+  <!ENTITY version "0.4.11">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.11
+- Tracks each commissioned shelf by persistent enclosure identity across reboot, device renumbering, and host moves.
+- Fixes stale-address commissioning filters and rejects disk targets masquerading as SES enclosures.
+- Adds selectable, once-per-boot 35% startup recovery for already RPM-commissioned, cool shelves at a proven 20% baseline.
+- Requires healthy fan telemetry, unique response, the same saved identity/disks, and verified restoration; increased cooling demand aborts recovery without lowering required cooling.
+- Bounds recovery, pauses normal writes, serializes test launches, and preserves commissioned identities/calibration.
+- Consolidates disk parsing and response/restoration logic, corrects capture labels, redacts saved identities, and normalizes installer checksums.
+- Upgrade: legacy address-only shelves require one supervised Identify &amp; test; successful test2 commissioning remains valid.
+- Automated checks passed. Top-shelf commissioning/restoration passed on hardware. Conditional 35% startup recovery remains unexercised on hardware and is released at the owner's request.
+
 ### 0.4.10 Beta
 - Matches a serial EMM's reported ELI address to the SES enclosure logical identifier when independent SES RPM proof fails.
 - Keeps RPM-verified commissioning where it works; SAS-matched shelves show reduced fan-response verification.
@@ -151,7 +161,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   <header class="md12xx-hero">
     <div>
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
-      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.10</span></p>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.11</span></p>
     </div>
     <div class="md12xx-hero-actions">
       <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
@@ -186,6 +196,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <h3>Controller</h3>
     <div class="md12xx-grid">
       <label><span>Controller enabled</span><input id="md12xx-enabled" type="checkbox"></label>
+      <label><span>Quiet startup recovery (35%)</span><input id="md12xx-startup-recovery" type="checkbox"></label>
       <label><span>Mode</span><select id="md12xx-mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
       <label><span>Manual speed</span><select id="md12xx-manual"><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option></select></label>
       <label><span>Telemetry interval</span><input id="md12xx-poll" type="number" min="5" max="300" step="5"><small>Seconds; 5 recommended. Saved control changes are detected immediately.</small></label>
@@ -238,7 +249,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.4.10',
+    'version' => '0.4.11',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
@@ -401,6 +412,7 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
     return JSON.stringify({
       mode: value.mode,
       manualSpeed: value.manualSpeed,
+      startupRecovery35: value.startupRecovery35,
       reassertSeconds: value.reassertSeconds,
       sensorFailureSpeed: value.sensorFailureSpeed,
       hysteresisC: value.hysteresisC,
@@ -461,12 +473,19 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
     byId("md12xx-discovery-summary").textContent = text;
   }
   function sesOptions(shelf) {
-    var selected = (shelf.sesAddress || "") + "|" + (shelf.sesDevice || "");
+    var resolved = selectedSes(shelf);
+    var selected = ((resolved && resolved.address) || shelf.sesAddress || "") + "|" + ((resolved && resolved.device) || shelf.sesDevice || "");
     var values = discovery.sesDevices.slice();
-    var usedAddresses = valuesUsedByOtherShelves("sesAddress", shelf.id);
-    var usedDevices = valuesUsedByOtherShelves("sesDevice", shelf.id);
-    if (shelf.sesAddress && !values.some(function (item) { return item.address === shelf.sesAddress; })) {
-      values.unshift({ address: shelf.sesAddress, device: shelf.sesDevice, vendor: "Saved", model: "mapping" });
+    var usedAddresses = {};
+    var usedDevices = {};
+    (config.shelves || []).forEach(function (other) {
+      if (other.id === shelf.id) return;
+      var current = selectedSes(other);
+      if (current) { usedAddresses[current.address] = true; usedDevices[current.device] = true; }
+      else if (!other.sesIdentity) { usedAddresses[other.sesAddress] = true; usedDevices[other.sesDevice] = true; }
+    });
+    if (!resolved && shelf.sesAddress) {
+      values.unshift({ address: shelf.sesAddress, device: shelf.sesDevice, vendor: "Saved", model: "mapping unavailable" });
     }
     return option("|", "Select SES enclosure…", !shelf.sesAddress && !shelf.sesDevice) + values.map(function (item) {
       var value = String(item.address || "") + "|" + String(item.device || "");
@@ -491,6 +510,10 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
   }
   function selectedSes(shelf) {
     var devices = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    if (shelf.sesIdentity) {
+      var matches = devices.filter(function (item) { return item.sesIdentity === shelf.sesIdentity; });
+      return matches.length === 1 ? matches[0] : null;
+    }
     return devices.find(function (item) {
       return (shelf.sesAddress && item.address === shelf.sesAddress) || (!shelf.sesAddress && shelf.sesDevice && item.device === shelf.sesDevice);
     }) || null;
@@ -772,6 +795,7 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
 
   function loadGlobals() {
     byId("md12xx-enabled").checked = !!config.enabled;
+    byId("md12xx-startup-recovery").checked = config.startupRecovery35 !== false;
     byId("md12xx-mode").value = config.mode === "manual" ? "manual" : "auto";
     byId("md12xx-manual").value = String(config.manualSpeed || 20);
     byId("md12xx-poll").value = String(config.pollSeconds || 5);
@@ -789,6 +813,7 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
   function collect() {
     var next = {
       enabled: byId("md12xx-enabled").checked,
+      startupRecovery35: byId("md12xx-startup-recovery").checked,
       mode: byId("md12xx-mode").value,
       manualSpeed: Number(byId("md12xx-manual").value),
       pollSeconds: Number(byId("md12xx-poll").value),
@@ -1262,6 +1287,8 @@ try {
     }
 
     if ($action === 'commission') {
+        $launchLock = @fopen(MD12XX_RUNTIME_DIR . '/test-launch.lock', 'c+');
+        if ($launchLock === false || !@flock($launchLock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Another test is starting; retry shortly');
         $mode = trim((string) ($_POST['mode'] ?? 'automatic'));
         if (!in_array($mode, ['automatic', 'manual-identify'], true)) throw new InvalidArgumentException('Invalid identification mode');
         $rawId = trim((string) ($_POST['id'] ?? ''));
@@ -1344,6 +1371,7 @@ try {
         }
         $config['shelves'][$index]['diskAssignment'] = 'manual';
         $config['shelves'][$index]['disks'] = $disks;
+        $config['shelves'][$index]['sesIdentity'] = md12xx_commissioned_ses_identity($device, $address, (string) $shelf['model']);
         $config['shelves'][$index]['commissioned'] = true;
         $config['shelves'][$index]['verificationMode'] = 'operator';
         $config['shelves'][$index]['calibration'] = [];
@@ -1426,6 +1454,7 @@ function md12xx_defaults(): array
         'enabled' => false,
         'mode' => 'auto',
         'manualSpeed' => 20,
+        'startupRecovery35' => true,
         'pollSeconds' => 5,
         'reassertSeconds' => 900,
         'sensorFailureSpeed' => 50,
@@ -1488,6 +1517,7 @@ function md12xx_validate_config(array $input): array
         throw new InvalidArgumentException('Manual speed must be between 20 and 100 percent in 10 percent increments');
     }
     $config['manualSpeed'] = $manualSpeed;
+    $config['startupRecovery35'] = filter_var($input['startupRecovery35'] ?? true, FILTER_VALIDATE_BOOL);
     $config['pollSeconds'] = max(5, min(300, (int) ($input['pollSeconds'] ?? 5)));
     $config['reassertSeconds'] = max(60, min(3600, (int) ($input['reassertSeconds'] ?? 900)));
     $config['sensorFailureSpeed'] = max(20, min(100, (int) ($input['sensorFailureSpeed'] ?? 50)));
@@ -1540,6 +1570,7 @@ function md12xx_validate_config(array $input): array
     $serialPorts = [];
     $sesAddresses = [];
     $sesDevices = [];
+    $sesIdentities = [];
     $diskOwners = [];
     $validatedShelves = [];
     foreach ($shelves as $index => $shelf) {
@@ -1556,14 +1587,21 @@ function md12xx_validate_config(array $input): array
         }
         if ($port !== '' && isset($serialPorts[$port])) throw new InvalidArgumentException('A serial adapter cannot be assigned to more than one shelf');
         if ($port !== '') $serialPorts[$port] = $id;
+        $sesIdentity = strtolower(trim((string) ($shelf['sesIdentity'] ?? '')));
+        if ($sesIdentity !== '' && (!preg_match('/^[0-9a-f]{16}$/', $sesIdentity) || in_array($sesIdentity, ['0000000000000000', 'ffffffffffffffff'], true))) {
+            throw new InvalidArgumentException('Invalid SES enclosure identity');
+        }
+        if ($sesIdentity !== '' && isset($sesIdentities[$sesIdentity])) throw new InvalidArgumentException('An SES identity cannot be assigned to more than one shelf');
+        if ($sesIdentity !== '') $sesIdentities[$sesIdentity] = $id;
+
         $sesDevice = trim((string) ($shelf['sesDevice'] ?? ''));
         if ($sesDevice !== '' && !preg_match('#^/dev/sg[0-9]+$#', $sesDevice)) throw new InvalidArgumentException('Invalid SES device');
-        if ($sesDevice !== '' && isset($sesDevices[$sesDevice])) throw new InvalidArgumentException('An SES device cannot be assigned to more than one shelf');
-        if ($sesDevice !== '') $sesDevices[$sesDevice] = $id;
+        if ($sesDevice !== '' && isset($sesDevices[$sesDevice]) && ($sesIdentity === '' || $sesDevices[$sesDevice] === '')) throw new InvalidArgumentException('An SES device cannot be assigned to more than one shelf');
+        if ($sesDevice !== '') $sesDevices[$sesDevice] = $sesIdentity;
         $sesAddress = trim((string) ($shelf['sesAddress'] ?? ''));
-        if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid stable SCSI address');
-        if ($sesAddress !== '' && isset($sesAddresses[$sesAddress])) throw new InvalidArgumentException('An SES enclosure cannot be assigned to more than one shelf');
-        if ($sesAddress !== '') $sesAddresses[$sesAddress] = $id;
+        if ($sesAddress !== '' && !preg_match('/^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/', $sesAddress)) throw new InvalidArgumentException('Invalid SCSI address');
+        if ($sesAddress !== '' && isset($sesAddresses[$sesAddress]) && ($sesIdentity === '' || $sesAddresses[$sesAddress] === '')) throw new InvalidArgumentException('An SES enclosure cannot be assigned to more than one shelf');
+        if ($sesAddress !== '') $sesAddresses[$sesAddress] = $sesIdentity;
 
         $diskAssignment = strtolower(trim((string) ($shelf['diskAssignment'] ?? '')));
         if ($diskAssignment === '') {
@@ -1603,6 +1641,7 @@ function md12xx_validate_config(array $input): array
             'serialPort' => $port,
             'sesDevice' => $sesDevice,
             'sesAddress' => $sesAddress,
+            'sesIdentity' => $sesIdentity,
             'diskAssignment' => $diskAssignment,
             'disks' => $disks,
             'calibration' => $calibration,
@@ -1625,7 +1664,7 @@ function md12xx_disable_active_discovery_after_setup(array $config): array
     return $config;
 }
 
-function md12xx_merge_settings_config(array $current, array $requested): array
+function md12xx_merge_settings_config(array $current, array $requested, ?array $identityInventory = null): array
 {
     $existing = [];
     foreach (($current['shelves'] ?? []) as $shelf) {
@@ -1639,6 +1678,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         $old = $existing[md12xx_slug((string) ($shelf['id'] ?? ''))] ?? null;
         if (!is_array($old)) {
             $shelf['commissioned'] = false;
+            $shelf['sesIdentity'] = '';
             $shelf['calibration'] = [];
             $shelf['verificationMode'] = 'rpm';
             continue;
@@ -1656,6 +1696,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         if ($oldAutomatic && $newAutomatic && $sameModel && $sameSerial) {
             $shelf['sesAddress'] = (string) ($old['sesAddress'] ?? '');
             $shelf['sesDevice'] = (string) ($old['sesDevice'] ?? '');
+            $shelf['sesIdentity'] = (string) ($old['sesIdentity'] ?? '');
             $shelf['disks'] = is_array($old['disks'] ?? null) ? $old['disks'] : [];
             $shelf['commissioned'] = (bool) ($old['commissioned'] ?? false);
             $shelf['calibration'] = is_array($old['calibration'] ?? null) ? $old['calibration'] : [];
@@ -1669,6 +1710,7 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         if ($newAutomatic) {
             $shelf['sesAddress'] = '';
             $shelf['sesDevice'] = '';
+            $shelf['sesIdentity'] = '';
             $shelf['disks'] = [];
             $shelf['commissioned'] = false;
             $shelf['calibration'] = [];
@@ -1680,11 +1722,21 @@ function md12xx_merge_settings_config(array $current, array $requested): array
         $newDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
         sort($oldDisks, SORT_NATURAL | SORT_FLAG_CASE);
         sort($newDisks, SORT_NATURAL | SORT_FLAG_CASE);
+        $sameSesHardware = (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
+            && (string) ($old['sesDevice'] ?? '') === (string) ($shelf['sesDevice'] ?? '');
+        if (!$sameSesHardware && (string) ($old['sesIdentity'] ?? '') !== '') {
+            $identityInventory = $identityInventory ?? md12xx_ses_identity_inventory();
+            $resolved = md12xx_resolve_ses_identity($old, $identityInventory);
+            $sameSesHardware = $resolved['state'] === 'normal'
+                && $resolved['address'] === (string) ($shelf['sesAddress'] ?? '')
+                && $resolved['device'] === (string) ($shelf['sesDevice'] ?? '');
+        }
         $sameManualHardware = !$oldAutomatic
             && $sameModel
             && $sameSerial
-            && (string) ($old['sesAddress'] ?? '') === (string) ($shelf['sesAddress'] ?? '')
+            && $sameSesHardware
             && $oldDisks === $newDisks;
+        $shelf['sesIdentity'] = $sameManualHardware ? (string) ($old['sesIdentity'] ?? '') : '';
         $shelf['commissioned'] = $sameManualHardware && (bool) ($old['commissioned'] ?? false);
         $shelf['calibration'] = $sameManualHardware && is_array($old['calibration'] ?? null)
             ? $old['calibration']
@@ -1845,7 +1897,7 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
-        'version' => '0.4.10',
+        'version' => '0.4.11',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -1896,6 +1948,87 @@ function md12xx_serial_port_details(): array
         ], $metadata);
     }
     return $result;
+}
+
+// Only the primary enclosure descriptor identifies the physical shelf.
+// Reject missing, placeholder, conflicting, or malformed identifiers.
+function md12xx_parse_ses_identity(string $output): string
+{
+    if (!preg_match('/Subenclosure identifier:\s*0\s*\[primary\]([\s\S]*?)(?=\n\s*Subenclosure identifier:|\n\s*type descriptor header|$)/i', $output, $primary)) return '';
+    preg_match_all('/enclosure logical identifier \(hex\):\s*([0-9a-f]{16})(?![0-9a-f])/i', $primary[1], $matches);
+    $identities = array_unique(array_map('strtolower', $matches[1] ?? []));
+    if (count($identities) !== 1) return '';
+    $identity = (string) reset($identities);
+    return in_array($identity, ['0000000000000000', 'ffffffffffffffff'], true) ? '' : $identity;
+}
+
+function md12xx_read_ses_identity(string $device): string
+{
+    if (!preg_match('#^/dev/sg[0-9]+$#', $device)) return '';
+    $binary = trim((string) @shell_exec('command -v sg_ses 2>/dev/null'));
+    if ($binary === '') return '';
+    $lines = [];
+    $exitCode = 1;
+    @exec('timeout 3 ' . escapeshellarg($binary) . ' -p cf ' . escapeshellarg($device) . ' 2>/dev/null', $lines, $exitCode);
+    return $exitCode === 0 ? md12xx_parse_ses_identity(implode("\n", $lines)) : '';
+}
+
+function md12xx_ses_identity_inventory(string $sysfsRoot = '/sys', ?callable $reader = null): array
+{
+    $reader = $reader ?? 'md12xx_read_ses_identity';
+    $result = [];
+    foreach (glob(rtrim($sysfsRoot, '/\\') . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
+        $path = $genericPath . '/device';
+        $resolved = @realpath($path);
+        if ($resolved === false || trim((string) @file_get_contents($path . '/type')) !== '13') continue;
+        $device = '/dev/' . basename($genericPath);
+        $result[] = [
+            'device' => $device,
+            'address' => basename($resolved),
+            'vendor' => trim((string) @file_get_contents($path . '/vendor')),
+            'model' => trim((string) @file_get_contents($path . '/model')),
+            'sesIdentity' => (string) $reader($device),
+        ];
+    }
+    return $result;
+}
+
+function md12xx_resolve_ses_identity(array $shelf, array $inventory): array
+{
+    $base = ['state' => 'fault', 'device' => '', 'address' => '', 'message' => 'Saved enclosure identity is missing; re-pair the shelf once to enable persistent identity tracking'];
+    $identity = (string) ($shelf['sesIdentity'] ?? '');
+    if ($identity === '') return $base;
+    $matches = array_values(array_filter($inventory, static fn(array $item): bool => ($item['sesIdentity'] ?? '') === $identity));
+    if (count($matches) !== 1) {
+        $base['message'] = count($matches) > 1
+            ? 'Saved enclosure identity has multiple paths or matches; resolve the ambiguity before control'
+            : 'Saved enclosure identity was not found; check the SAS connection and enclosure identity';
+        return $base;
+    }
+    foreach ($inventory as $candidate) {
+        if (($candidate['sesIdentity'] ?? '') === '' && strtoupper(trim((string) ($candidate['model'] ?? ''))) === (string) $shelf['model']) {
+            $base['message'] = 'An enclosure identity could not be read; a unique hardware match cannot be verified';
+            return $base;
+        }
+    }
+    $match = $matches[0];
+    if (strtoupper(trim((string) ($match['vendor'] ?? ''))) !== 'DELL' || strtoupper(trim((string) ($match['model'] ?? ''))) !== (string) $shelf['model']) {
+        $base['message'] = 'Enclosure identity matched but the hardware model differs; re-pair the shelf';
+        return $base;
+    }
+    return ['state' => 'normal', 'device' => $match['device'], 'address' => $match['address'], 'message' => 'Matched persistent enclosure identity'];
+}
+
+// Called only after the existing RPM/SAS/operator commissioning proof.
+function md12xx_commissioned_ses_identity(string $device, string $address, string $model, ?array $inventory = null): string
+{
+    $inventory = $inventory ?? md12xx_ses_identity_inventory();
+    foreach ($inventory as $candidate) {
+        if ($candidate['device'] !== $device || $candidate['address'] !== $address) continue;
+        $resolved = md12xx_resolve_ses_identity(['sesIdentity' => $candidate['sesIdentity'], 'model' => $model], $inventory);
+        if ($resolved['state'] === 'normal') return $candidate['sesIdentity'];
+    }
+    throw new RuntimeException('The proven SES enclosure has no unique persistent identity; pairing was not commissioned');
 }
 
 function md12xx_ses_disk_mapping(
@@ -1953,6 +2086,9 @@ function md12xx_ses_disk_mapping(
         foreach (glob($root . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
             $resolved = @realpath($genericPath . '/device');
             if ($resolved !== false && basename($resolved) === $address) {
+                if (trim((string) @file_get_contents($genericPath . '/device/type')) !== '13') {
+                    return array_replace($base, ['state' => 'invalid', 'message' => 'Saved SES address is not an enclosure; refresh discovery and re-pair the shelf']);
+                }
                 $sesPath = str_replace('\\', '/', $resolved);
                 break;
             }
@@ -2032,13 +2168,14 @@ function md12xx_discover_ses(
         $vendor = trim((string) @file_get_contents($devicePath . '/vendor'));
         $model = trim((string) @file_get_contents($devicePath . '/model'));
         $type = trim((string) @file_get_contents($devicePath . '/type'));
-        if ($type !== '13' && stripos($model, 'MD12') === false) continue;
+        if ($type !== '13') continue;
         $mapping = md12xx_ses_disk_mapping(basename($resolved), $disksPath, $sysfsRoot);
         $result[] = [
             'device' => '/dev/' . basename($genericPath),
             'address' => basename($resolved),
             'vendor' => $vendor,
             'model' => $model,
+            'sesIdentity' => md12xx_read_ses_identity('/dev/' . basename($genericPath)),
             'supportedCandidate' => stripos($vendor . ' ' . $model, 'DELL') !== false || stripos($model, 'MD12') !== false,
             'diskMappingState' => $mapping['state'],
             'blockDevices' => $mapping['blockDevices'],
@@ -2069,6 +2206,69 @@ function md12xx_discover_disks(string $path = '/var/local/emhttp/disks.ini'): ar
     return $result;
 }
 
+// Recovery must not hide an unknown temperature behind another disk's valid reading.
+function md12xx_quiet_temperature_policy(array $config, array $disks): array
+{
+    $safe = !empty($config['enabled']) && ($config['mode'] ?? '') === 'auto' && !empty($config['startupRecovery35']);
+    $required = ($config['mode'] ?? '') === 'manual' ? (int) $config['manualSpeed'] : 20;
+    $shelves = $config['shelves'] ?? [];
+    if (!$shelves) { $safe = false; $required = max($required, (int) $config['sensorFailureSpeed']); }
+    foreach ($shelves as $shelf) {
+        if (empty($shelf['serialPort']) || !md12xx_serial_path_is_safe((string) $shelf['serialPort']) || empty($shelf['enabled']) || empty($shelf['commissioned']) || empty($shelf['sesIdentity']) || ($shelf['verificationMode'] ?? 'rpm') !== 'rpm' || md12xx_controller_calibration($shelf) === null || empty($shelf['disks'])) $safe = false;
+        $speed = (int) $config['curve'][0]['speed'];
+        if (empty($shelf['disks'])) $speed = max($speed, (int) $config['sensorFailureSpeed']);
+        foreach (($shelf['disks'] ?? []) as $name) {
+            $disk = $disks[$name] ?? null;
+            if (!is_array($disk)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
+            $asleep = in_array($explicit, ['1', 'yes', 'true', 'on'], true) || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
+            $raw = trim((string) ($disk['temp'] ?? ''));
+            if (!$asleep && (!is_numeric($raw) || (float) $raw <= 0)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            if (is_numeric($raw) && (float) $raw > 0) {
+                if ((float) $raw >= 35) $safe = false;
+                foreach ($config['curve'] as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
+            }
+        }
+        if ($speed !== 20) $safe = false;
+        $required = max($required, $speed);
+    }
+    return ['safe' => $safe, 'restoreSpeed' => $required];
+}
+
+function md12xx_quiet_baseline_valid(array $config, array $candidates): bool
+{
+    $matched = [];
+    foreach ($candidates as $candidate) {
+        $found = null;
+        foreach ($config['shelves'] as $shelf) {
+            $saved = $shelf['disks']; $current = $candidate['disks'] ?? [];
+            sort($saved); sort($current);
+            if ($saved === $current && $saved !== [] && ($candidate['model'] ?? '') === $shelf['model']) {
+                if ($found !== null) return false;
+                $found = $shelf;
+            }
+        }
+        if ($found === null || isset($matched[$found['id']]) || ($candidate['fanCount'] ?? 0) !== 4) return false;
+        $calibration = md12xx_controller_calibration($found);
+        if ($calibration === null || !md12xx_controller_verify_target(20, (int) ($candidate['averageRpm'] ?? 0), $calibration)['passed']) return false;
+        $matched[$found['id']] = true;
+    }
+    return count($matched) === count($config['shelves']) && count($matched) > 0;
+}
+
+function md12xx_read_disk_state(string $path): array
+{
+    $values = is_file($path) ? @parse_ini_file($path, true, INI_SCANNER_RAW) : [];
+    if (!is_array($values)) return [];
+    $result = [];
+    foreach ($values as $section => $disk) {
+        if (!is_array($disk)) continue;
+        $name = strtolower(trim((string) ($disk['name'] ?? $section)));
+        if ($name !== '') $result[$name] = $disk;
+    }
+    return $result;
+}
+
 ]]>
 </INLINE>
 </FILE>
@@ -2093,25 +2293,16 @@ $configPath = isset($options['config']) ? (string) $options['config'] : MD12XX_C
 $disksPath = isset($options['disks']) ? (string) $options['disks'] : '/var/local/emhttp/disks.ini';
 $statePath = isset($options['state']) ? (string) $options['state'] : MD12XX_STATE_FILE;
 $fixtureDirectory = isset($options['fixture-dir']) ? (string) $options['fixture-dir'] : '';
+if ($fixtureDirectory !== '' && !$dryRun) {
+    fwrite(STDERR, "Telemetry fixtures require --dry-run\n");
+    exit(2);
+}
 $running = true;
 
 if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
     pcntl_async_signals(true);
     pcntl_signal(SIGTERM, static function () use (&$running): void { $running = false; });
     pcntl_signal(SIGINT, static function () use (&$running): void { $running = false; });
-}
-
-function md12xx_controller_disks(string $path): array
-{
-    $values = is_file($path) ? @parse_ini_file($path, true, INI_SCANNER_RAW) : [];
-    if (!is_array($values)) return [];
-    $result = [];
-    foreach ($values as $section => $disk) {
-        if (!is_array($disk)) continue;
-        $name = strtolower(trim((string) ($disk['name'] ?? $section)));
-        if ($name !== '') $result[$name] = $disk;
-    }
-    return $result;
 }
 
 function md12xx_controller_spun_down(array $disk): bool
@@ -2180,17 +2371,6 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
         if ($threshold !== null && $temperature >= ($threshold - (float) $config['hysteresisC'])) $candidate = $previous;
     }
     return ['speed' => $candidate, 'reason' => ($thermal['temperatureSource'] ?? 'disk') . ' ' . $temperature . '°C'];
-}
-
-function md12xx_controller_resolve_ses(string $configuredDevice, string $scsiAddress): string
-{
-    if ($scsiAddress !== '') {
-        foreach (glob('/sys/class/scsi_generic/sg*') ?: [] as $genericPath) {
-            $resolved = @realpath($genericPath . '/device');
-            if ($resolved !== false && basename($resolved) === $scsiAddress) return '/dev/' . basename($genericPath);
-        }
-    }
-    return $configuredDevice;
 }
 
 function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
@@ -2297,6 +2477,7 @@ $pendingVerifications = [];
 $lastVerifications = [];
 $verificationFaults = [];
 $driftCounts = [];
+$startupRecoveryChecked = false;
 
 while ($running) {
     clearstatcache(true, $configPath);
@@ -2327,7 +2508,7 @@ while ($running) {
     $manualSpeed = (int) $config['manualSpeed'];
     $commissioningActive = md12xx_commission_active();
     $conflicts = $enabled ? md12xx_competing_controllers($config) : [];
-    $disks = md12xx_controller_disks($disksPath);
+    $disks = md12xx_read_disk_state($disksPath);
     $controllerState = 'normal';
     $messages = [];
     $shelfStates = [];
@@ -2337,6 +2518,50 @@ while ($running) {
     if ($conflicts) { $controllerState = 'fault'; $messages[] = 'Another fan controller is active'; }
     if ($enabled && $commissioningActive) { $controllerState = 'fault'; $messages[] = 'Identify & test is active; control writes are blocked'; }
 
+    // Refresh read-only identities each cycle; cached host addresses never prove identity.
+    $inventoryFixture = $fixtureDirectory . '/ses-inventory.json';
+    $identityInventory = $fixtureDirectory === '' ? md12xx_ses_identity_inventory()
+        : (is_file($inventoryFixture) ? (json_decode((string) file_get_contents($inventoryFixture), true) ?: []) : null);
+    $mappingSysfs = $fixtureDirectory !== '' && is_dir($fixtureDirectory . '/sys') ? $fixtureDirectory . '/sys' : '/sys';
+
+    // One bounded attempt per boot, never in fixtures or dry-run mode.
+    if (!$startupRecoveryChecked && $enabled && !$commissioningActive && !$dryRun && !$runOnce) {
+        $startupRecoveryChecked = true;
+        $policy = md12xx_quiet_temperature_policy($config, $disks);
+        if ($policy['safe'] && !$conflicts) {
+            foreach ($config['shelves'] as $candidate) {
+                if (md12xx_resolve_ses_identity($candidate, $identityInventory)['state'] === 'normal') continue;
+                $launchLock = @fopen(MD12XX_RUNTIME_DIR . '/test-launch.lock', 'c+');
+                if ($launchLock === false || !@flock($launchLock, LOCK_EX | LOCK_NB)) { if (is_resource($launchLock)) fclose($launchLock); break; }
+                if (md12xx_commission_active()) { fclose($launchLock); break; }
+                $attempt = @fopen(MD12XX_RUNTIME_DIR . '/quiet-startup.attempt', 'x');
+                if ($attempt === false) { fclose($launchLock); break; }
+                fwrite($attempt, (string) $candidate['id']); fclose($attempt);
+                $job = MD12XX_COMMISSION_JOB_DIR . '/startup35-' . $candidate['id'];
+                @mkdir($job, 0770, true);
+                @file_put_contents(MD12XX_RUNTIME_DIR . '/commissioning.active', 'startup35:' . $candidate['id']);
+                $command = 'nohup timeout --signal=TERM --kill-after=20 180 '
+                    . escapeshellarg(dirname(__DIR__) . '/scripts/commission-job.sh') . ' '
+                    . escapeshellarg((string) $candidate['id']) . ' ' . escapeshellarg($job)
+                    . ' startup35 >/dev/null 2>&1 & echo $!';
+                $pid = trim((string) @shell_exec($command));
+                if (ctype_digit($pid) && (int) $pid > 0) {
+                    @file_put_contents($job . '/pid', $pid . "\n");
+                    $commissioningActive = true;
+                } else {
+                    @unlink(MD12XX_RUNTIME_DIR . '/commissioning.active');
+                }
+                fclose($launchLock);
+                break;
+            }
+        }
+    }
+    $quietRecoveryActive = $commissioningActive && str_starts_with(trim((string) @file_get_contents(MD12XX_RUNTIME_DIR . '/commissioning.active')), 'startup35:');
+    if ($quietRecoveryActive) {
+        $controllerState = 'attention';
+        $messages = ['Quiet 35% startup recovery is running; normal control writes are paused'];
+    }
+
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
         $identityMode = (string) ($shelf['verificationMode'] ?? 'rpm');
@@ -2345,6 +2570,12 @@ while ($running) {
         if ($identityVerified) {
             unset($pendingVerifications[$id], $lastVerifications[$id], $verificationFaults[$id], $driftCounts[$id]);
         }
+        $connection = $identityInventory === null
+            ? ['state' => 'normal', 'device' => $shelf['sesDevice'], 'address' => $shelf['sesAddress'], 'message' => 'Synthetic telemetry fixture']
+            : md12xx_resolve_ses_identity($shelf, $identityInventory);
+        $sesDevice = (string) $connection['device'];
+        $sesAddress = (string) $connection['address'];
+        $invalidSesMapping = $connection['state'] !== 'normal';
         $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
         $assignedDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
         $savedAssignedDisks = $assignedDisks;
@@ -2354,8 +2585,8 @@ while ($running) {
             'disks' => $assignedDisks,
             'message' => $assignmentMode === 'automatic' ? 'SES enclosure is not mapped' : 'Manual disk override',
         ];
-        if ($assignmentMode === 'automatic' && (string) $shelf['sesAddress'] !== '') {
-            $diskMapping = md12xx_ses_disk_mapping((string) $shelf['sesAddress'], $disksPath);
+        if ($assignmentMode === 'automatic' && !$invalidSesMapping && $sesAddress !== '') {
+            $diskMapping = md12xx_ses_disk_mapping($sesAddress, $disksPath, $mappingSysfs);
             // Keep the last hardware-confirmed snapshot if sysfs is temporarily
             // unavailable. A successful current mapping always wins.
             if (!empty($diskMapping['disks'])) {
@@ -2382,11 +2613,16 @@ while ($running) {
         if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {
             unset($pendingVerifications[$id]);
         }
+        if ($invalidSesMapping) {
+            unset($pendingVerifications[$id], $lastVerifications[$id], $verificationFaults[$id], $driftCounts[$id], $lastCommands[$id]);
+            $diskMapping['state'] = 'invalid';
+            $diskMapping['message'] = $connection['message'];
+        }
         $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
         $lastCommand = $lastCommands[$id] ?? null;
-        $commandDue = $operable && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
+        $commandDue = $operable && !$invalidSesMapping && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
         if ($commissioningActive) {
-            $write = ['state' => 'blocked', 'message' => 'Identify & test is active'];
+            $write = ['state' => 'blocked', 'message' => $quietRecoveryActive ? 'Quiet 35% startup recovery is active' : 'Identify & test is active'];
         } elseif ($conflicts) {
             $write = ['state' => 'blocked', 'message' => 'Another fan controller is active'];
         } else {
@@ -2414,8 +2650,11 @@ while ($running) {
             }
         }
 
-        $sesDevice = md12xx_controller_resolve_ses((string) $shelf['sesDevice'], (string) $shelf['sesAddress']);
         $telemetry = md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
+        if ($invalidSesMapping) {
+            $telemetry = ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $diskMapping['message']];
+            $write = $quietRecoveryActive ? ['state' => 'blocked', 'message' => 'Quiet 35% startup recovery is active'] : ['state' => 'fault', 'message' => $diskMapping['message']];
+        }
         $pending = $pendingVerifications[$id] ?? null;
         if (is_array($pending) && (int) $pending['target'] === $target) {
             $elapsed = time() - (int) $pending['sentAt'];
@@ -2475,7 +2714,8 @@ while ($running) {
             'verificationMode' => $shelf['verificationMode'] ?? 'rpm',
             'serialPort' => $shelf['serialPort'],
             'sesDevice' => $sesDevice,
-            'sesAddress' => $shelf['sesAddress'],
+            'sesAddress' => $sesAddress,
+            'sesIdentity' => $shelf['sesIdentity'],
             'diskAssignment' => $assignmentMode,
             'diskMappingState' => $diskMapping['state'],
             'diskMappingMessage' => $diskMapping['message'],
@@ -2510,6 +2750,8 @@ while ($running) {
             'conflicts' => $conflicts,
             'dryRun' => $dryRun,
             'pollSeconds' => $pollSeconds,
+            'startupRecovery35' => (bool) $config['startupRecovery35'],
+            'quietRecoveryActive' => $quietRecoveryActive,
         ],
         'shelves' => $shelfStates,
     ];
@@ -2760,6 +3002,41 @@ readfile($path);
 ]]>
 </INLINE>
 </FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/quiet.php">
+<INLINE>
+<![CDATA[
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/common.php';
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+try {
+    $config = md12xx_validate_config(md12xx_read_config());
+    $disks = md12xx_read_disk_state('/var/local/emhttp/disks.ini');
+    $policy = md12xx_quiet_temperature_policy($config, $disks);
+    $action = $argv[1] ?? '';
+    if ($action === 'restore-speed') { echo $policy['restoreSpeed']; exit; }
+    if (!$policy['safe'] || md12xx_competing_controllers($config)) throw new RuntimeException('Quiet recovery is unsafe or another writer is active');
+    if ($action === 'temperatures') exit;
+    if ($action !== 'baseline') throw new RuntimeException('Unknown recovery check');
+    $candidates = [];
+    foreach (md12xx_discover_ses() as $candidate) {
+        if (empty($candidate['supportedCandidate'])) continue;
+        $lines = []; $exitCode = 1;
+        exec('timeout 3 sg_ses -p es ' . escapeshellarg($candidate['device']) . ' 2>/dev/null', $lines, $exitCode);
+        if ($exitCode !== 0) throw new RuntimeException('Baseline telemetry unavailable');
+        if (preg_match('/\b(?:Fail|CRIT|UNRECOV)=1\b/', implode("\n", $lines))) throw new RuntimeException('Enclosure reports a hardware fault; quiet recovery is blocked');
+        preg_match_all('/Actual\s+speed\s*=\s*([0-9]+)\s*rpm/i', implode("\n", $lines), $values);
+        $rpms = array_values(array_filter(array_map('intval', $values[1]), static fn(int $rpm): bool => $rpm > 0));
+        $candidate['fanCount'] = count($rpms);
+        $candidate['averageRpm'] = $rpms ? (int) round(array_sum($rpms) / count($rpms)) : 0;
+        $candidates[] = $candidate;
+    }
+    if (!md12xx_quiet_baseline_valid($config, $candidates)) throw new RuntimeException('Quiet recovery requires every shelf at its proven 20% baseline with exact disk mapping');
+} catch (Throwable $error) { fwrite(STDERR, $error->getMessage() . "\n"); exit(1); }
+
+]]>
+</INLINE>
+</FILE>
 <FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission-job.sh">
 <INLINE>
 <![CDATA[
@@ -2850,14 +3127,22 @@ RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "The commissioning service requires administrator privileges." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
-[[ "$MODE" == automatic || "$MODE" == manual-identify ]] || { echo "Invalid identification mode." >&2; exit 1; }
+[[ "$MODE" == automatic || "$MODE" == manual-identify || "$MODE" == startup35 ]] || { echo "Invalid identification mode." >&2; exit 1; }
 for REQUIRED in jq flock fuser sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
 [ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
 [[ "$BASELINE_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning baseline window must be a positive number of seconds." >&2; exit 1; }
 [[ "$RESPONSE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning response timeout must be a positive number of seconds." >&2; exit 1; }
 [[ "$SAMPLE_INTERVAL_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning sample interval must be a positive number of seconds." >&2; exit 1; }
 
-if jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
+HIGH_SPEED=50
+if [ "$MODE" = startup35 ]; then
+  HIGH_SPEED=35
+  BASELINE_WAIT_SECONDS=15
+  RESPONSE_TIMEOUT_SECONDS=20
+  php "$PLUGIN_DIR/include/quiet.php" baseline
+fi
+
+if [ "$MODE" != startup35 ] && jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
   echo "Disable the MD12xx controller before identifying or commissioning hardware." >&2
   exit 1
 fi
@@ -2895,7 +3180,7 @@ fi
 HASH="$(printf '%s' "$PORT" | sha1sum | cut -c1-12)"
 LOCK_FILE="$STATE_DIR/serial-${HASH}.lock"
 IDENTITY_CAPTURE="$RESULT_DIR/identity.txt"
-printf '%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"
+if [ "$MODE" = startup35 ]; then printf 'startup35:%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"; else printf '%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"; fi
 trap 'rm -f "$COMMISSION_MARKER"' EXIT
 
 verify_console() {
@@ -2945,6 +3230,7 @@ query_sas_identity() {
 
 send_speed() {
   local SPEED="$1" CAPTURE
+  if [ "$MODE" = startup35 ] && [ "${RESTORING:-false}" != true ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
   CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
@@ -3002,6 +3288,7 @@ sample_candidates_for_window() {
     DELAY="$SAMPLE_INTERVAL_SECONDS"
     [ "$DELAY" -le "$REMAINING" ] || DELAY="$REMAINING"
     sleep "$DELAY"
+    if [ "$MODE" = startup35 ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
 
     while IFS=$'\t' read -r ADDRESS DEVICE; do
       NOW="$(date +%s)"
@@ -3061,9 +3348,13 @@ candidate_ses() {
 }
 
 restore_safe() {
-  echo "Returning the selected MD12xx console to 20%..."
-  if send_speed 20; then return 0; fi
-  echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+  local RESTORE_SPEED=20
+  if [ "$MODE" = startup35 ]; then RESTORE_SPEED="$(php "$PLUGIN_DIR/include/quiet.php" restore-speed 2>/dev/null || echo 100)"; fi
+  echo "Returning the selected MD12xx console to ${RESTORE_SPEED}%..."
+  RESTORING=true
+  if send_speed "$RESTORE_SPEED"; then RESTORING=false; return 0; fi
+  RESTORING=false
+  echo "WARNING: the ${RESTORE_SPEED}% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
   return 1
 }
 
@@ -3104,6 +3395,7 @@ if [ "$MODE" = manual-identify ]; then
   exit 0
 fi
 
+if [ "$MODE" != startup35 ]; then
 # A shelf is never left commissioned while a new control test is in progress.
 # Only telemetry-proven restoration at the end may set this back to true.
 php -r '
@@ -3115,6 +3407,8 @@ php -r '
   unset($shelf);
   md12xx_write_config($config, $argv[2]);
 ' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID"
+
+fi
 
 CANDIDATES="$RESULT_DIR/candidates.tsv"
 candidate_ses > "$CANDIDATES"
@@ -3133,7 +3427,15 @@ if query_sas_identity "$SAS_CAPTURE"; then
     done < "$CANDIDATES"
   fi
 fi
+if [ "$MODE" = startup35 ] && [ -n "${SERIAL_ELI:-}" ]; then
+  EXPECTED_ELI="$(jq -r '.sesIdentity' <<< "$SHELF_JSON")"
+  if [ "$SERIAL_ELI" != "$EXPECTED_ELI" ]; then
+    echo "The serial identity differs from the commissioned shelf; no quiet ramp was started." >&2
+    exit 1
+  fi
+fi
 sas_pairing_fallback() {
+  [ "$MODE" != startup35 ] || return 1
   [ "$(wc -l < "$SAS_MATCHES")" -eq 1 ] || return 1
   IFS=$'\t' read -r SES_ADDRESS SES_DEVICE < "$SAS_MATCHES"
   echo "RPM proof unavailable. Exact SAS identity match: selected EMM and $SES_DEVICE share enclosure logical identifier $SERIAL_ELI."
@@ -3164,6 +3466,7 @@ sas_pairing_fallback() {
       if ($shelf["id"] !== $argv[3]) continue;
       $shelf["sesAddress"]=$argv[4];
       $shelf["sesDevice"]=$argv[5];
+      $shelf["sesIdentity"]=md12xx_commissioned_ses_identity($argv[5], $argv[4], $shelf["model"]);
       if (($shelf["diskAssignment"] ?? "automatic") === "automatic") $shelf["disks"]=$automaticDisks;
       $shelf["calibration"]=[];
       $shelf["verificationMode"]="sas";
@@ -3184,20 +3487,26 @@ sas_pairing_fallback() {
   echo "Identity matched, but no verified disk assignment was available. The shelf remains uncommissioned." >&2
   exit 1
 }
-echo "Trying independent RPM proof first; an exact SAS identity match is available as a fallback when SES RPM stays static."
-if [ -n "$SES_ADDRESS" ]; then
-  awk -F '\t' -v wanted="$SES_ADDRESS" '$1 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
-  mv "$CANDIDATES.selected" "$CANDIDATES"
-elif [ -n "$SES_CONFIGURED" ]; then
-  awk -F '\t' -v wanted="$SES_CONFIGURED" '$2 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
-  mv "$CANDIDATES.selected" "$CANDIDATES"
+if [ "$MODE" = startup35 ]; then
+  echo "Quiet recovery requires a unique 35% RPM response and the saved identity; reduced-verification fallback is disabled."
+else
+  echo "Trying independent RPM proof first; an exact SAS identity match is available as a fallback when SES RPM stays static."
 fi
+# An exact serial identity outranks historical addresses, including during legacy migration.
+# Automatic setup without an exact identity tests all candidates and still requires
+# a unique RPM response; it never chooses a shelf by enumeration order.
+if ! awk -v assignment="$ASSIGNMENT" -v address="$SES_ADDRESS" -v device="$SES_CONFIGURED" \
+  -f "$PLUGIN_DIR/scripts/select-candidates.awk" "$SAS_MATCHES" "$CANDIDATES" > "$CANDIDATES.selected"; then
+  echo "Multiple SES paths match the serial identity; resolve the ambiguity before commissioning." >&2
+  exit 1
+fi
+mv "$CANDIDATES.selected" "$CANDIDATES"
 [ -s "$CANDIDATES" ] || { echo "No supported MD1200/MD1220 SES enclosure is available for this test." >&2; exit 1; }
 
 LOW="$RESULT_DIR/20-percent.tsv"
-HIGH="$RESULT_DIR/50-percent.tsv"
+HIGH="$RESULT_DIR/${HIGH_SPEED}-percent.tsv"
 LOW_HISTORY="$RESULT_DIR/20-percent-history.tsv"
-HIGH_HISTORY="$RESULT_DIR/50-percent-history.tsv"
+HIGH_HISTORY="$RESULT_DIR/${HIGH_SPEED}-percent-history.tsv"
 trap restore_and_cleanup EXIT
 trap 'exit 130' INT TERM
 
@@ -3212,9 +3521,9 @@ fi
 
 STABLE_MATCH="$RESULT_DIR/stable-response.tsv"
 RESPONSE_STABILIZED_SECONDS=""
-echo "Commanding 50% and sampling every ${SAMPLE_INTERVAL_SECONDS}s until the response stabilizes or ${RESPONSE_TIMEOUT_SECONDS}s elapse..."
-send_speed 50
-sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"
+echo "Commanding ${HIGH_SPEED}% and sampling every ${SAMPLE_INTERVAL_SECONDS}s until the response stabilizes or ${RESPONSE_TIMEOUT_SECONDS}s elapse..."
+send_speed "$HIGH_SPEED"
+sample_candidates_for_window "${HIGH_SPEED}-percent" "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"
 
 RESTORE_SENT=true
 restore_safe || RESTORE_SENT=false
@@ -3233,7 +3542,7 @@ if [ "$MATCH_COUNT" -ne 1 ]; then
   exit 1
 fi
 
-IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_50 DELTA PERCENT < "$MATCHES"
+IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_HIGH DELTA PERCENT < "$MATCHES"
 FIRST_RESPONSE_SECONDS="$(awk -F '\t' -v wanted="$SES_ADDRESS" -v low="$RPM_20" '
   NR == 1 || $2 != wanted { next }
   { delta=$4-low; pct=(low>0 ? delta/low*100 : 0) }
@@ -3245,7 +3554,7 @@ sleep "$RESTORE_WAIT_SECONDS"
 FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore || true)"
 FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 
-if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_HIGH" "$FINAL_RPM"; then
   echo "The first 20% restore was not proven by SES telemetry (${FINAL_RPM:-no RPM} RPM); retrying once." >&2
   restore_safe || true
   sleep "$RESTORE_WAIT_SECONDS"
@@ -3253,13 +3562,36 @@ if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$
   FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 fi
 
-if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_HIGH" "$FINAL_RPM"; then
   if [ "$(wc -l < "$SAS_MATCHES")" -eq 1 ]; then
     sas_pairing_fallback
   fi
   echo "SAFETY FAILURE: the enclosure did not prove a return to its 20% RPM range." >&2
   echo "The shelf remains uncommissioned. Keep other controllers stopped, resolve the serial connection, then select Identify & test again; every retry begins by commanding 20%." >&2
   exit 1
+fi
+
+if [ "$MODE" = startup35 ]; then
+  php "$PLUGIN_DIR/include/quiet.php" temperatures
+  php -r '
+    require $argv[1];
+    $config=md12xx_validate_config(md12xx_read_config($argv[2]));
+    $original=json_decode($argv[6], true);
+    $identity=md12xx_commissioned_ses_identity($argv[5], $argv[4], $original["model"]);
+    if ($identity !== ($original["sesIdentity"] ?? "")) throw new RuntimeException("Quiet response did not confirm the saved enclosure identity");
+    $mapping=md12xx_ses_disk_mapping($argv[4]);
+    $saved=$original["disks"]; $mapped=$mapping["disks"] ?? []; sort($saved); sort($mapped);
+    if (($mapping["state"] ?? "") !== "verified" || $saved !== $mapped) throw new RuntimeException("Quiet response did not confirm the commissioned disks");
+    foreach ($config["shelves"] as &$shelf) {
+      if ($shelf["id"] !== $argv[3]) continue;
+      if ($shelf !== $original) throw new RuntimeException("Shelf configuration changed during recovery");
+      $shelf["sesAddress"]=$argv[4]; $shelf["sesDevice"]=$argv[5];
+    }
+    unset($shelf); md12xx_write_config($config, $argv[2]);
+  ' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$SHELF_JSON"
+  trap 'rm -f "$COMMISSION_MARKER"' EXIT
+  echo "Quiet startup recovery: PASS; unique 35% RPM response, saved identity and disks confirmed, final 20% restoration verified." | tee "$RESULT_DIR/result.txt"
+  exit 0
 fi
 
 echo "Final 20% restoration: PASS ($FINAL_RPM RPM)."
@@ -3287,6 +3619,7 @@ php -r '
     if ($shelf["id"] !== $argv[3]) continue;
     $shelf["sesAddress"]=$argv[4];
     $shelf["sesDevice"]=$argv[5];
+    $shelf["sesIdentity"]=md12xx_commissioned_ses_identity($argv[5], $argv[4], $shelf["model"]);
     $assignment=$shelf["diskAssignment"] ?? (!empty($shelf["disks"]) ? "manual" : "automatic");
     if ($assignment === "automatic") $shelf["disks"]=$automaticDisks;
     $shelf["calibration"]=["rpmAt20"=>(int)$argv[8], "rpmAt50"=>(int)$argv[9]];
@@ -3295,7 +3628,7 @@ php -r '
   unset($shelf);
   $config=md12xx_disable_active_discovery_after_setup($config);
   md12xx_write_config($config, $argv[2]);
-' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY" "$RPM_20" "$RPM_50"
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY" "$RPM_20" "$RPM_HIGH"
 
 {
   echo "MD12xx fan control identification and commissioning"
@@ -3304,7 +3637,7 @@ php -r '
   echo "Serial: $PORT"
   echo "Matched SES: $SES_ADDRESS -> $SES_DEVICE"
   echo "20%: $RPM_20 RPM"
-  echo "50%: $RPM_50 RPM"
+  echo "50%: $RPM_HIGH RPM"
   echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
   echo "Response first observed: ${FIRST_RESPONSE_SECONDS:-unknown}s"
   echo "Stable response confirmed: ${RESPONSE_STABILIZED_SECONDS:-unknown}s (two consecutive samples within 10% or 250 RPM; ${RESPONSE_TIMEOUT_SECONDS}s timeout)"
@@ -3511,6 +3844,7 @@ if [ -f "$CONFIG_DIR/config.json" ]; then
       .name = ("Shelf " + ($index | tostring)) |
       .serialPort = (if (.serialPort // "") == "" then "" else "/dev/serial/by-id/[redacted]" end) |
       .sesAddress = (if (.sesAddress // "") == "" then "" else "[redacted]" end) |
+      .sesIdentity = (if (.sesIdentity // "") == "" then "" else "[redacted]" end) |
       .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
       .disks = ((.disks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring)))
     ))
@@ -3524,6 +3858,7 @@ if [ -f /var/run/md12xx.fancontrol/status.json ]; then
       .name = ("Shelf " + ($index | tostring)) |
       del(.serialPort) |
       .sesAddress = (if (.sesAddress // "") == "" then "" else "[redacted]" end) |
+      .sesIdentity = (if (.sesIdentity // "") == "" then "" else "[redacted]" end) |
       .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
       .assignedDisks = ((.assignedDisks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring))) |
       .missingDisks = ((.missingDisks // []) | to_entries | map("missing-disk-" + ((.key + 1) | tostring))) |
@@ -3678,6 +4013,38 @@ done
 ]]>
 </INLINE>
 </FILE>
+<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/select-candidates.awk">
+<INLINE>
+<![CDATA[
+# Select RPM-test candidates without treating stale host addresses as identity.
+# First input: exact serial ELI-to-SES matches. Second input: discovered SES candidates.
+BEGIN { FS = OFS = "\t" }
+FILENAME == ARGV[1] {
+    if (NF >= 2) { exact[$1 SUBSEP $2] = 1; exactCount++ }
+    next
+}
+NF >= 2 {
+    addresses[++count] = $1
+    devices[count] = $2
+}
+END {
+    # Multiple paths/matches cannot prove one physical pairing.
+    if (exactCount > 1) exit 2
+    for (i = 1; i <= count; i++) {
+        if (exactCount == 1) {
+            if (exact[addresses[i] SUBSEP devices[i]]) print addresses[i], devices[i]
+        } else if (assignment == "automatic" || (address == "" && device == "")) {
+            # A guarded unique RPM response must prove the automatic pairing.
+            print addresses[i], devices[i]
+        } else if ((address != "" && addresses[i] == address) || (address == "" && devices[i] == device)) {
+            print addresses[i], devices[i]
+        }
+    }
+}
+
+]]>
+</INLINE>
+</FILE>
 <FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk">
 <INLINE>
 <![CDATA[
@@ -3826,8 +4193,8 @@ CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
 chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
-chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php"
-chmod 0644 "$RUNTIME_DIR/scripts/stable-response.awk"
+chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php" "$RUNTIME_DIR/include/quiet.php"
+chmod 0644 "$RUNTIME_DIR/scripts/stable-response.awk" "$RUNTIME_DIR/scripts/select-candidates.awk"
 chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/interrogate-emm.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
 
 for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
@@ -3883,7 +4250,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.4.10 installed. Configure it under Settings → Utilities."
+echo "Version 0.4.11 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>

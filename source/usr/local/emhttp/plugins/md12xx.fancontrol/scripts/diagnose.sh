@@ -29,6 +29,7 @@ if [ -f "$CONFIG_DIR/config.json" ]; then
       .name = ("Shelf " + ($index | tostring)) |
       .serialPort = (if (.serialPort // "") == "" then "" else "/dev/serial/by-id/[redacted]" end) |
       .sesAddress = (if (.sesAddress // "") == "" then "" else "[redacted]" end) |
+      .sesIdentity = (if (.sesIdentity // "") == "" then "" else "[redacted]" end) |
       .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
       .disks = ((.disks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring)))
     ))
@@ -42,6 +43,7 @@ if [ -f /var/run/md12xx.fancontrol/status.json ]; then
       .name = ("Shelf " + ($index | tostring)) |
       del(.serialPort) |
       .sesAddress = (if (.sesAddress // "") == "" then "" else "[redacted]" end) |
+      .sesIdentity = (if (.sesIdentity // "") == "" then "" else "[redacted]" end) |
       .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
       .assignedDisks = ((.assignedDisks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring))) |
       .missingDisks = ((.missingDisks // []) | to_entries | map("missing-disk-" + ((.key + 1) | tostring))) |

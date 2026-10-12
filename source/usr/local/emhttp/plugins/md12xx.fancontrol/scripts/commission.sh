@@ -17,14 +17,22 @@ RESTORE_WAIT_SECONDS="${MD12XX_RESTORE_WAIT_SECONDS:-30}"
 
 if [ "$(id -u)" -ne 0 ]; then echo "The commissioning service requires administrator privileges." >&2; exit 1; fi
 if [ -z "$SHELF_ID" ]; then echo "Usage: $0 <shelf-id>" >&2; exit 1; fi
-[[ "$MODE" == automatic || "$MODE" == manual-identify ]] || { echo "Invalid identification mode." >&2; exit 1; }
+[[ "$MODE" == automatic || "$MODE" == manual-identify || "$MODE" == startup35 ]] || { echo "Invalid identification mode." >&2; exit 1; }
 for REQUIRED in jq flock fuser sg_ses stty sha1sum awk timeout php; do command -v "$REQUIRED" >/dev/null 2>&1 || { echo "$REQUIRED is required." >&2; exit 1; }; done
 [ -f "$CONFIG_FILE" ] || { echo "Save the plugin configuration first." >&2; exit 1; }
 [[ "$BASELINE_WAIT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning baseline window must be a positive number of seconds." >&2; exit 1; }
 [[ "$RESPONSE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning response timeout must be a positive number of seconds." >&2; exit 1; }
 [[ "$SAMPLE_INTERVAL_SECONDS" =~ ^[1-9][0-9]*$ ]] || { echo "The commissioning sample interval must be a positive number of seconds." >&2; exit 1; }
 
-if jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
+HIGH_SPEED=50
+if [ "$MODE" = startup35 ]; then
+  HIGH_SPEED=35
+  BASELINE_WAIT_SECONDS=15
+  RESPONSE_TIMEOUT_SECONDS=20
+  php "$PLUGIN_DIR/include/quiet.php" baseline
+fi
+
+if [ "$MODE" != startup35 ] && jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
   echo "Disable the MD12xx controller before identifying or commissioning hardware." >&2
   exit 1
 fi
@@ -62,7 +70,7 @@ fi
 HASH="$(printf '%s' "$PORT" | sha1sum | cut -c1-12)"
 LOCK_FILE="$STATE_DIR/serial-${HASH}.lock"
 IDENTITY_CAPTURE="$RESULT_DIR/identity.txt"
-printf '%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"
+if [ "$MODE" = startup35 ]; then printf 'startup35:%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"; else printf '%s\n' "$SHELF_ID" > "$COMMISSION_MARKER"; fi
 trap 'rm -f "$COMMISSION_MARKER"' EXIT
 
 verify_console() {
@@ -112,6 +120,7 @@ query_sas_identity() {
 
 send_speed() {
   local SPEED="$1" CAPTURE
+  if [ "$MODE" = startup35 ] && [ "${RESTORING:-false}" != true ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
   CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
@@ -169,6 +178,7 @@ sample_candidates_for_window() {
     DELAY="$SAMPLE_INTERVAL_SECONDS"
     [ "$DELAY" -le "$REMAINING" ] || DELAY="$REMAINING"
     sleep "$DELAY"
+    if [ "$MODE" = startup35 ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
 
     while IFS=$'\t' read -r ADDRESS DEVICE; do
       NOW="$(date +%s)"
@@ -228,9 +238,13 @@ candidate_ses() {
 }
 
 restore_safe() {
-  echo "Returning the selected MD12xx console to 20%..."
-  if send_speed 20; then return 0; fi
-  echo "WARNING: the 20% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
+  local RESTORE_SPEED=20
+  if [ "$MODE" = startup35 ]; then RESTORE_SPEED="$(php "$PLUGIN_DIR/include/quiet.php" restore-speed 2>/dev/null || echo 100)"; fi
+  echo "Returning the selected MD12xx console to ${RESTORE_SPEED}%..."
+  RESTORING=true
+  if send_speed "$RESTORE_SPEED"; then RESTORING=false; return 0; fi
+  RESTORING=false
+  echo "WARNING: the ${RESTORE_SPEED}% restore command failed; keep other controllers stopped and restore the shelf manually." >&2
   return 1
 }
 
@@ -271,6 +285,7 @@ if [ "$MODE" = manual-identify ]; then
   exit 0
 fi
 
+if [ "$MODE" != startup35 ]; then
 # A shelf is never left commissioned while a new control test is in progress.
 # Only telemetry-proven restoration at the end may set this back to true.
 php -r '
@@ -282,6 +297,8 @@ php -r '
   unset($shelf);
   md12xx_write_config($config, $argv[2]);
 ' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID"
+
+fi
 
 CANDIDATES="$RESULT_DIR/candidates.tsv"
 candidate_ses > "$CANDIDATES"
@@ -300,7 +317,15 @@ if query_sas_identity "$SAS_CAPTURE"; then
     done < "$CANDIDATES"
   fi
 fi
+if [ "$MODE" = startup35 ] && [ -n "${SERIAL_ELI:-}" ]; then
+  EXPECTED_ELI="$(jq -r '.sesIdentity' <<< "$SHELF_JSON")"
+  if [ "$SERIAL_ELI" != "$EXPECTED_ELI" ]; then
+    echo "The serial identity differs from the commissioned shelf; no quiet ramp was started." >&2
+    exit 1
+  fi
+fi
 sas_pairing_fallback() {
+  [ "$MODE" != startup35 ] || return 1
   [ "$(wc -l < "$SAS_MATCHES")" -eq 1 ] || return 1
   IFS=$'\t' read -r SES_ADDRESS SES_DEVICE < "$SAS_MATCHES"
   echo "RPM proof unavailable. Exact SAS identity match: selected EMM and $SES_DEVICE share enclosure logical identifier $SERIAL_ELI."
@@ -331,6 +356,7 @@ sas_pairing_fallback() {
       if ($shelf["id"] !== $argv[3]) continue;
       $shelf["sesAddress"]=$argv[4];
       $shelf["sesDevice"]=$argv[5];
+      $shelf["sesIdentity"]=md12xx_commissioned_ses_identity($argv[5], $argv[4], $shelf["model"]);
       if (($shelf["diskAssignment"] ?? "automatic") === "automatic") $shelf["disks"]=$automaticDisks;
       $shelf["calibration"]=[];
       $shelf["verificationMode"]="sas";
@@ -351,20 +377,26 @@ sas_pairing_fallback() {
   echo "Identity matched, but no verified disk assignment was available. The shelf remains uncommissioned." >&2
   exit 1
 }
-echo "Trying independent RPM proof first; an exact SAS identity match is available as a fallback when SES RPM stays static."
-if [ -n "$SES_ADDRESS" ]; then
-  awk -F '\t' -v wanted="$SES_ADDRESS" '$1 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
-  mv "$CANDIDATES.selected" "$CANDIDATES"
-elif [ -n "$SES_CONFIGURED" ]; then
-  awk -F '\t' -v wanted="$SES_CONFIGURED" '$2 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
-  mv "$CANDIDATES.selected" "$CANDIDATES"
+if [ "$MODE" = startup35 ]; then
+  echo "Quiet recovery requires a unique 35% RPM response and the saved identity; reduced-verification fallback is disabled."
+else
+  echo "Trying independent RPM proof first; an exact SAS identity match is available as a fallback when SES RPM stays static."
 fi
+# An exact serial identity outranks historical addresses, including during legacy migration.
+# Automatic setup without an exact identity tests all candidates and still requires
+# a unique RPM response; it never chooses a shelf by enumeration order.
+if ! awk -v assignment="$ASSIGNMENT" -v address="$SES_ADDRESS" -v device="$SES_CONFIGURED" \
+  -f "$PLUGIN_DIR/scripts/select-candidates.awk" "$SAS_MATCHES" "$CANDIDATES" > "$CANDIDATES.selected"; then
+  echo "Multiple SES paths match the serial identity; resolve the ambiguity before commissioning." >&2
+  exit 1
+fi
+mv "$CANDIDATES.selected" "$CANDIDATES"
 [ -s "$CANDIDATES" ] || { echo "No supported MD1200/MD1220 SES enclosure is available for this test." >&2; exit 1; }
 
 LOW="$RESULT_DIR/20-percent.tsv"
-HIGH="$RESULT_DIR/50-percent.tsv"
+HIGH="$RESULT_DIR/${HIGH_SPEED}-percent.tsv"
 LOW_HISTORY="$RESULT_DIR/20-percent-history.tsv"
-HIGH_HISTORY="$RESULT_DIR/50-percent-history.tsv"
+HIGH_HISTORY="$RESULT_DIR/${HIGH_SPEED}-percent-history.tsv"
 trap restore_and_cleanup EXIT
 trap 'exit 130' INT TERM
 
@@ -379,9 +411,9 @@ fi
 
 STABLE_MATCH="$RESULT_DIR/stable-response.tsv"
 RESPONSE_STABILIZED_SECONDS=""
-echo "Commanding 50% and sampling every ${SAMPLE_INTERVAL_SECONDS}s until the response stabilizes or ${RESPONSE_TIMEOUT_SECONDS}s elapse..."
-send_speed 50
-sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"
+echo "Commanding ${HIGH_SPEED}% and sampling every ${SAMPLE_INTERVAL_SECONDS}s until the response stabilizes or ${RESPONSE_TIMEOUT_SECONDS}s elapse..."
+send_speed "$HIGH_SPEED"
+sample_candidates_for_window "${HIGH_SPEED}-percent" "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"
 
 RESTORE_SENT=true
 restore_safe || RESTORE_SENT=false
@@ -400,7 +432,7 @@ if [ "$MATCH_COUNT" -ne 1 ]; then
   exit 1
 fi
 
-IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_50 DELTA PERCENT < "$MATCHES"
+IFS=$'\t' read -r SES_ADDRESS SES_DEVICE RPM_20 RPM_HIGH DELTA PERCENT < "$MATCHES"
 FIRST_RESPONSE_SECONDS="$(awk -F '\t' -v wanted="$SES_ADDRESS" -v low="$RPM_20" '
   NR == 1 || $2 != wanted { next }
   { delta=$4-low; pct=(low>0 ? delta/low*100 : 0) }
@@ -412,7 +444,7 @@ sleep "$RESTORE_WAIT_SECONDS"
 FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore || true)"
 FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 
-if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_HIGH" "$FINAL_RPM"; then
   echo "The first 20% restore was not proven by SES telemetry (${FINAL_RPM:-no RPM} RPM); retrying once." >&2
   restore_safe || true
   sleep "$RESTORE_WAIT_SECONDS"
@@ -420,13 +452,36 @@ if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$
   FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 fi
 
-if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_50" "$FINAL_RPM"; then
+if [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_HIGH" "$FINAL_RPM"; then
   if [ "$(wc -l < "$SAS_MATCHES")" -eq 1 ]; then
     sas_pairing_fallback
   fi
   echo "SAFETY FAILURE: the enclosure did not prove a return to its 20% RPM range." >&2
   echo "The shelf remains uncommissioned. Keep other controllers stopped, resolve the serial connection, then select Identify & test again; every retry begins by commanding 20%." >&2
   exit 1
+fi
+
+if [ "$MODE" = startup35 ]; then
+  php "$PLUGIN_DIR/include/quiet.php" temperatures
+  php -r '
+    require $argv[1];
+    $config=md12xx_validate_config(md12xx_read_config($argv[2]));
+    $original=json_decode($argv[6], true);
+    $identity=md12xx_commissioned_ses_identity($argv[5], $argv[4], $original["model"]);
+    if ($identity !== ($original["sesIdentity"] ?? "")) throw new RuntimeException("Quiet response did not confirm the saved enclosure identity");
+    $mapping=md12xx_ses_disk_mapping($argv[4]);
+    $saved=$original["disks"]; $mapped=$mapping["disks"] ?? []; sort($saved); sort($mapped);
+    if (($mapping["state"] ?? "") !== "verified" || $saved !== $mapped) throw new RuntimeException("Quiet response did not confirm the commissioned disks");
+    foreach ($config["shelves"] as &$shelf) {
+      if ($shelf["id"] !== $argv[3]) continue;
+      if ($shelf !== $original) throw new RuntimeException("Shelf configuration changed during recovery");
+      $shelf["sesAddress"]=$argv[4]; $shelf["sesDevice"]=$argv[5];
+    }
+    unset($shelf); md12xx_write_config($config, $argv[2]);
+  ' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$SHELF_JSON"
+  trap 'rm -f "$COMMISSION_MARKER"' EXIT
+  echo "Quiet startup recovery: PASS; unique 35% RPM response, saved identity and disks confirmed, final 20% restoration verified." | tee "$RESULT_DIR/result.txt"
+  exit 0
 fi
 
 echo "Final 20% restoration: PASS ($FINAL_RPM RPM)."
@@ -454,6 +509,7 @@ php -r '
     if ($shelf["id"] !== $argv[3]) continue;
     $shelf["sesAddress"]=$argv[4];
     $shelf["sesDevice"]=$argv[5];
+    $shelf["sesIdentity"]=md12xx_commissioned_ses_identity($argv[5], $argv[4], $shelf["model"]);
     $assignment=$shelf["diskAssignment"] ?? (!empty($shelf["disks"]) ? "manual" : "automatic");
     if ($assignment === "automatic") $shelf["disks"]=$automaticDisks;
     $shelf["calibration"]=["rpmAt20"=>(int)$argv[8], "rpmAt50"=>(int)$argv[9]];
@@ -462,7 +518,7 @@ php -r '
   unset($shelf);
   $config=md12xx_disable_active_discovery_after_setup($config);
   md12xx_write_config($config, $argv[2]);
-' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY" "$RPM_20" "$RPM_50"
+' "$PLUGIN_DIR/include/common.php" "$CONFIG_FILE" "$SHELF_ID" "$SES_ADDRESS" "$SES_DEVICE" "$AUTO_DISKS" "$READY" "$RPM_20" "$RPM_HIGH"
 
 {
   echo "MD12xx fan control identification and commissioning"
@@ -471,7 +527,7 @@ php -r '
   echo "Serial: $PORT"
   echo "Matched SES: $SES_ADDRESS -> $SES_DEVICE"
   echo "20%: $RPM_20 RPM"
-  echo "50%: $RPM_50 RPM"
+  echo "50%: $RPM_HIGH RPM"
   echo "Response: PASS (delta +$DELTA RPM, $PERCENT%)"
   echo "Response first observed: ${FIRST_RESPONSE_SECONDS:-unknown}s"
   echo "Stable response confirmed: ${RESPONSE_STABILIZED_SECONDS:-unknown}s (two consecutive samples within 10% or 250 RPM; ${RESPONSE_TIMEOUT_SECONDS}s timeout)"

@@ -47,6 +47,7 @@
     return JSON.stringify({
       mode: value.mode,
       manualSpeed: value.manualSpeed,
+      startupRecovery35: value.startupRecovery35,
       reassertSeconds: value.reassertSeconds,
       sensorFailureSpeed: value.sensorFailureSpeed,
       hysteresisC: value.hysteresisC,
@@ -107,12 +108,19 @@
     byId("md12xx-discovery-summary").textContent = text;
   }
   function sesOptions(shelf) {
-    var selected = (shelf.sesAddress || "") + "|" + (shelf.sesDevice || "");
+    var resolved = selectedSes(shelf);
+    var selected = ((resolved && resolved.address) || shelf.sesAddress || "") + "|" + ((resolved && resolved.device) || shelf.sesDevice || "");
     var values = discovery.sesDevices.slice();
-    var usedAddresses = valuesUsedByOtherShelves("sesAddress", shelf.id);
-    var usedDevices = valuesUsedByOtherShelves("sesDevice", shelf.id);
-    if (shelf.sesAddress && !values.some(function (item) { return item.address === shelf.sesAddress; })) {
-      values.unshift({ address: shelf.sesAddress, device: shelf.sesDevice, vendor: "Saved", model: "mapping" });
+    var usedAddresses = {};
+    var usedDevices = {};
+    (config.shelves || []).forEach(function (other) {
+      if (other.id === shelf.id) return;
+      var current = selectedSes(other);
+      if (current) { usedAddresses[current.address] = true; usedDevices[current.device] = true; }
+      else if (!other.sesIdentity) { usedAddresses[other.sesAddress] = true; usedDevices[other.sesDevice] = true; }
+    });
+    if (!resolved && shelf.sesAddress) {
+      values.unshift({ address: shelf.sesAddress, device: shelf.sesDevice, vendor: "Saved", model: "mapping unavailable" });
     }
     return option("|", "Select SES enclosure…", !shelf.sesAddress && !shelf.sesDevice) + values.map(function (item) {
       var value = String(item.address || "") + "|" + String(item.device || "");
@@ -137,6 +145,10 @@
   }
   function selectedSes(shelf) {
     var devices = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    if (shelf.sesIdentity) {
+      var matches = devices.filter(function (item) { return item.sesIdentity === shelf.sesIdentity; });
+      return matches.length === 1 ? matches[0] : null;
+    }
     return devices.find(function (item) {
       return (shelf.sesAddress && item.address === shelf.sesAddress) || (!shelf.sesAddress && shelf.sesDevice && item.device === shelf.sesDevice);
     }) || null;
@@ -418,6 +430,7 @@
 
   function loadGlobals() {
     byId("md12xx-enabled").checked = !!config.enabled;
+    byId("md12xx-startup-recovery").checked = config.startupRecovery35 !== false;
     byId("md12xx-mode").value = config.mode === "manual" ? "manual" : "auto";
     byId("md12xx-manual").value = String(config.manualSpeed || 20);
     byId("md12xx-poll").value = String(config.pollSeconds || 5);
@@ -435,6 +448,7 @@
   function collect() {
     var next = {
       enabled: byId("md12xx-enabled").checked,
+      startupRecovery35: byId("md12xx-startup-recovery").checked,
       mode: byId("md12xx-mode").value,
       manualSpeed: Number(byId("md12xx-manual").value),
       pollSeconds: Number(byId("md12xx-poll").value),

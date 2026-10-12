@@ -34,6 +34,10 @@ Verification: Unraid -> SAS HBA/controller -> enclosure SES interface
 
 The plugin reads SES enclosure status through the HBA; it does not configure or flash the HBA, change RAID settings, or send fan commands through SAS. Disk temperatures and spin state come from Unraid's existing `/var/local/emhttp/disks.ini` state rather than direct SMART polling by this plugin.
 
+Verified commissioning saves the primary SES enclosure logical identifier (`sesIdentity`). At startup and on each telemetry cycle, the controller reads enclosure identities through SAS and resolves that identifier to the current device and SCSI address before mapping disks or sending commands. A move to another host, changed enumeration order, or a disk taking an old address does not change the pairing. The identity must have one readable path and match the commissioned Dell model; missing identities, duplicate paths/identifiers, or unreadable peer identities block new commands with a visible fault. Saved addresses are historical hints, not permanent hardware identities.
+
+**Upgrade from an address-only configuration:** earlier versions did not save `sesIdentity`. They cannot safely infer it from a stale address. Disable control and re-run verified setup for each shelf once, then review the mapped disks before enabling control. This commissioning workflow changes fan speed and must be supervised. No speed ramp is used by startup verification itself. When moving to another server, transfer the plugin configuration, keep the persistent serial adapter available, and verify Unraid disk assignments. Changed or missing disk assignments retain the existing Auto fail-safe behavior. Replacing enclosure hardware requires new commissioning. Redundant SES paths are treated as ambiguous in this beta.
+
 MD1200 hardware validation currently covers the tested direct-attached arrangements described in the hardware reports. Split mode, daisy chains, redundant paths, alternate EMM layouts, and MD1220 hardware remain Beta test cases unless a report explicitly proves them.
 
 ## Features
@@ -48,12 +52,20 @@ MD1200 hardware validation currently covers the tested direct-attached arrangeme
 - Manual choices from 20% through 100% in 10% increments.
 - Reads independent fan RPM telemetry through `sg_ses`.
 - Saves each shelf's commissioned 20%/50% RPM response and verifies later control commands against independent SES telemetry.
-- Uses stable SCSI addresses and `/dev/serial/by-id` paths.
+- Tracks a commissioned enclosure by its persistent SES identity, resolving current SCSI addresses and `/dev/sgN` nodes; serial adapters use `/dev/serial/by-id` paths.
 - Uses carriage-return-only BlueDress `set_speed` command framing confirmed on MD1200 hardware.
 - Blocks writes while the legacy `MD1200-Fan-Controller` Docker is running.
 - Starts disabled and requires explicit configuration and commissioning.
 - Retains settings during normal plugin updates. Uninstall deliberately removes configuration and commissioning results so reinstall starts clean.
 - Supervises the controller process, restarts unexpected exits with bounded backoff, and sends local Unraid failure and recovery notifications.
+
+## Quiet startup recovery
+
+The **Quiet startup recovery (35%)** setting allows one bounded background attempt per boot when startup cannot verify a previously commissioned shelf. Normal identity resolution remains read-only. The recovery uses the selected primary/active serial console, verifies a 20% baseline, samples a 35% response for up to 20 seconds, and proves restoration to 20% with one retry if needed. Other control writes pause during the test. The worker has a 180-second deadline plus a 20-second termination/restoration allowance; watchdog restarts do not repeat the ramp in the same boot.
+
+Recovery requires all configured shelves to have saved identities and prior RPM commissioning, exact current disk mappings, four positive fan readings near their calibrated 20% baseline, no SES hardware fault, and known cool disks below 35°C whose curve target is 20%. A missing active temperature, an already faster shelf, an unconfigured enclosure, or another writer prevents the test. Temperatures are rechecked while sampling. If cooling demand rises, the worker aborts and restores at least the required target instead of reducing cooling.
+
+A unique RPM response is insufficient by itself: the saved enclosure identity and commissioned disks must also match after restoration. Recovery keeps the existing 20%/50% calibration and never replaces an identity or commissions a legacy shelf silently. Failed recovery stays visible and requires operator review. Initial Identify & test remains the supervised 20% → 50% → 20% commissioning workflow. Recovery captures use accurate 35% labels and are retained locally with commissioning job logs.
 
 ## Default Auto curve
 
