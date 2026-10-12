@@ -97,7 +97,8 @@ Fields can be added during Beta. Consumers should ignore fields they do not reco
 
 | Field | Meaning |
 | --- | --- |
-| `version` | Installed plugin version. |
+| `version` | Application version shown in Settings (for example, `0.4.12`). |
+| `pluginVersion` | Date-based update build shown in Installed Plugins (for example, `2026.10.11.01`). |
 | `enabled` | Whether the controller is enabled. |
 | `mode` | Current `auto` or `manual` mode. |
 | `controller.startupRecovery35` | Whether quiet startup recovery is enabled. |

@@ -462,6 +462,7 @@ function md12xx_public_status(): array
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
         'version' => '@@VERSION@@',
+        'pluginVersion' => '@@PLUGIN_VERSION@@',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
