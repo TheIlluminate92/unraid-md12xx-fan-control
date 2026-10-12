@@ -353,13 +353,15 @@ sas_pairing_fallback() {
   exit 1
 }
 echo "Trying independent RPM proof first; an exact SAS identity match is available as a fallback when SES RPM stays static."
-if [ -n "$SES_ADDRESS" ]; then
-  awk -F '\t' -v wanted="$SES_ADDRESS" '$1 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
-  mv "$CANDIDATES.selected" "$CANDIDATES"
-elif [ -n "$SES_CONFIGURED" ]; then
-  awk -F '\t' -v wanted="$SES_CONFIGURED" '$2 == wanted' "$CANDIDATES" > "$CANDIDATES.selected"
-  mv "$CANDIDATES.selected" "$CANDIDATES"
+# An exact serial identity outranks historical addresses, including during legacy migration.
+# Automatic setup without an exact identity tests all candidates and still requires
+# a unique RPM response; it never chooses a shelf by enumeration order.
+if ! awk -v assignment="$ASSIGNMENT" -v address="$SES_ADDRESS" -v device="$SES_CONFIGURED" \
+  -f "$PLUGIN_DIR/scripts/select-candidates.awk" "$SAS_MATCHES" "$CANDIDATES" > "$CANDIDATES.selected"; then
+  echo "Multiple SES paths match the serial identity; resolve the ambiguity before commissioning." >&2
+  exit 1
 fi
+mv "$CANDIDATES.selected" "$CANDIDATES"
 [ -s "$CANDIDATES" ] || { echo "No supported MD1200/MD1220 SES enclosure is available for this test." >&2; exit 1; }
 
 LOW="$RESULT_DIR/20-percent.tsv"

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.11-test2 - 2026-10-11
+
+- Fix legacy re-pairing that found the correct serial-to-SES identity but then discarded it by filtering candidates to a stale saved address.
+- Prefer the exact identity match during commissioning; retain independent RPM proof and final restoration checks.
+- Without an exact identity match, automatic commissioning tests discovered candidates and requires a unique RPM response instead of trusting historical addresses.
+- Reject duplicate identity matches before fan-speed testing; add regression coverage for the hardware report from test1.
+
 ## 0.4.11-test1 - 2026-10-11
 
 - Normalize installer line endings before hashing so published checksums remain valid across Windows and Linux builds.

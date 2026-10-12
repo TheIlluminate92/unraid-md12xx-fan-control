@@ -163,6 +163,26 @@ grep -Fq 'sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$B
 grep -Fq 'sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'Stable response confirmed:' "$PLUGIN_DIR/scripts/commission.sh"
 STABILITY_AWK="$PLUGIN_DIR/scripts/stable-response.awk"
+CANDIDATE_AWK="$PLUGIN_DIR/scripts/select-candidates.awk"
+printf '0:0:11:0\t/dev/sg11\n0:0:22:0\t/dev/sg22\n' > "$TMP_DIR/selection-candidates.tsv"
+printf '0:0:22:0\t/dev/sg22\n' > "$TMP_DIR/selection-exact.tsv"
+awk -v assignment=automatic -v address=0:0:18:0 -v device=/dev/sg18 \
+  -f "$CANDIDATE_AWK" "$TMP_DIR/selection-exact.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"
+cmp "$TMP_DIR/selection-result.tsv" "$TMP_DIR/selection-exact.tsv"
+: > "$TMP_DIR/selection-none.tsv"
+awk -v assignment=automatic -v address=0:0:18:0 -v device=/dev/sg18 \
+  -f "$CANDIDATE_AWK" "$TMP_DIR/selection-none.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"
+cmp "$TMP_DIR/selection-result.tsv" "$TMP_DIR/selection-candidates.tsv"
+awk -v assignment=manual -v address=0:0:22:0 \
+  -f "$CANDIDATE_AWK" "$TMP_DIR/selection-none.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"
+cmp "$TMP_DIR/selection-result.tsv" "$TMP_DIR/selection-exact.tsv"
+if awk -v assignment=automatic -f "$CANDIDATE_AWK" "$TMP_DIR/selection-candidates.tsv" "$TMP_DIR/selection-candidates.tsv" > "$TMP_DIR/selection-result.tsv"; then
+  echo "Commissioning accepted an ambiguous serial identity match" >&2
+  exit 1
+fi
+[ ! -s "$TMP_DIR/selection-result.tsv" ]
+grep -Fq 'scripts/select-candidates.awk' "$TMP_DIR/md12xx.fancontrol.plg"
+
 BASELINE_FIXTURE="$PROJECT_DIR/tests/fixtures/commission-baseline.tsv"
 awk -f "$STABILITY_AWK" "$BASELINE_FIXTURE" "$PROJECT_DIR/tests/fixtures/commission-stable.tsv" > "$TMP_DIR/stable-response.tsv"
 grep -Fxq $'0:0:11:0\t/dev/sg11\t3500\t6100\t2600\t74.3' "$TMP_DIR/stable-response.tsv"
