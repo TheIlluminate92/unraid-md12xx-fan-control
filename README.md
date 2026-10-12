@@ -34,6 +34,8 @@ Verification: Unraid -> SAS HBA/controller -> enclosure SES interface
 
 The plugin reads SES enclosure status through the HBA; it does not configure or flash the HBA, change RAID settings, or send fan commands through SAS. Disk temperatures and spin state come from Unraid's existing `/var/local/emhttp/disks.ini` state rather than direct SMART polling by this plugin.
 
+If a saved SES address disappears or now identifies a disk after hardware discovery changes, the controller reports a mapping fault and blocks new commands for that shelf. Refresh discovery, confirm the physical enclosure identity, and re-pair and commission that shelf before resuming control. SCSI target addresses and `/dev/sgN` numbers are not permanent hardware identities.
+
 MD1200 hardware validation currently covers the tested direct-attached arrangements described in the hardware reports. Split mode, daisy chains, redundant paths, alternate EMM layouts, and MD1220 hardware remain Beta test cases unless a report explicitly proves them.
 
 ## Features

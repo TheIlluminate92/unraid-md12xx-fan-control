@@ -490,6 +490,26 @@ function md12xx_serial_port_details(): array
     return $result;
 }
 
+// SCSI target addresses and sg numbers can both be reused after discovery.
+// Never fall back to a configured sg node when its saved address is missing.
+function md12xx_resolve_ses_device(string $configuredDevice, string $address, string $sysfsRoot = '/sys'): string
+{
+    $root = rtrim($sysfsRoot, '/\\');
+    foreach (glob($root . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
+        $devicePath = $genericPath . '/device';
+        $resolved = @realpath($devicePath);
+        if ($resolved === false) continue;
+        if ($address !== '') {
+            if (basename($resolved) !== $address) continue;
+        } elseif ('/dev/' . basename($genericPath) !== $configuredDevice) {
+            continue;
+        }
+        if (trim((string) @file_get_contents($devicePath . '/type')) !== '13') return '';
+        return '/dev/' . basename($genericPath);
+    }
+    return '';
+}
+
 function md12xx_ses_disk_mapping(
     string $address,
     string $disksPath = '/var/local/emhttp/disks.ini',
@@ -545,6 +565,9 @@ function md12xx_ses_disk_mapping(
         foreach (glob($root . '/class/scsi_generic/sg*') ?: [] as $genericPath) {
             $resolved = @realpath($genericPath . '/device');
             if ($resolved !== false && basename($resolved) === $address) {
+                if (trim((string) @file_get_contents($genericPath . '/device/type')) !== '13') {
+                    return array_replace($base, ['state' => 'invalid', 'message' => 'Saved SES address is not an enclosure; refresh discovery and re-pair the shelf']);
+                }
                 $sesPath = str_replace('\\', '/', $resolved);
                 break;
             }

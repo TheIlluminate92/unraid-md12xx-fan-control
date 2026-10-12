@@ -107,13 +107,7 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
 
 function md12xx_controller_resolve_ses(string $configuredDevice, string $scsiAddress): string
 {
-    if ($scsiAddress !== '') {
-        foreach (glob('/sys/class/scsi_generic/sg*') ?: [] as $genericPath) {
-            $resolved = @realpath($genericPath . '/device');
-            if ($resolved !== false && basename($resolved) === $scsiAddress) return '/dev/' . basename($genericPath);
-        }
-    }
-    return $configuredDevice;
+    return md12xx_resolve_ses_device($configuredDevice, $scsiAddress);
 }
 
 function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
@@ -305,9 +299,16 @@ while ($running) {
         if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {
             unset($pendingVerifications[$id]);
         }
+        $sesDevice = md12xx_controller_resolve_ses((string) $shelf['sesDevice'], (string) $shelf['sesAddress']);
+        $invalidSesMapping = $fixtureDirectory === '' && $sesDevice === '';
+        if ($invalidSesMapping) {
+            unset($pendingVerifications[$id], $lastVerifications[$id], $verificationFaults[$id], $driftCounts[$id], $lastCommands[$id]);
+            $diskMapping['state'] = 'invalid';
+            $diskMapping['message'] = 'Saved SES mapping is missing or is not an enclosure; refresh discovery and re-pair the shelf';
+        }
         $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
         $lastCommand = $lastCommands[$id] ?? null;
-        $commandDue = $operable && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
+        $commandDue = $operable && !$invalidSesMapping && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
         if ($commissioningActive) {
             $write = ['state' => 'blocked', 'message' => 'Identify & test is active'];
         } elseif ($conflicts) {
@@ -337,8 +338,11 @@ while ($running) {
             }
         }
 
-        $sesDevice = md12xx_controller_resolve_ses((string) $shelf['sesDevice'], (string) $shelf['sesAddress']);
         $telemetry = md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
+        if ($invalidSesMapping) {
+            $telemetry = ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $diskMapping['message']];
+            $write = ['state' => 'fault', 'message' => $diskMapping['message']];
+        }
         $pending = $pendingVerifications[$id] ?? null;
         if (is_array($pending) && (int) $pending['target'] === $target) {
             $elapsed = time() - (int) $pending['sentAt'];

@@ -67,17 +67,43 @@ ln -s "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:11/end
   "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device"
 ln -s "$TMP_DIR/sys-topology/devices/host9/port-9:1/expander-9:1/port-9:1:0/end_device-9:1:0/target9:0:0/9:0:0:0" \
   "$TMP_DIR/sys-topology/class/scsi_disk/9:0:0:0/device"
+printf "13\n" > "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device/type"
 php -r '
   require $argv[1];
   echo json_encode(md12xx_ses_disk_mapping("9:0:11:0", $argv[2], $argv[3]), JSON_UNESCAPED_SLASHES);
 ' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys-topology" > "$TMP_DIR/topology-mapping.json"
 jq -e '.state == "verified" and .source == "sas-expander" and .blockDevices == ["sda"] and .disks == ["disk1"]' "$TMP_DIR/topology-mapping.json" >/dev/null
 
+# Regression: a previously commissioned SES target is now a disk on the same expander.
+printf '0\n' > "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device/type"
+php -r '
+  require $argv[1];
+  $mapping = md12xx_ses_disk_mapping("9:0:11:0", $argv[2], $argv[3]);
+  if ($mapping["state"] !== "invalid" || $mapping["disks"] !== []) exit(1);
+  if (md12xx_resolve_ses_device("/dev/sg11", "9:0:11:0", $argv[3]) !== "") exit(2);
+' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys-topology"
+printf '13\n' > "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device/type"
+php -r '
+  require $argv[1];
+  if (md12xx_resolve_ses_device("/dev/sg99", "9:0:11:0", $argv[2]) !== "/dev/sg11") exit(1);
+  if (md12xx_resolve_ses_device("/dev/sg11", "9:0:99:0", $argv[2]) !== "") exit(2);
+  if (md12xx_resolve_ses_device("/dev/sg11", "", $argv[2]) !== "/dev/sg11") exit(3);
+' "$PLUGIN_DIR/include/common.php" "$TMP_DIR/sys-topology"
+
+# A commissioned shelf with a missing enclosure must not enter command verification.
+jq '.shelves[0].sesAddress = "99:99:99:99" | .shelves[0].sesDevice = "/dev/sg99999"' \
+  "$PROJECT_DIR/tests/fixtures/auto.json" > "$TMP_DIR/stale-ses.json"
+php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+  --config="$TMP_DIR/stale-ses.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+  --state="$TMP_DIR/stale-ses-state.json"
+jq -e '.controller.state == "fault" and .shelves[0].writeState == "fault" and .shelves[0].telemetryState == "fault" and .shelves[0].diskMappingState == "invalid" and .shelves[0].averageRpm == null and (.shelves[0].writeMessage | contains("re-pair"))' "$TMP_DIR/stale-ses-state.json" >/dev/null
+
 MD1220_SYS="$TMP_DIR/sys-md1220"
 MD1220_EXPANDER="$MD1220_SYS/devices/host7/port-7:3/expander-7:3"
 MD1220_SES="$MD1220_EXPANDER/port-7:3:31/end_device-7:3:31/target7:0:31/7:0:31:0"
 mkdir -p "$MD1220_SES" "$MD1220_SYS/class/scsi_generic/sg31"
 ln -s "$MD1220_SES" "$MD1220_SYS/class/scsi_generic/sg31/device"
+printf "13\n" > "$MD1220_SES/type"
 INDEX=0
 for BLOCK in sda sdb sdc sdd sde sdf sdg sdh sdi sdj sdk sdl sdm sdn sdo sdp sdq sdr sds sdt sdu sdv sdw sdx; do
   DISK_PATH="$MD1220_EXPANDER/port-7:3:$INDEX/end_device-7:3:$INDEX/target7:0:$INDEX/7:0:$INDEX:0"
