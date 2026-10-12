@@ -8,6 +8,14 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.11-test1 - Identity tracking test build
+- Saves the primary SES enclosure identity during verified commissioning.
+- Resolves that identity at startup and each poll so device renumbering and host moves cannot redirect the shelf pairing.
+- Blocks commands for missing, duplicate, unreadable, or model-mismatched identities, and reports a clear fault.
+- Preserves commissioned identity during Settings saves and redacts it from diagnostics.
+- Upgrade requirement: disable control and perform one supervised re-pairing per legacy shelf before enabling control. Startup identity checks themselves are read-only.
+- Local Linux and synthetic host-move tests passed; real-hardware upgrade and reboot validation remain pending.
+
 ### 0.4.10 Beta
 - Matches a serial EMM's reported ELI address to the SES enclosure logical identifier when independent SES RPM proof fails.
 - Keeps RPM-verified commissioning where it works; SAS-matched shelves show reduced fan-response verification.

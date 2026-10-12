@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.4.11-test1 - 2026-10-11
 
 - Persist the primary SES enclosure identity during verified RPM, SAS, or physical commissioning.
 - Resolve identities at startup and on every telemetry cycle so device and SCSI target renumbering cannot redirect a shelf pairing.
 - Block control on missing, duplicate, unreadable, or model-mismatched identities; reject disks masquerading as saved SES targets.
 - Require one supervised re-pairing for legacy address-only configurations; preserve server-authoritative identities across Settings saves and redact them from diagnostic exports.
 - Cover moved-host topology, swapped enumeration, stale disk targets, ambiguous identity, and startup command blocking with synthetic regressions.
+- Publish a versioned test installer on the PR branch for supervised Unraid validation; real-hardware upgrade and reboot validation are still pending.
 
 ## 0.4.10 - 2026-09-25
 
