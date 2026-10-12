@@ -19,6 +19,7 @@ for FILE in "$PLUGIN_DIR"/include/*.php; do php -l "$FILE" >/dev/null; done
 for FILE in "$PLUGIN_DIR"/scripts/*.sh "$PROJECT_DIR/scripts/build.sh"; do bash -n "$FILE"; done
 node --check "$PLUGIN_DIR/assets/js/settings.js"
 bash "$PROJECT_DIR/tests/security.sh"
+php "$PROJECT_DIR/tests/registration.php" "$TMP_DIR/md12xx.fancontrol.plg"
 if grep -qE 'require_once[[:space:]]+__DIR__' "$PLUGIN_DIR/MD12xxFanControl.page"; then
   echo "Settings page relies on the page builder __DIR__ context." >&2
   exit 1

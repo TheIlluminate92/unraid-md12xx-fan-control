@@ -2,12 +2,17 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "2026.10.11.01">
+  <!ENTITY version "2026.10.12.01">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.13 - Build 2026.10.12.01
+- Rejects noncanonical installer filenames and duplicate internal-name registrations before touching runtime or configuration.
+- Keeps canonical install/update naming, date-based build metadata, and existing project credits.
+- Registration migration requires a reviewed backup and cleanup; no automatic removal or hardware changes.
+
 ### 0.4.12 - Build 2026.10.11.01
 - Fixes normal update detection from test builds and older semantic versions by using date-based Unraid package versioning.
 - Keeps application version 0.4.12 in Settings/API while Installed Plugins shows the update build number.
@@ -124,6 +129,39 @@
 - Optional serial verification is read-only, requires an MD12xx-shaped `_who` response, and is blocked while another fan controller is active.
 </CHANGES>
 
+<!-- Unraid names inline scripts after the installer basename. Reject aliases before touching runtime/config. -->
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+set -e
+case "${0##*/}" in
+  inline1-md12xx.fancontrol.sh) ;;
+  *)
+    echo "Refusing a noncanonical installer filename. Save/install this package as md12xx.fancontrol.plg."
+    echo "Do not uninstall an alias registration: it may share configuration with the canonical plugin."
+    exit 1
+    ;;
+esac
+php <<'PLUGIN_REGISTRATION_CHECK'
+<?php
+$canonical = 'md12xx.fancontrol.plg';
+foreach (['/boot/config/plugins', '/var/log/plugins'] as $directory) {
+    foreach (glob($directory . '/*.plg') ?: [] as $path) {
+        if (basename($path) === $canonical) continue;
+        libxml_use_internal_errors(true);
+        $manifest = @simplexml_load_file($path, 'SimpleXMLElement', LIBXML_NONET);
+        if ($manifest !== false && (string)$manifest['name'] === 'md12xx.fancontrol') {
+            file_put_contents('php://stderr', "Duplicate plugin registration: " . basename($path) . "\n");
+            file_put_contents('php://stderr', "Back up shared data and migrate the registration before updating. Do not use Uninstall.\n");
+            exit(1);
+        }
+    }
+}
+PLUGIN_REGISTRATION_CHECK
+]]>
+</INLINE>
+</FILE>
+
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[
@@ -166,7 +204,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   <header class="md12xx-hero">
     <div>
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
-      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.12</span></p>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.13</span></p>
     </div>
     <div class="md12xx-hero-actions">
       <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
@@ -254,7 +292,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.4.12',
+    'version' => '0.4.13',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
@@ -1902,8 +1940,8 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
-        'version' => '0.4.12',
-        'pluginVersion' => '2026.10.11.01',
+        'version' => '0.4.13',
+        'pluginVersion' => '2026.10.12.01',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -4256,7 +4294,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.4.12 installed. Configure it under Settings → Utilities."
+echo "Version 0.4.13 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>
