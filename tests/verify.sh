@@ -280,6 +280,20 @@ CONTROLLER_STOP_LINE="$(grep -nF "'/md12xx.fancontrol/include/controller.php'" "
 grep -Fq 'basename(' "$PLUGIN_DIR/include/download.php"
 
 (cd "$PROJECT_DIR/releases" && sha256sum -c SHA256SUMS)
+# Unraid compares plugin versions with strcmp, not semantic version comparison.
+php -r '
+  $current = simplexml_load_file($argv[1]);
+  $latest = (string) $current["version"];
+  if ($latest !== trim(file_get_contents($argv[2]))) exit(1);
+  if (!preg_match("/^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}$/", $latest)) exit(2);
+  foreach (array_slice($argv, 3) as $path) {
+    $previous = simplexml_load_file($path);
+    if (strcmp($latest, (string) $previous["version"]) < 0) exit(3);
+  }
+  if (strcmp($latest, "0.4.11-test2") <= 0 || strcmp($latest, "0.4.9") <= 0) exit(4);
+' "$TMP_DIR/md12xx.fancontrol.plg" "$PROJECT_DIR/PLUGIN_VERSION" "$PROJECT_DIR"/releases/*.plg
+if grep -Fq '@@PLUGIN_VERSION@@' "$TMP_DIR/md12xx.fancontrol.plg"; then exit 1; fi
+
 for RELEASE_FILE in "$PROJECT_DIR"/releases/*.plg; do
   grep -Fq "  $(basename "$RELEASE_FILE")" "$PROJECT_DIR/releases/SHA256SUMS"
 done

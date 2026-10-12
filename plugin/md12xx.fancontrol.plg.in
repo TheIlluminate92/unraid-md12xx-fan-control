@@ -2,12 +2,17 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "@@VERSION@@">
+  <!ENTITY version "@@PLUGIN_VERSION@@">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.12 - Build 2026.10.11.01
+- Fixes normal update detection from test builds and older semantic versions by using date-based Unraid package versioning.
+- Keeps application version 0.4.12 in Settings/API while Installed Plugins shows the update build number.
+- Preserves the 0.4.11 identity tracking and guarded startup recovery behavior; no hardware settings or calibration migration changes.
+
 ### 0.4.11
 - Tracks each commissioned shelf by persistent enclosure identity across reboot, device renumbering, and host moves.
 - Fixes stale-address commissioning filters and rejects disk targets masquerading as SES enclosures.

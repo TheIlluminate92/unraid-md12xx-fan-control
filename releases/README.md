@@ -1,6 +1,6 @@
-# Current release: 0.4.11
+# Current release: 0.4.12
 
-`md12xx.fancontrol.plg` is the normal update installer; `md12xx.fancontrol-0.4.11.plg` is its immutable versioned copy. Both are listed in `SHA256SUMS`.
+`md12xx.fancontrol.plg` is the normal update installer; `md12xx.fancontrol-0.4.12.plg` is its immutable versioned copy. Both are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.11.01**; Settings and the API show application **0.4.12**. The date-based build fixes Unraid update ordering from the test installers.
 
 ```text
 https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg

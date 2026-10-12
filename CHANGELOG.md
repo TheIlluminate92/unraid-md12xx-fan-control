@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.12 - 2026-10-11
+
+- Fix Installed Plugins reporting test2 as up-to-date after the final release. Unraid uses text comparison, under which `0.4.11` sorts below `0.4.11-test2`; semantic minor versions also compare incorrectly across values such as `0.4.9` and `0.4.11`.
+- Use update build `2026.10.11.01` for Unraid plugin-manager ordering and keep application version `0.4.12` in Settings and the status API. Expose `pluginVersion` separately in the API.
+- Add a regression that compares the new installer against all retained installers using Unraid's `strcmp` behavior. Update both builders and preserve historical immutable packages.
+- Keep the shipped identity tracking and guarded 35% recovery behavior unchanged. Successful commissioning and calibration remain valid.
+
 ## 0.4.11 - 2026-10-11
 
 - Fix missing shelf RPM after SCSI enumeration changes: save the primary SES enclosure identity during verified setup and resolve it to the current device/address at startup and every telemetry cycle.
