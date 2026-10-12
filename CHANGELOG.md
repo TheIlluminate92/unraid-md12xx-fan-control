@@ -2,6 +2,8 @@
 
 ## 0.4.11-test1 - 2026-10-11
 
+- Normalize installer line endings before hashing so published checksums remain valid across Windows and Linux builds.
+
 - Persist the primary SES enclosure identity during verified RPM, SAS, or physical commissioning.
 - Resolve identities at startup and on every telemetry cycle so device and SCSI target renumbering cannot redirect a shelf pairing.
 - Block control on missing, duplicate, unreadable, or model-mismatched identities; reject disks masquerading as saved SES targets.

@@ -27,7 +27,7 @@ $content
 }
 
 $template = [System.IO.File]::ReadAllText($templatePath).Replace("`r`n", "`n")
-$manifest = $template.Replace('@@FILES@@', ($blocks -join "`n")).Replace('@@VERSION@@', $version)
+$manifest = $template.Replace('@@FILES@@', ($blocks -join "`n")).Replace('@@VERSION@@', $version).Replace("`r`n", "`n")
 $outputDirectory = Split-Path -Parent $OutputPath
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 [System.IO.File]::WriteAllText($OutputPath, $manifest, [System.Text.UTF8Encoding]::new($false))

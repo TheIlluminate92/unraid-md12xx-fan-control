@@ -7,6 +7,10 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 bash "$PROJECT_DIR/scripts/build.sh" "$TMP_DIR/md12xx.fancontrol.plg"
+if LC_ALL=C grep -q $'\r' "$TMP_DIR/md12xx.fancontrol.plg"; then
+  echo "Built installer contains CRLF bytes that Git would normalize" >&2
+  exit 1
+fi
 grep -Fq '<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/README.md">' "$TMP_DIR/md12xx.fancontrol.plg"
 grep -Fq '<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk">' "$TMP_DIR/md12xx.fancontrol.plg"
 grep -Fq '**MD12xx Fan Control**' "$TMP_DIR/md12xx.fancontrol.plg"
