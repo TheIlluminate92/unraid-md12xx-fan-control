@@ -80,16 +80,7 @@ php -r '
   require $argv[1];
   $mapping = md12xx_ses_disk_mapping("9:0:11:0", $argv[2], $argv[3]);
   if ($mapping["state"] !== "invalid" || $mapping["disks"] !== []) exit(1);
-  if (md12xx_resolve_ses_device("/dev/sg11", "9:0:11:0", $argv[3]) !== "") exit(2);
 ' "$PLUGIN_DIR/include/common.php" "$PROJECT_DIR/tests/fixtures/disks.ini" "$TMP_DIR/sys-topology"
-printf '13\n' > "$TMP_DIR/sys-topology/class/scsi_generic/sg11/device/type"
-php -r '
-  require $argv[1];
-  if (md12xx_resolve_ses_device("/dev/sg99", "9:0:11:0", $argv[2]) !== "/dev/sg11") exit(1);
-  if (md12xx_resolve_ses_device("/dev/sg11", "9:0:99:0", $argv[2]) !== "") exit(2);
-  if (md12xx_resolve_ses_device("/dev/sg11", "", $argv[2]) !== "/dev/sg11") exit(3);
-' "$PLUGIN_DIR/include/common.php" "$TMP_DIR/sys-topology"
-
 # A commissioned shelf with a missing enclosure must not enter command verification.
 jq '.shelves[0].sesAddress = "99:99:99:99" | .shelves[0].sesDevice = "/dev/sg99999"' \
   "$PROJECT_DIR/tests/fixtures/auto.json" > "$TMP_DIR/stale-ses.json"
@@ -97,6 +88,26 @@ php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$TMP_DIR/stale-ses.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
   --state="$TMP_DIR/stale-ses-state.json"
 jq -e '.controller.state == "fault" and .shelves[0].writeState == "fault" and .shelves[0].telemetryState == "fault" and .shelves[0].diskMappingState == "invalid" and .shelves[0].averageRpm == null and (.shelves[0].writeMessage | contains("re-pair"))' "$TMP_DIR/stale-ses-state.json" >/dev/null
+
+# Synthetic identity/RPM data must never authorize a live serial write.
+if php "$PLUGIN_DIR/include/controller.php" --once --fixture-dir="$PROJECT_DIR/tests/fixtures/ses" 2> "$TMP_DIR/fixture-guard.txt"; then
+  echo "Controller accepted telemetry fixtures without dry-run" >&2
+  exit 1
+fi
+grep -Fq 'Telemetry fixtures require --dry-run' "$TMP_DIR/fixture-guard.txt"
+
+php "$PROJECT_DIR/tests/identity.php" "$PLUGIN_DIR/include/common.php" "$TMP_DIR" "$PROJECT_DIR"
+php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+  --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+  --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/identity-state.json"
+jq -e '.controller.state == "normal" and .shelves[0].sesDevice == "/dev/sg200" and .shelves[0].sesAddress == "5:0:200:0" and .shelves[0].diskMappingState == "verified" and .shelves[0].assignedDisks == ["disk1"] and .shelves[0].averageRpm == 3500 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/identity-state.json" >/dev/null
+for BAD_INVENTORY in identity-missing identity-duplicate; do
+  cp "$TMP_DIR/$BAD_INVENTORY.json" "$TMP_DIR/identity-fixture/ses-inventory.json"
+  php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+    --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+    --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/identity-state.json"
+  jq -e '.controller.state == "fault" and .shelves[0].writeState == "fault" and .shelves[0].telemetryState == "fault" and .shelves[0].averageRpm == null' "$TMP_DIR/identity-state.json" >/dev/null
+done
 
 MD1220_SYS="$TMP_DIR/sys-md1220"
 MD1220_EXPANDER="$MD1220_SYS/devices/host7/port-7:3/expander-7:3"

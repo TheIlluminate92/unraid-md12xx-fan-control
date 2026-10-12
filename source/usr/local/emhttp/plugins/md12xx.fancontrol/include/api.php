@@ -212,6 +212,7 @@ try {
         }
         $config['shelves'][$index]['diskAssignment'] = 'manual';
         $config['shelves'][$index]['disks'] = $disks;
+        $config['shelves'][$index]['sesIdentity'] = md12xx_commissioned_ses_identity($device, $address, (string) $shelf['model']);
         $config['shelves'][$index]['commissioned'] = true;
         $config['shelves'][$index]['verificationMode'] = 'operator';
         $config['shelves'][$index]['calibration'] = [];

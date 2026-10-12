@@ -34,7 +34,9 @@ Verification: Unraid -> SAS HBA/controller -> enclosure SES interface
 
 The plugin reads SES enclosure status through the HBA; it does not configure or flash the HBA, change RAID settings, or send fan commands through SAS. Disk temperatures and spin state come from Unraid's existing `/var/local/emhttp/disks.ini` state rather than direct SMART polling by this plugin.
 
-If a saved SES address disappears or now identifies a disk after hardware discovery changes, the controller reports a mapping fault and blocks new commands for that shelf. Refresh discovery, confirm the physical enclosure identity, and re-pair and commission that shelf before resuming control. SCSI target addresses and `/dev/sgN` numbers are not permanent hardware identities.
+Verified commissioning saves the primary SES enclosure logical identifier (`sesIdentity`). At startup and on each telemetry cycle, the controller reads enclosure identities through SAS and resolves that identifier to the current device and SCSI address before mapping disks or sending commands. A move to another host, changed enumeration order, or a disk taking an old address does not change the pairing. The identity must have one readable path and match the commissioned Dell model; missing identities, duplicate paths/identifiers, or unreadable peer identities block new commands with a visible fault. Saved addresses are historical hints, not permanent hardware identities.
+
+**Upgrade from an address-only configuration:** earlier versions did not save `sesIdentity`. They cannot safely infer it from a stale address. Disable control and re-run verified setup for each shelf once, then review the mapped disks before enabling control. This commissioning workflow changes fan speed and must be supervised. No speed ramp is used by startup verification itself. When moving to another server, transfer the plugin configuration, keep the persistent serial adapter available, and verify Unraid disk assignments. Changed or missing disk assignments retain the existing Auto fail-safe behavior. Replacing enclosure hardware requires new commissioning. Redundant SES paths are treated as ambiguous in this beta.
 
 MD1200 hardware validation currently covers the tested direct-attached arrangements described in the hardware reports. Split mode, daisy chains, redundant paths, alternate EMM layouts, and MD1220 hardware remain Beta test cases unless a report explicitly proves them.
 
@@ -50,7 +52,7 @@ MD1200 hardware validation currently covers the tested direct-attached arrangeme
 - Manual choices from 20% through 100% in 10% increments.
 - Reads independent fan RPM telemetry through `sg_ses`.
 - Saves each shelf's commissioned 20%/50% RPM response and verifies later control commands against independent SES telemetry.
-- Uses stable SCSI addresses and `/dev/serial/by-id` paths.
+- Tracks a commissioned enclosure by its persistent SES identity, resolving current SCSI addresses and `/dev/sgN` nodes; serial adapters use `/dev/serial/by-id` paths.
 - Uses carriage-return-only BlueDress `set_speed` command framing confirmed on MD1200 hardware.
 - Blocks writes while the legacy `MD1200-Fan-Controller` Docker is running.
 - Starts disabled and requires explicit configuration and commissioning.

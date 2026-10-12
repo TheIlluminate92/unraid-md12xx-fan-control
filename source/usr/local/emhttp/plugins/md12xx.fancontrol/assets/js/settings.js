@@ -107,12 +107,19 @@
     byId("md12xx-discovery-summary").textContent = text;
   }
   function sesOptions(shelf) {
-    var selected = (shelf.sesAddress || "") + "|" + (shelf.sesDevice || "");
+    var resolved = selectedSes(shelf);
+    var selected = ((resolved && resolved.address) || shelf.sesAddress || "") + "|" + ((resolved && resolved.device) || shelf.sesDevice || "");
     var values = discovery.sesDevices.slice();
-    var usedAddresses = valuesUsedByOtherShelves("sesAddress", shelf.id);
-    var usedDevices = valuesUsedByOtherShelves("sesDevice", shelf.id);
-    if (shelf.sesAddress && !values.some(function (item) { return item.address === shelf.sesAddress; })) {
-      values.unshift({ address: shelf.sesAddress, device: shelf.sesDevice, vendor: "Saved", model: "mapping" });
+    var usedAddresses = {};
+    var usedDevices = {};
+    (config.shelves || []).forEach(function (other) {
+      if (other.id === shelf.id) return;
+      var current = selectedSes(other);
+      if (current) { usedAddresses[current.address] = true; usedDevices[current.device] = true; }
+      else if (!other.sesIdentity) { usedAddresses[other.sesAddress] = true; usedDevices[other.sesDevice] = true; }
+    });
+    if (!resolved && shelf.sesAddress) {
+      values.unshift({ address: shelf.sesAddress, device: shelf.sesDevice, vendor: "Saved", model: "mapping unavailable" });
     }
     return option("|", "Select SES enclosure…", !shelf.sesAddress && !shelf.sesDevice) + values.map(function (item) {
       var value = String(item.address || "") + "|" + String(item.device || "");
@@ -137,6 +144,10 @@
   }
   function selectedSes(shelf) {
     var devices = Array.isArray(discovery.sesDevices) ? discovery.sesDevices : [];
+    if (shelf.sesIdentity) {
+      var matches = devices.filter(function (item) { return item.sesIdentity === shelf.sesIdentity; });
+      return matches.length === 1 ? matches[0] : null;
+    }
     return devices.find(function (item) {
       return (shelf.sesAddress && item.address === shelf.sesAddress) || (!shelf.sesAddress && shelf.sesDevice && item.device === shelf.sesDevice);
     }) || null;

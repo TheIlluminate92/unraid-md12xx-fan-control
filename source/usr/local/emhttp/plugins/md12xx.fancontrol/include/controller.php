@@ -16,6 +16,10 @@ $configPath = isset($options['config']) ? (string) $options['config'] : MD12XX_C
 $disksPath = isset($options['disks']) ? (string) $options['disks'] : '/var/local/emhttp/disks.ini';
 $statePath = isset($options['state']) ? (string) $options['state'] : MD12XX_STATE_FILE;
 $fixtureDirectory = isset($options['fixture-dir']) ? (string) $options['fixture-dir'] : '';
+if ($fixtureDirectory !== '' && !$dryRun) {
+    fwrite(STDERR, "Telemetry fixtures require --dry-run\n");
+    exit(2);
+}
 $running = true;
 
 if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
@@ -103,11 +107,6 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
         if ($threshold !== null && $temperature >= ($threshold - (float) $config['hysteresisC'])) $candidate = $previous;
     }
     return ['speed' => $candidate, 'reason' => ($thermal['temperatureSource'] ?? 'disk') . ' ' . $temperature . '°C'];
-}
-
-function md12xx_controller_resolve_ses(string $configuredDevice, string $scsiAddress): string
-{
-    return md12xx_resolve_ses_device($configuredDevice, $scsiAddress);
 }
 
 function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
@@ -254,6 +253,12 @@ while ($running) {
     if ($conflicts) { $controllerState = 'fault'; $messages[] = 'Another fan controller is active'; }
     if ($enabled && $commissioningActive) { $controllerState = 'fault'; $messages[] = 'Identify & test is active; control writes are blocked'; }
 
+    // Refresh read-only identities each cycle; cached host addresses never prove identity.
+    $inventoryFixture = $fixtureDirectory . '/ses-inventory.json';
+    $identityInventory = $fixtureDirectory === '' ? md12xx_ses_identity_inventory()
+        : (is_file($inventoryFixture) ? (json_decode((string) file_get_contents($inventoryFixture), true) ?: []) : null);
+    $mappingSysfs = $fixtureDirectory !== '' && is_dir($fixtureDirectory . '/sys') ? $fixtureDirectory . '/sys' : '/sys';
+
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
         $identityMode = (string) ($shelf['verificationMode'] ?? 'rpm');
@@ -262,6 +267,12 @@ while ($running) {
         if ($identityVerified) {
             unset($pendingVerifications[$id], $lastVerifications[$id], $verificationFaults[$id], $driftCounts[$id]);
         }
+        $connection = $identityInventory === null
+            ? ['state' => 'normal', 'device' => $shelf['sesDevice'], 'address' => $shelf['sesAddress'], 'message' => 'Synthetic telemetry fixture']
+            : md12xx_resolve_ses_identity($shelf, $identityInventory);
+        $sesDevice = (string) $connection['device'];
+        $sesAddress = (string) $connection['address'];
+        $invalidSesMapping = $connection['state'] !== 'normal';
         $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
         $assignedDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
         $savedAssignedDisks = $assignedDisks;
@@ -271,8 +282,8 @@ while ($running) {
             'disks' => $assignedDisks,
             'message' => $assignmentMode === 'automatic' ? 'SES enclosure is not mapped' : 'Manual disk override',
         ];
-        if ($assignmentMode === 'automatic' && (string) $shelf['sesAddress'] !== '') {
-            $diskMapping = md12xx_ses_disk_mapping((string) $shelf['sesAddress'], $disksPath);
+        if ($assignmentMode === 'automatic' && !$invalidSesMapping && $sesAddress !== '') {
+            $diskMapping = md12xx_ses_disk_mapping($sesAddress, $disksPath, $mappingSysfs);
             // Keep the last hardware-confirmed snapshot if sysfs is temporarily
             // unavailable. A successful current mapping always wins.
             if (!empty($diskMapping['disks'])) {
@@ -299,12 +310,10 @@ while ($running) {
         if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {
             unset($pendingVerifications[$id]);
         }
-        $sesDevice = md12xx_controller_resolve_ses((string) $shelf['sesDevice'], (string) $shelf['sesAddress']);
-        $invalidSesMapping = $fixtureDirectory === '' && $sesDevice === '';
         if ($invalidSesMapping) {
             unset($pendingVerifications[$id], $lastVerifications[$id], $verificationFaults[$id], $driftCounts[$id], $lastCommands[$id]);
             $diskMapping['state'] = 'invalid';
-            $diskMapping['message'] = 'Saved SES mapping is missing or is not an enclosure; refresh discovery and re-pair the shelf';
+            $diskMapping['message'] = $connection['message'];
         }
         $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
         $lastCommand = $lastCommands[$id] ?? null;
@@ -402,7 +411,8 @@ while ($running) {
             'verificationMode' => $shelf['verificationMode'] ?? 'rpm',
             'serialPort' => $shelf['serialPort'],
             'sesDevice' => $sesDevice,
-            'sesAddress' => $shelf['sesAddress'],
+            'sesAddress' => $sesAddress,
+            'sesIdentity' => $shelf['sesIdentity'],
             'diskAssignment' => $assignmentMode,
             'diskMappingState' => $diskMapping['state'],
             'diskMappingMessage' => $diskMapping['message'],

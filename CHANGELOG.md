@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Persist the primary SES enclosure identity during verified RPM, SAS, or physical commissioning.
+- Resolve identities at startup and on every telemetry cycle so device and SCSI target renumbering cannot redirect a shelf pairing.
+- Block control on missing, duplicate, unreadable, or model-mismatched identities; reject disks masquerading as saved SES targets.
+- Require one supervised re-pairing for legacy address-only configurations; preserve server-authoritative identities across Settings saves and redact them from diagnostic exports.
+- Cover moved-host topology, swapped enumeration, stale disk targets, ambiguous identity, and startup command blocking with synthetic regressions.
+
 ## 0.4.10 - 2026-09-25
 
 - Correlate the EMM `sas_address` ELI with the SES configuration-page enclosure identifier when RPM proof fails.

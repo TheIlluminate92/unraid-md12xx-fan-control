@@ -331,6 +331,7 @@ sas_pairing_fallback() {
       if ($shelf["id"] !== $argv[3]) continue;
       $shelf["sesAddress"]=$argv[4];
       $shelf["sesDevice"]=$argv[5];
+      $shelf["sesIdentity"]=md12xx_commissioned_ses_identity($argv[5], $argv[4], $shelf["model"]);
       if (($shelf["diskAssignment"] ?? "automatic") === "automatic") $shelf["disks"]=$automaticDisks;
       $shelf["calibration"]=[];
       $shelf["verificationMode"]="sas";
@@ -454,6 +455,7 @@ php -r '
     if ($shelf["id"] !== $argv[3]) continue;
     $shelf["sesAddress"]=$argv[4];
     $shelf["sesDevice"]=$argv[5];
+    $shelf["sesIdentity"]=md12xx_commissioned_ses_identity($argv[5], $argv[4], $shelf["model"]);
     $assignment=$shelf["diskAssignment"] ?? (!empty($shelf["disks"]) ? "manual" : "automatic");
     if ($assignment === "automatic") $shelf["disks"]=$automaticDisks;
     $shelf["calibration"]=["rpmAt20"=>(int)$argv[8], "rpmAt50"=>(int)$argv[9]];
