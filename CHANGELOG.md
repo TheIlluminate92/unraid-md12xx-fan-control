@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.11 - 2026-10-11
+
+- Fix missing shelf RPM after SCSI enumeration changes: save the primary SES enclosure identity during verified setup and resolve it to the current device/address at startup and every telemetry cycle.
+- Validate enclosure type, model, readable unique identity, and disk topology. Reject a disk at an old SES address and expose actionable mapping faults instead of querying the wrong target.
+- Fix legacy commissioning that discovered the correct serial/SES match but discarded it by filtering to a stale address. Prefer exact identity matches; automatic RPM pairing still requires a unique response and verified restoration.
+- Add the **Quiet startup recovery (35%)** setting, enabled by default. It permits one bounded background attempt per boot for a previously RPM-commissioned shelf whose startup identity check fails; normal startup identity resolution remains read-only.
+- Gate quiet recovery on saved identities, prior calibration, known disk temperatures below 35°C, a 20% Auto target, exact current disk mapping, four healthy positive fan readings near the commissioned 20% baseline, a primary/active serial console, and no competing writer. Do not lower a faster-running shelf or probe an unconfigured enclosure.
+- Require a unique 35% RPM response, the same saved identity and commissioned disks, and telemetry-proven return to 20%, with one restoration retry. Recheck temperatures while sampling; abort and restore at least the required cooling target if demand rises. Never silently replace an identity or commission a legacy shelf.
+- Pause normal writes during recovery, serialize operator/automatic test launches, and cap the worker at 180 seconds plus a 20-second termination/restoration allowance. Failed attempts stay visible and do not repeat after watchdog restarts in the same boot.
+- Preserve server-authoritative identities, commissioning, and calibration across Settings saves and host/device renumbering; redact identities from diagnostic exports. Legacy address-only configurations require one supervised re-pairing per shelf. Moving hosts requires configuration transfer and review of serial adapters and disk assignments; redundant paths remain ambiguous in this release.
+- Consolidate duplicate disk-state parsing and shared response/restoration logic, use accurate speed labels in captures, normalize installer line endings before hashing, and clean up current release instructions. Preserve immutable historical test installers/checksums.
+- Validation: local Linux and GitHub checks cover identity parsing, moved-host topology, swapped enumeration, stale disk targets, commissioning selection, settings preservation, thermal/baseline recovery gates, command blocking, and package/security checks. The affected top MD1200 shelf passed live test2 commissioning and verified restoration after one retry. The conditional 35% startup recovery path has not been exercised on live hardware; this final release is published at the owner's request with that limitation recorded.
+
 ## 0.4.11-test3 - 2026-10-11
 
 - Add an optional once-per-boot 35% startup recovery test for previously RPM-commissioned shelves whose identity cannot be verified at startup.
