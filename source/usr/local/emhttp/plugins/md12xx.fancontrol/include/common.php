@@ -18,6 +18,7 @@ function md12xx_defaults(): array
         'enabled' => false,
         'mode' => 'auto',
         'manualSpeed' => 20,
+        'startupRecovery35' => true,
         'pollSeconds' => 5,
         'reassertSeconds' => 900,
         'sensorFailureSpeed' => 50,
@@ -80,6 +81,7 @@ function md12xx_validate_config(array $input): array
         throw new InvalidArgumentException('Manual speed must be between 20 and 100 percent in 10 percent increments');
     }
     $config['manualSpeed'] = $manualSpeed;
+    $config['startupRecovery35'] = filter_var($input['startupRecovery35'] ?? true, FILTER_VALIDATE_BOOL);
     $config['pollSeconds'] = max(5, min(300, (int) ($input['pollSeconds'] ?? 5)));
     $config['reassertSeconds'] = max(60, min(3600, (int) ($input['reassertSeconds'] ?? 900)));
     $config['sensorFailureSpeed'] = max(20, min(100, (int) ($input['sensorFailureSpeed'] ?? 50)));
@@ -765,5 +767,68 @@ function md12xx_discover_disks(string $path = '/var/local/emhttp/disks.ini'): ar
         ];
     }
     usort($result, static fn(array $a, array $b): int => strnatcasecmp($a['name'], $b['name']));
+    return $result;
+}
+
+// Recovery must not hide an unknown temperature behind another disk's valid reading.
+function md12xx_quiet_temperature_policy(array $config, array $disks): array
+{
+    $safe = !empty($config['enabled']) && ($config['mode'] ?? '') === 'auto' && !empty($config['startupRecovery35']);
+    $required = ($config['mode'] ?? '') === 'manual' ? (int) $config['manualSpeed'] : 20;
+    $shelves = $config['shelves'] ?? [];
+    if (!$shelves) { $safe = false; $required = max($required, (int) $config['sensorFailureSpeed']); }
+    foreach ($shelves as $shelf) {
+        if (empty($shelf['serialPort']) || !md12xx_serial_path_is_safe((string) $shelf['serialPort']) || empty($shelf['enabled']) || empty($shelf['commissioned']) || empty($shelf['sesIdentity']) || ($shelf['verificationMode'] ?? 'rpm') !== 'rpm' || md12xx_controller_calibration($shelf) === null || empty($shelf['disks'])) $safe = false;
+        $speed = (int) $config['curve'][0]['speed'];
+        if (empty($shelf['disks'])) $speed = max($speed, (int) $config['sensorFailureSpeed']);
+        foreach (($shelf['disks'] ?? []) as $name) {
+            $disk = $disks[$name] ?? null;
+            if (!is_array($disk)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
+            $asleep = in_array($explicit, ['1', 'yes', 'true', 'on'], true) || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
+            $raw = trim((string) ($disk['temp'] ?? ''));
+            if (!$asleep && (!is_numeric($raw) || (float) $raw <= 0)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            if (is_numeric($raw) && (float) $raw > 0) {
+                if ((float) $raw >= 35) $safe = false;
+                foreach ($config['curve'] as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
+            }
+        }
+        if ($speed !== 20) $safe = false;
+        $required = max($required, $speed);
+    }
+    return ['safe' => $safe, 'restoreSpeed' => $required];
+}
+
+function md12xx_quiet_baseline_valid(array $config, array $candidates): bool
+{
+    $matched = [];
+    foreach ($candidates as $candidate) {
+        $found = null;
+        foreach ($config['shelves'] as $shelf) {
+            $saved = $shelf['disks']; $current = $candidate['disks'] ?? [];
+            sort($saved); sort($current);
+            if ($saved === $current && $saved !== [] && ($candidate['model'] ?? '') === $shelf['model']) {
+                if ($found !== null) return false;
+                $found = $shelf;
+            }
+        }
+        if ($found === null || isset($matched[$found['id']]) || ($candidate['fanCount'] ?? 0) !== 4) return false;
+        $calibration = md12xx_controller_calibration($found);
+        if ($calibration === null || !md12xx_controller_verify_target(20, (int) ($candidate['averageRpm'] ?? 0), $calibration)['passed']) return false;
+        $matched[$found['id']] = true;
+    }
+    return count($matched) === count($config['shelves']) && count($matched) > 0;
+}
+
+function md12xx_read_disk_state(string $path): array
+{
+    $values = is_file($path) ? @parse_ini_file($path, true, INI_SCANNER_RAW) : [];
+    if (!is_array($values)) return [];
+    $result = [];
+    foreach ($values as $section => $disk) {
+        if (!is_array($disk)) continue;
+        $name = strtolower(trim((string) ($disk['name'] ?? $section)));
+        if ($name !== '') $result[$name] = $disk;
+    }
     return $result;
 }

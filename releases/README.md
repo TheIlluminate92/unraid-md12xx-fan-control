@@ -1,22 +1,20 @@
 # Beta release
 
-## 0.4.11-test2 hardware test
+## Current hardware test: 0.4.11-test3
 
-This replaces test1, whose commissioning filter could discard a valid exact identity match when the old saved address had become a disk. Existing persistent identities and successful commissioning results are retained.
-
-The versioned `md12xx.fancontrol-0.4.11-test2.plg` installer is available on `fix/stale-ses-mapping-19` for supervised testing of PR #20. Verify it against the `SHA256SUMS` on that same branch. The default installer on main remains the existing Beta release.
-
-Install the versioned URL through Unraid **Plugins → Install Plugin**:
+Install through Unraid **Plugins → Install Plugin**:
 
 ```text
-https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/fix/stale-ses-mapping-19/releases/md12xx.fancontrol-0.4.11-test2.plg
+https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/fix/stale-ses-mapping-19/releases/md12xx.fancontrol-0.4.11-test3.plg
 ```
 
-Before installing, back up `/boot/config/plugins/md12xx.fancontrol` and disable fan control in Settings. The installer keeps saved settings. Address-only configurations have no persistent enclosure identity and will block new commands until each shelf completes one supervised verified re-pairing. Identify & test uses the existing 20% → 50% → 20% sequence. Confirm mapped disks and positive RPM for both shelves before enabling Auto. Do not uninstall to update; uninstall removes saved configuration.
+Back up `/boot/config/plugins/md12xx.fancontrol` and disable control before installing. Keep configuration; do not uninstall to update. Confirm version `0.4.11-test3`. Shelves successfully commissioned on test2 retain their identities and calibration. Address-only shelves still require one supervised Identify & test per shelf, followed by review of disks/RPM before enabling Auto.
 
-For the first hardware test, confirm the API reports version `0.4.11-test2`, both saved shelves have nonempty `sesIdentity`, current SES devices are enclosures, RPM is positive, and normal RPM verification succeeds. Restart the controller through the usual Settings controls to exercise startup verification. A later supervised reboot/address-change test should confirm the same identities and correct disk mappings remain paired. Startup verification adds only read-only identity queries and no extra speed ramp. Redundant SES paths remain unsupported/ambiguous in this beta.
+**Quiet startup recovery (35%)** is a visible setting enabled by default in this test build. It only attempts recovery for already commissioned, cool shelves at their proven 20% baseline, once per boot. It requires a unique response, the same saved identity and disks, and a verified restoration; higher cooling demand aborts it. See the main README for the full gates and timeout. A normal restart should resolve saved identities without any ramp.
 
-Rollback testing requires the saved configuration backup; installing an old package does not migrate new settings backward automatically. The test installer retains the stable main update URL so subsequent published Beta versions can supersede it.
+Versioned installers are immutable historical test records with hashes in this branch's `SHA256SUMS`. Test1's stale commissioning filter was corrected in test2; the affected top MD1200 shelf passed test2 and restored to 20% after one retry. The new quiet startup path in test3 still needs supervised hardware validation. Main's default Beta installer is unchanged while PR #20 remains under test. The test installer retains the stable main update URL for later releases.
+
+Rollback testing requires the configuration backup; old packages do not migrate saved identities backward automatically.
 
 `md12xx.fancontrol.plg` is the current standalone Beta installer. Verify it against `SHA256SUMS` before testing.
 

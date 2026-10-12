@@ -130,6 +130,8 @@ try {
     }
 
     if ($action === 'commission') {
+        $launchLock = @fopen(MD12XX_RUNTIME_DIR . '/test-launch.lock', 'c+');
+        if ($launchLock === false || !@flock($launchLock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Another test is starting; retry shortly');
         $mode = trim((string) ($_POST['mode'] ?? 'automatic'));
         if (!in_array($mode, ['automatic', 'manual-identify'], true)) throw new InvalidArgumentException('Invalid identification mode');
         $rawId = trim((string) ($_POST['id'] ?? ''));

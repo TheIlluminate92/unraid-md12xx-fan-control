@@ -59,6 +59,14 @@ MD1200 hardware validation currently covers the tested direct-attached arrangeme
 - Retains settings during normal plugin updates. Uninstall deliberately removes configuration and commissioning results so reinstall starts clean.
 - Supervises the controller process, restarts unexpected exits with bounded backoff, and sends local Unraid failure and recovery notifications.
 
+## Quiet startup recovery
+
+The **Quiet startup recovery (35%)** setting allows one bounded background attempt per boot when startup cannot verify a previously commissioned shelf. Normal identity resolution remains read-only. The recovery uses the selected primary/active serial console, verifies a 20% baseline, samples a 35% response for up to 20 seconds, and proves restoration to 20% with one retry if needed. Other control writes pause during the test. The worker has a 180-second deadline plus a 20-second termination/restoration allowance; watchdog restarts do not repeat the ramp in the same boot.
+
+Recovery requires all configured shelves to have saved identities and prior RPM commissioning, exact current disk mappings, four positive fan readings near their calibrated 20% baseline, no SES hardware fault, and known cool disks below 35°C whose curve target is 20%. A missing active temperature, an already faster shelf, an unconfigured enclosure, or another writer prevents the test. Temperatures are rechecked while sampling. If cooling demand rises, the worker aborts and restores at least the required target instead of reducing cooling.
+
+A unique RPM response is insufficient by itself: the saved enclosure identity and commissioned disks must also match after restoration. Recovery keeps the existing 20%/50% calibration and never replaces an identity or commissions a legacy shelf silently. Failed recovery stays visible and requires operator review. Initial Identify & test remains the supervised 20% → 50% → 20% commissioning workflow. Recovery captures use accurate 35% labels and are retained locally with commissioning job logs.
+
 ## Default Auto curve
 
 | Hottest assigned disk | Fan target |

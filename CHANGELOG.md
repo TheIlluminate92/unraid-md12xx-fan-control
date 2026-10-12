@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.11-test3 - 2026-10-11
+
+- Add an optional once-per-boot 35% startup recovery test for previously RPM-commissioned shelves whose identity cannot be verified at startup.
+- Require cool known disks, exact disk mapping, proven 20% baseline RPM, primary/active serial identity, unique response, and verified restoration. Abort on increased cooling demand; never adopt a different enclosure identity.
+- Bound the worker, serialize startup/operator test launches, and preserve prior commissioning and calibration on failed recovery.
+- Clean up duplicate disk-state parsing and misleading fixed 50% capture labels; keep one shared response/restoration workflow and an explicit recovery checkbox.
+- Retain versioned published test installers and checksum history; keep the current install/test instructions separate from prior validation reports.
+
 ## 0.4.11-test2 - 2026-10-11
 
 - Fix legacy re-pairing that found the correct serial-to-SES identity but then discarded it by filtering candidates to a stale saved address.

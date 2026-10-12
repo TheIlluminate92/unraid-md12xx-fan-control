@@ -100,6 +100,8 @@ Fields can be added during Beta. Consumers should ignore fields they do not reco
 | `version` | Installed plugin version. |
 | `enabled` | Whether the controller is enabled. |
 | `mode` | Current `auto` or `manual` mode. |
+| `controller.startupRecovery35` | Whether quiet startup recovery is enabled. |
+| `controller.quietRecoveryActive` | Whether the bounded 35% worker is running; regular writes are paused. |
 | `manualSpeed` | Saved manual target, even when Auto is selected. |
 | `allowedManualSpeeds` | Accepted manual targets. |
 | `stale` | `true` when current controller state is missing or older than the allowed telemetry window. |

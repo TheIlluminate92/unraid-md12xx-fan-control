@@ -100,6 +100,7 @@ if php "$PLUGIN_DIR/include/controller.php" --once --fixture-dir="$PROJECT_DIR/t
 fi
 grep -Fq 'Telemetry fixtures require --dry-run' "$TMP_DIR/fixture-guard.txt"
 
+php "$PROJECT_DIR/tests/quiet.php" "$PLUGIN_DIR/include/common.php"
 php "$PROJECT_DIR/tests/identity.php" "$PLUGIN_DIR/include/common.php" "$TMP_DIR" "$PROJECT_DIR"
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
@@ -147,7 +148,7 @@ if grep -n 'set_speed' "$PLUGIN_DIR/include/discovery.php"; then
 fi
 grep -Fq "printf '_who\\r'" "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'two consecutive stable higher-RPM samples' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq 'Returning the selected MD12xx console to 20%' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'Returning the selected MD12xx console to ${RESTORE_SPEED}%' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'md12xx_ses_disk_mapping' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq '$reader = @fopen($port, '\''r'\'');' "$PLUGIN_DIR/include/controller.php"
 grep -Fq '$writer = @fopen($port, '\''w'\'');' "$PLUGIN_DIR/include/controller.php"
@@ -156,11 +157,11 @@ grep -Fq 'BASELINE_WAIT_SECONDS="${MD12XX_TEST_BASELINE_SECONDS:-30}"' "$PLUGIN_
 grep -Fq 'RESPONSE_TIMEOUT_SECONDS="${MD12XX_TEST_RESPONSE_TIMEOUT_SECONDS:-60}"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'SAMPLE_INTERVAL_SECONDS="${MD12XX_TEST_SAMPLE_INTERVAL_SECONDS:-5}"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq '20-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq '50-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq '${HIGH_SPEED}-percent-history.tsv' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'write_stable_response_match' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'difference > tolerance' "$PLUGIN_DIR/scripts/stable-response.awk"
 grep -Fq 'sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"' "$PLUGIN_DIR/scripts/commission.sh"
-grep -Fq 'sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"' "$PLUGIN_DIR/scripts/commission.sh"
+grep -Fq 'sample_candidates_for_window "${HIGH_SPEED}-percent" "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"' "$PLUGIN_DIR/scripts/commission.sh"
 grep -Fq 'Stable response confirmed:' "$PLUGIN_DIR/scripts/commission.sh"
 STABILITY_AWK="$PLUGIN_DIR/scripts/stable-response.awk"
 CANDIDATE_AWK="$PLUGIN_DIR/scripts/select-candidates.awk"

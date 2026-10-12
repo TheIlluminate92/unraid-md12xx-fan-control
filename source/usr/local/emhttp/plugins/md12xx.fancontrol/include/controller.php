@@ -28,19 +28,6 @@ if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
     pcntl_signal(SIGINT, static function () use (&$running): void { $running = false; });
 }
 
-function md12xx_controller_disks(string $path): array
-{
-    $values = is_file($path) ? @parse_ini_file($path, true, INI_SCANNER_RAW) : [];
-    if (!is_array($values)) return [];
-    $result = [];
-    foreach ($values as $section => $disk) {
-        if (!is_array($disk)) continue;
-        $name = strtolower(trim((string) ($disk['name'] ?? $section)));
-        if ($name !== '') $result[$name] = $disk;
-    }
-    return $result;
-}
-
 function md12xx_controller_spun_down(array $disk): bool
 {
     $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
@@ -213,6 +200,7 @@ $pendingVerifications = [];
 $lastVerifications = [];
 $verificationFaults = [];
 $driftCounts = [];
+$startupRecoveryChecked = false;
 
 while ($running) {
     clearstatcache(true, $configPath);
@@ -243,7 +231,7 @@ while ($running) {
     $manualSpeed = (int) $config['manualSpeed'];
     $commissioningActive = md12xx_commission_active();
     $conflicts = $enabled ? md12xx_competing_controllers($config) : [];
-    $disks = md12xx_controller_disks($disksPath);
+    $disks = md12xx_read_disk_state($disksPath);
     $controllerState = 'normal';
     $messages = [];
     $shelfStates = [];
@@ -258,6 +246,44 @@ while ($running) {
     $identityInventory = $fixtureDirectory === '' ? md12xx_ses_identity_inventory()
         : (is_file($inventoryFixture) ? (json_decode((string) file_get_contents($inventoryFixture), true) ?: []) : null);
     $mappingSysfs = $fixtureDirectory !== '' && is_dir($fixtureDirectory . '/sys') ? $fixtureDirectory . '/sys' : '/sys';
+
+    // One bounded attempt per boot, never in fixtures or dry-run mode.
+    if (!$startupRecoveryChecked && $enabled && !$commissioningActive && !$dryRun && !$runOnce) {
+        $startupRecoveryChecked = true;
+        $policy = md12xx_quiet_temperature_policy($config, $disks);
+        if ($policy['safe'] && !$conflicts) {
+            foreach ($config['shelves'] as $candidate) {
+                if (md12xx_resolve_ses_identity($candidate, $identityInventory)['state'] === 'normal') continue;
+                $launchLock = @fopen(MD12XX_RUNTIME_DIR . '/test-launch.lock', 'c+');
+                if ($launchLock === false || !@flock($launchLock, LOCK_EX | LOCK_NB)) { if (is_resource($launchLock)) fclose($launchLock); break; }
+                if (md12xx_commission_active()) { fclose($launchLock); break; }
+                $attempt = @fopen(MD12XX_RUNTIME_DIR . '/quiet-startup.attempt', 'x');
+                if ($attempt === false) { fclose($launchLock); break; }
+                fwrite($attempt, (string) $candidate['id']); fclose($attempt);
+                $job = MD12XX_COMMISSION_JOB_DIR . '/startup35-' . $candidate['id'];
+                @mkdir($job, 0770, true);
+                @file_put_contents(MD12XX_RUNTIME_DIR . '/commissioning.active', 'startup35:' . $candidate['id']);
+                $command = 'nohup timeout --signal=TERM --kill-after=20 180 '
+                    . escapeshellarg(dirname(__DIR__) . '/scripts/commission-job.sh') . ' '
+                    . escapeshellarg((string) $candidate['id']) . ' ' . escapeshellarg($job)
+                    . ' startup35 >/dev/null 2>&1 & echo $!';
+                $pid = trim((string) @shell_exec($command));
+                if (ctype_digit($pid) && (int) $pid > 0) {
+                    @file_put_contents($job . '/pid', $pid . "\n");
+                    $commissioningActive = true;
+                } else {
+                    @unlink(MD12XX_RUNTIME_DIR . '/commissioning.active');
+                }
+                fclose($launchLock);
+                break;
+            }
+        }
+    }
+    $quietRecoveryActive = $commissioningActive && str_starts_with(trim((string) @file_get_contents(MD12XX_RUNTIME_DIR . '/commissioning.active')), 'startup35:');
+    if ($quietRecoveryActive) {
+        $controllerState = 'attention';
+        $messages = ['Quiet 35% startup recovery is running; normal control writes are paused'];
+    }
 
     foreach ($config['shelves'] as $shelf) {
         $id = (string) $shelf['id'];
@@ -319,7 +345,7 @@ while ($running) {
         $lastCommand = $lastCommands[$id] ?? null;
         $commandDue = $operable && !$invalidSesMapping && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
         if ($commissioningActive) {
-            $write = ['state' => 'blocked', 'message' => 'Identify & test is active'];
+            $write = ['state' => 'blocked', 'message' => $quietRecoveryActive ? 'Quiet 35% startup recovery is active' : 'Identify & test is active'];
         } elseif ($conflicts) {
             $write = ['state' => 'blocked', 'message' => 'Another fan controller is active'];
         } else {
@@ -350,7 +376,7 @@ while ($running) {
         $telemetry = md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
         if ($invalidSesMapping) {
             $telemetry = ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $diskMapping['message']];
-            $write = ['state' => 'fault', 'message' => $diskMapping['message']];
+            $write = $quietRecoveryActive ? ['state' => 'blocked', 'message' => 'Quiet 35% startup recovery is active'] : ['state' => 'fault', 'message' => $diskMapping['message']];
         }
         $pending = $pendingVerifications[$id] ?? null;
         if (is_array($pending) && (int) $pending['target'] === $target) {
@@ -447,6 +473,8 @@ while ($running) {
             'conflicts' => $conflicts,
             'dryRun' => $dryRun,
             'pollSeconds' => $pollSeconds,
+            'startupRecovery35' => (bool) $config['startupRecovery35'],
+            'quietRecoveryActive' => $quietRecoveryActive,
         ],
         'shelves' => $shelfStates,
     ];

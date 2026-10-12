@@ -47,6 +47,7 @@
     return JSON.stringify({
       mode: value.mode,
       manualSpeed: value.manualSpeed,
+      startupRecovery35: value.startupRecovery35,
       reassertSeconds: value.reassertSeconds,
       sensorFailureSpeed: value.sensorFailureSpeed,
       hysteresisC: value.hysteresisC,
@@ -429,6 +430,7 @@
 
   function loadGlobals() {
     byId("md12xx-enabled").checked = !!config.enabled;
+    byId("md12xx-startup-recovery").checked = config.startupRecovery35 !== false;
     byId("md12xx-mode").value = config.mode === "manual" ? "manual" : "auto";
     byId("md12xx-manual").value = String(config.manualSpeed || 20);
     byId("md12xx-poll").value = String(config.pollSeconds || 5);
@@ -446,6 +448,7 @@
   function collect() {
     var next = {
       enabled: byId("md12xx-enabled").checked,
+      startupRecovery35: byId("md12xx-startup-recovery").checked,
       mode: byId("md12xx-mode").value,
       manualSpeed: Number(byId("md12xx-manual").value),
       pollSeconds: Number(byId("md12xx-poll").value),
