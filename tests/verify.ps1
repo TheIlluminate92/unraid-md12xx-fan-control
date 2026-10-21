@@ -30,7 +30,7 @@ $required = @(
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission-job.sh',
     '/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh'
 )
-foreach ($path in $required) { if (-not $text.Contains("Name=`"$path`"")) { throw "Missing packaged file: $path" } }
+foreach ($path in $required) { if (-not $text.Contains("Name=`"$($path.Replace('/plugins/md12xx.fancontrol/', '/plugins/.md12xx.fancontrol.staged/'))`"")) { throw "Missing packaged file: $path" } }
 if (-not $text.Contains('**MD12xx Fan Control**') -or -not $text.Contains('Dell PowerVault MD1200 and MD1220 disk shelves.')) {
     throw 'Plugins-page display name or description is missing from the packaged README.'
 }
@@ -127,7 +127,7 @@ if (-not $commissionSource.Contains('timeout "$SPEED_RESPONSE_SECONDS" cat "$POR
 if (-not $commissionSource.Contains('BASELINE_WAIT_SECONDS="${MD12XX_TEST_BASELINE_SECONDS:-30}"')) { throw 'Commissioning does not use the 30-second baseline window.' }
 if (-not $commissionSource.Contains('RESPONSE_TIMEOUT_SECONDS="${MD12XX_TEST_RESPONSE_TIMEOUT_SECONDS:-60}"')) { throw 'Commissioning does not use the 60-second response timeout.' }
 if (-not $commissionSource.Contains('SAMPLE_INTERVAL_SECONDS="${MD12XX_TEST_SAMPLE_INTERVAL_SECONDS:-5}"')) { throw 'Commissioning does not sample telemetry every five seconds.' }
-foreach ($marker in '20-percent-history.tsv', '50-percent-history.tsv', 'write_stable_response_match', 'stable-response.awk', 'sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"', 'sample_candidates_for_window 50-percent "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"', 'Stable response confirmed:') {
+foreach ($marker in '20-percent-history.tsv', '${HIGH_SPEED}-percent-history.tsv', 'write_stable_response_match', 'stable-response.awk', 'sample_candidates_for_window 20-percent "$LOW_HISTORY" "$LOW" last "$BASELINE_WAIT_SECONDS"', 'sample_candidates_for_window "${HIGH_SPEED}-percent" "$HIGH_HISTORY" "$HIGH" maximum "$RESPONSE_TIMEOUT_SECONDS" "$LOW" "$STABLE_MATCH"', 'Stable response confirmed:') {
     if (-not $commissionSource.Contains($marker)) { throw "Delayed commissioning telemetry marker is missing: $marker" }
 }
 $stabilitySource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk'))

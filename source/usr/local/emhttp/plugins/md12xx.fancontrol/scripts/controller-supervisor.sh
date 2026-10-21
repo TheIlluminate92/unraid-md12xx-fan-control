@@ -62,7 +62,9 @@ trim_log() {
   size="$(wc -c < "$CONTROLLER_LOG" 2>/dev/null || echo 0)"
   [ "$size" -le "$MAX_LOG_BYTES" ] && return
   tmp="$CONTROLLER_LOG.tmp.$$"
-  tail -c "$MAX_LOG_BYTES" "$CONTROLLER_LOG" > "$tmp" 2>/dev/null && mv -f "$tmp" "$CONTROLLER_LOG"
+  # Keep the inode: the running child still holds this log open.
+  if tail -c "$MAX_LOG_BYTES" "$CONTROLLER_LOG" > "$tmp" 2>/dev/null; then cat "$tmp" > "$CONTROLLER_LOG"; fi
+  rm -f "$tmp"
 }
 
 shutdown() {
@@ -96,13 +98,28 @@ while $running; do
   if [ "$restart_count" -gt 0 ]; then
     write_watchdog "recovering" "Controller restarted; monitoring recovery" 0 "$child_pid"
   else
-    write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
+    write_watchdog "recovering" "Waiting for fresh controller status" 0 "$child_pid"
   fi
   recovered=false
+  health_state="recovering"
+  current_health="recovering"
 
   while $running && process_alive "$child_pid"; do
     alive_for=$(( $(date +%s) - started_at ))
-    if [ "$alive_for" -ge 60 ] && [ "$recovered" = false ]; then
+    if [ $((alive_for % 30)) -eq 0 ]; then trim_log; fi
+    if [ $((alive_for % 5)) -eq 0 ]; then
+      current_health="$(/usr/bin/php "$RUNTIME_DIR/include/watchdog-health.php" "$STATE_DIR/status.json" "$started_at" 2>/dev/null || echo fault)"
+    fi
+    current_health="${current_health:-recovering}"
+    if [ "$current_health" = fault ]; then
+      if [ "$health_state" != fault ]; then
+        write_watchdog "fault" "Controller is alive but its status is faulted or stale; no automatic restart was attempted" 0 "$child_pid"
+      fi
+      notify_local alert "Controller requires attention" "The controller process is alive but reports a fault or has stopped publishing fresh status. Review the shelf status; the supervisor will not create a competing writer."
+      failure_notified=true
+      recovered=false
+    fi
+    if [ "$alive_for" -ge 60 ] && [ "$current_health" = normal ] && [ "$recovered" = false ]; then
       recovered=true
       consecutive_failures=0
       write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
@@ -111,6 +128,7 @@ while $running; do
         failure_notified=false
       fi
     fi
+    health_state="$current_health"
     sleep 1
   done
 

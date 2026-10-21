@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/safety.php';
+
 const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';
 const MD12XX_STATE_FILE = '/var/run/md12xx.fancontrol/status.json';
 const MD12XX_PID_FILE = '/var/run/md12xx.fancontrol/controller.pid';

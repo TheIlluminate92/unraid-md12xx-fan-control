@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.14 — 2026-10-20
+
+Partial active-temperature loss and failed/missing fans now fail safe in Auto. Commissioning monitors thermal demand and preserves higher cooling on abort. Status-aware supervision and staged runtime validation/rollback preserve saved commissioning. Adds safety/activation regressions and migration documentation. New failure paths are software-tested; supervised hardware validation remains pending.
+
+See [maintenance and migration](docs/MAINTENANCE_AND_MIGRATION.md) for behavior, rollback boundaries, validation and server-split guidance.
+
 ## 0.4.13 — 2026-10-12 (build 2026.10.12.01)
 
 - Reject noncanonical installer names and duplicate internal-name registrations before runtime/configuration changes.

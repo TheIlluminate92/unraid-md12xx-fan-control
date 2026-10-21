@@ -2,12 +2,15 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "2026.10.12.01">
+  <!ENTITY version "2026.10.20.01">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.14 - Build 2026.10.20.01
+- Partial active-temperature loss and failed/missing fans now fail safe in Auto. Commissioning monitors thermal demand and preserves higher cooling on abort. Status-aware supervision and staged runtime validation/rollback preserve saved commissioning. Adds safety/activation regressions and migration documentation. New failure paths are software-tested; supervised hardware validation remains pending.
+
 ### 0.4.13 - Build 2026.10.12.01
 - Rejects noncanonical installer filenames and duplicate internal-name registrations before touching runtime or configuration.
 - Keeps canonical install/update naming, date-based build metadata, and existing project credits.
@@ -169,150 +172,15 @@ set -e
 RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 
-if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
-  "$RUNTIME_DIR/scripts/stop.sh"
-fi
-rm -rf "$RUNTIME_DIR"
-mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
+# Populate a separate tree while the installed runtime keeps running.
+[ ! -L "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" ] || { echo "Staging path is a symlink" >&2; exit 1; }
+rm -rf -- "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged"
+mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
 ]]>
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/MD12xxFanControl.page">
-<INLINE>
-<![CDATA[
-Menu="Utilities"
-Title="MD12xx Fan Control"
-Type="xmenu"
-Icon="icon-disks"
-Tag="icon-disk"
-Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'7.3.2','>=')"
-
----
-
-<?php
-$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';
-require_once $pluginRoot . '/include/common.php';
-$config = md12xx_read_config();
-$webRoot = '/plugins/md12xx.fancontrol';
-$cssVersion = @filemtime($pluginRoot . '/assets/css/settings.css') ?: 0;
-$jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
-?>
-<link rel="stylesheet" href="<?=$webRoot?>/assets/css/settings.css?v=<?=$cssVersion?>">
-
-<section class="md12xx-page">
-  <header class="md12xx-hero">
-    <div>
-      <h2>Dell MD1200 / MD1220 Fan Control</h2>
-      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.13</span></p>
-    </div>
-    <div class="md12xx-hero-actions">
-      <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
-      <span id="md12xx-health" class="md12xx-pill is-loading">LOADING</span>
-    </div>
-  </header>
-
-  <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
-
-  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), a compatible SAS HBA/controller exposing the shelf as <code>/dev/sg*</code>, <code>sg_ses</code>, and the active EMM console on a persistent <code>/dev/serial/by-id</code> path. The tested MD1200 serial path uses a Dell-compatible six-pin service/password-reset cable and an FTDI USB-to-serial adapter. MD1400, MD1420, and other shelves are unsupported.</p>
-
-  <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
-
-  <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
-    <h3>Safe setup</h3>
-    <ol>
-      <li>Keep this controller disabled and stop every other process that controls the same shelf.</li>
-      <li>Connect the Dell-compatible service/password-reset cable to the active/primary EMM, then connect its FTDI USB-to-serial adapter to Unraid. Matching firmware on both EMMs is strongly recommended.</li>
-      <li>Confirm Unraid can see both the shelf's persistent serial adapter and its SES enclosure before adding it.</li>
-      <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
-      <li>Select <b>Identify &amp; test</b>. The app verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
-      <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>
-      <li>Active connection testing turns off automatically when setup completes. Passive inventory remains available. Enable this controller only after every competing fan writer is disabled.</li>
-    </ol>
-    <p><b>Separate safety paths:</b> fan commands travel only through USB serial. The SAS HBA is used read-only for topology and independent SES RPM telemetry; the plugin does not configure or flash it.</p>
-    <p class="md12xx-warning"><b>Recovery:</b> if a test cannot prove the final 20% state, keep every controller stopped and follow the on-screen recovery message before continuing.</p>
-  </section>
-
-  <div id="md12xx-message" class="md12xx-message" hidden></div>
-
-  <section class="md12xx-panel">
-    <h3>Controller</h3>
-    <div class="md12xx-grid">
-      <label><span>Controller enabled</span><input id="md12xx-enabled" type="checkbox"></label>
-      <label><span>Quiet startup recovery (35%)</span><input id="md12xx-startup-recovery" type="checkbox"></label>
-      <label><span>Mode</span><select id="md12xx-mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
-      <label><span>Manual speed</span><select id="md12xx-manual"><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option></select></label>
-      <label><span>Telemetry interval</span><input id="md12xx-poll" type="number" min="5" max="300" step="5"><small>Seconds; 5 recommended. Saved control changes are detected immediately.</small></label>
-      <label><span>Reassert interval</span><input id="md12xx-reassert" type="number" min="60" max="3600" step="30"><small>Seconds; 900 recommended</small></label>
-      <label><span>Sensor-failure speed</span><input id="md12xx-failsafe" type="number" min="20" max="100" step="5"><small>50% recommended</small></label>
-    </div>
-    <p class="md12xx-warning"><b>Safety:</b> enabling the controller does not enable an uncommissioned shelf. Each hardware pairing must pass Identify &amp; test.</p>
-  </section>
-
-  <section class="md12xx-panel">
-    <h3>Connection discovery</h3>
-    <div class="md12xx-grid">
-      <label><span>Test likely FTDI adapters</span><input id="md12xx-probe-ftdi" type="checkbox"><small>Optional; automatically turns off after all configured shelves pass Identify &amp; test</small></label>
-      <label><span>Discovery interval</span><input id="md12xx-discovery-interval" type="number" min="60" max="3600" step="60"><small>Seconds; 300 recommended</small></label>
-      <label><span>Response wait</span><input id="md12xx-response-seconds" type="number" min="1" max="10" step="1"><small>Seconds; 3 recommended</small></label>
-    </div>
-    <p id="md12xx-discovery-summary" class="md12xx-discovery-summary">Waiting for passive inventory…</p>
-    <p class="md12xx-warning"><b>Read-only test:</b> sends only <code>_who</code> with the hardware-confirmed carriage return. It never sends a fan-speed command, runs only while this controller is disabled, and pauses whenever another fan controller is active.</p>
-  </section>
-
-  <section class="md12xx-panel">
-    <div class="md12xx-title-row"><h3>Shelves</h3><button id="md12xx-add" type="button">Add shelf</button></div>
-    <div id="md12xx-shelves"></div>
-  </section>
-
-  <section class="md12xx-panel">
-    <div class="md12xx-title-row">
-      <h3>Auto curve</h3>
-      <label class="md12xx-point-count"><span>Number of points</span><input id="md12xx-curve-points" type="number" min="2" max="10" step="1"></label>
-    </div>
-    <div id="md12xx-curve" class="md12xx-curve"></div>
-    <label class="md12xx-inline"><span>Downshift hysteresis</span><input id="md12xx-hysteresis" type="number" min="0" max="10" step="0.5"><em>°C</em></label>
-  </section>
-
-  <section class="md12xx-panel md12xx-support">
-    <h3>Support and transparency</h3>
-    <p><b>Diagnostics stay local until you choose to share them.</b> Export and inspect the redacted archive first. Files attached to an issue in this public repository are publicly accessible.</p>
-    <div class="md12xx-support-actions">
-      <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
-      <a class="md12xx-button-link" href="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml" target="_blank" rel="noopener noreferrer">Report issue on GitHub</a>
-    </div>
-    <p class="md12xx-credit"><b>Development transparency:</b> Erik Boettcher / TheIlluminate92 owns and directs the project, supplies hardware validation, and approves releases. OpenAI Codex (GPT-5) provided primary implementation, testing, documentation, packaging, and debugging assistance under that direction and review.</p>
-  </section>
-
-  <footer class="md12xx-actions">
-    <button id="md12xx-refresh" type="button">Refresh discovery</button>
-    <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
-  </footer>
-</section>
-
-<script>
-window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.4.13',
-    'endpoint' => $webRoot . '/include/api.php',
-    'config' => $config,
-], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
-</script>
-<script src="<?=$webRoot?>/assets/js/settings.js?v=<?=$jsVersion?>"></script>
-
-]]>
-</INLINE>
-</FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/README.md">
-<INLINE>
-<![CDATA[
-**MD12xx Fan Control**
-
-Local temperature-based fan control with independent SES fan telemetry for Dell PowerVault MD1200 and MD1220 disk shelves.
-
-]]>
-</INLINE>
-</FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/assets/css/settings.css">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/assets/css/settings.css">
 <INLINE>
 <![CDATA[
 .md12xx-page { max-width: 1180px; margin: 18px auto 40px; color: var(--text-color, #ddd); }
@@ -380,7 +248,7 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/assets/icon.svg">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/assets/icon.svg">
 <INLINE>
 <![CDATA[
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
@@ -403,7 +271,7 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/settings.js">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/assets/js/settings.js">
 <INLINE>
 <![CDATA[
 (function () {
@@ -1172,7 +1040,7 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/icon.svg">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/icon.svg">
 <INLINE>
 <![CDATA[
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
@@ -1195,7 +1063,7 @@ Local temperature-based fan control with independent SES fan telemetry for Dell 
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/api.php">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/api.php">
 <INLINE>
 <![CDATA[
 <?php
@@ -1474,12 +1342,52 @@ try {
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/common.php">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/commission-safety.php">
+<INLINE>
+<![CDATA[
+<?php
+declare(strict_types=1);
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+require_once __DIR__ . '/common.php';
+try {
+    $config = md12xx_validate_config(md12xx_read_config());
+    $allDisks = md12xx_read_disk_state('/var/local/emhttp/disks.ini');
+    $candidates = array_values(array_filter(md12xx_discover_ses(), static fn(array $candidate): bool => !empty($candidate['supportedCandidate'])));
+    $disks = [];
+    $mappingKnown = count($candidates) > 0;
+    foreach ($candidates as $candidate) {
+        if (($candidate['diskMappingState'] ?? '') !== 'verified' || empty($candidate['disks'])) $mappingKnown = false;
+        foreach ($candidate['disks'] ?? [] as $name) $disks[$name] = $allDisks[$name] ?? [];
+    }
+    $policy = md12xx_commission_temperature_policy($config, $disks);
+    if (!$mappingKnown) $policy = ['safe'=>false, 'restoreSpeed'=>100];
+    $action = $argv[1] ?? '';
+    if ($action === 'restore-speed') { echo $policy['restoreSpeed']; exit; }
+    if (!$policy['safe'] || md12xx_competing_controllers($config)) throw new RuntimeException('Commissioning requires known active disk temperatures below 35 C, a 20% cooling target, and no competing writer');
+    if ($action === 'temperatures') exit;
+    if ($action !== 'baseline') throw new RuntimeException('Unknown commissioning safety check');
+    $found = false;
+    foreach ($candidates as $candidate) {
+        if (empty($candidate['supportedCandidate'])) continue;
+        $found = true;
+        $lines = []; $exitCode = 1;
+        exec('timeout 3 sg_ses -p es ' . escapeshellarg($candidate['device']) . ' 2>/dev/null', $lines, $exitCode);
+        if ($exitCode !== 0 || md12xx_parse_fan_telemetry(implode("\n", $lines))['state'] !== 'normal') throw new RuntimeException('Commissioning requires four healthy fan readings on every candidate shelf');
+    }
+    if (!$found) throw new RuntimeException('No supported enclosure telemetry is available');
+} catch (Throwable $error) { fwrite(STDERR, $error->getMessage() . "\n"); exit(1); }
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/common.php">
 <INLINE>
 <![CDATA[
 <?php
 
 declare(strict_types=1);
+
+require_once __DIR__ . '/safety.php';
 
 const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';
 const MD12XX_STATE_FILE = '/var/run/md12xx.fancontrol/status.json';
@@ -1940,8 +1848,8 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
-        'version' => '0.4.13',
-        'pluginVersion' => '2026.10.12.01',
+        'version' => '0.4.14',
+        'pluginVersion' => '2026.10.20.01',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -2316,7 +2224,7 @@ function md12xx_read_disk_state(string $path): array
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/controller.php">
 <INLINE>
 <![CDATA[
 <?php
@@ -2363,6 +2271,7 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
     $seen = 0;
     $active = 0;
     $missing = [];
+    $missingTemperatures = [];
     foreach ($assigned as $name) {
         $disk = $disks[strtolower((string) $name)] ?? null;
         if (!is_array($disk)) { $missing[] = (string) $name; continue; }
@@ -2370,6 +2279,7 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
         if (!md12xx_controller_spun_down($disk)) $active++;
         $raw = trim((string) ($disk['temp'] ?? ''));
         if (is_numeric($raw) && (float) $raw > 0.0) $temperatures[(string) $name] = (float) $raw;
+        elseif (!md12xx_controller_spun_down($disk)) $missingTemperatures[] = (string) $name;
     }
     arsort($temperatures, SORT_NUMERIC);
     $source = $temperatures ? (string) array_key_first($temperatures) : null;
@@ -2379,6 +2289,7 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
         'assignedCount' => count($assigned),
         'assignedSeen' => $seen,
         'missingDisks' => $missing,
+        'missingTemperatures' => $missingTemperatures,
         'activeDisks' => $active,
         'allSpunDown' => count($assigned) > 0 && $seen === count($assigned) && $active === 0,
     ];
@@ -2398,6 +2309,9 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
         return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'assigned disk inventory incomplete; fail-safe'];
     }
     if ($thermal['allSpunDown']) return ['speed' => $cool, 'reason' => 'assigned disks spun down'];
+    if (!empty($thermal['missingTemperatures'])) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'active disk temperature unavailable; fail-safe'];
+    }
     if ($thermal['temperatureC'] === null) {
         return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'temperature unavailable; fail-safe'];
     }
@@ -2492,10 +2406,7 @@ function md12xx_controller_rpm(string $id, string $device, string $fixtureDirect
         if ($exitCode !== 0) return ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'SES telemetry read failed'];
         $output = implode("\n", $lines);
     }
-    preg_match_all('/Actual\s+speed\s*=\s*([0-9]+)\s*rpm/i', $output, $matches);
-    $values = array_values(array_filter(array_map('intval', $matches[1] ?? []), static fn(int $rpm): bool => $rpm > 0));
-    if (!$values) return ['state' => 'unavailable', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'No fan RPM values were reported'];
-    return ['state' => 'normal', 'averageRpm' => (int) round(array_sum($values) / count($values)), 'fanCount' => count($values), 'fanRpms' => $values, 'message' => ''];
+    return md12xx_parse_fan_telemetry($output);
 }
 
 function md12xx_controller_write_state(string $path, array $state): void
@@ -2652,8 +2563,15 @@ while ($running) {
         $thermal = md12xx_controller_temperature($assignedDisks, $disks);
         $thermal['mappingChanged'] = $mappingChanged;
         $auto = md12xx_controller_auto_target($config, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
+        $telemetry = $invalidSesMapping
+            ? ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $connection['message']]
+            : md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
         $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
         $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
+        if ($mode === 'auto' && $telemetry['state'] === 'fault') {
+            $target = max($target, (int) $config['sensorFailureSpeed']);
+            $reason = 'fan telemetry fault; fail-safe';
+        }
         if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {
             unset($pendingVerifications[$id]);
         }
@@ -2694,7 +2612,6 @@ while ($running) {
             }
         }
 
-        $telemetry = md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
         if ($invalidSesMapping) {
             $telemetry = ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $diskMapping['message']];
             $write = $quietRecoveryActive ? ['state' => 'blocked', 'message' => 'Quiet 35% startup recovery is active'] : ['state' => 'fault', 'message' => $diskMapping['message']];
@@ -2739,6 +2656,11 @@ while ($running) {
         } elseif (($lastVerifications[$id]['target'] ?? null) === $target && !isset($pendingVerifications[$id]) && in_array($write['state'], ['idle', 'sent', 'unconfirmed'], true)) {
             $write = $lastVerifications[$id];
         }
+        if ($operable && $telemetry['state'] === 'fault') {
+            // A previous successful command cannot certify a newly failed fan.
+            unset($lastVerifications[$id]);
+            $write = ['state' => 'fault', 'message' => $telemetry['message']];
+        }
         if ($operable && $write['state'] === 'fault') { $controllerState = 'fault'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $write['state'] === 'unverified' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $write['state'] === 'pending' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
@@ -2746,6 +2668,7 @@ while ($running) {
         elseif ($operable && $identityVerified && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $identityLabel . ' pairing; SES fan response is not verified'; }
         elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
         elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }
+        elseif ($operable && !empty($thermal['missingTemperatures']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': active disk temperature unavailable'; }
         elseif ($enabled && (bool) $shelf['enabled'] && !(bool) $shelf['commissioned'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': commissioning required'; }
         elseif ($enabled && (bool) $shelf['enabled'] && $telemetry['state'] !== 'normal' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $telemetry['message']; }
 
@@ -2767,6 +2690,7 @@ while ($running) {
             'assignedCount' => $thermal['assignedCount'],
             'assignedSeen' => $thermal['assignedSeen'],
             'missingDisks' => $thermal['missingDisks'],
+            'missingTemperatures' => $thermal['missingTemperatures'],
             'activeDisks' => $thermal['activeDisks'],
             'temperatureC' => $thermal['temperatureC'],
             'temperatureSource' => $thermal['temperatureSource'],
@@ -2807,7 +2731,7 @@ while ($running) {
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/discovery.php">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/discovery.php">
 <INLINE>
 <![CDATA[
 <?php
@@ -3011,7 +2935,7 @@ while ($running) {
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/download.php">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/download.php">
 <INLINE>
 <![CDATA[
 <?php
@@ -3046,7 +2970,7 @@ readfile($path);
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/include/quiet.php">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/quiet.php">
 <INLINE>
 <![CDATA[
 <?php
@@ -3069,8 +2993,9 @@ try {
         exec('timeout 3 sg_ses -p es ' . escapeshellarg($candidate['device']) . ' 2>/dev/null', $lines, $exitCode);
         if ($exitCode !== 0) throw new RuntimeException('Baseline telemetry unavailable');
         if (preg_match('/\b(?:Fail|CRIT|UNRECOV)=1\b/', implode("\n", $lines))) throw new RuntimeException('Enclosure reports a hardware fault; quiet recovery is blocked');
-        preg_match_all('/Actual\s+speed\s*=\s*([0-9]+)\s*rpm/i', implode("\n", $lines), $values);
-        $rpms = array_values(array_filter(array_map('intval', $values[1]), static fn(int $rpm): bool => $rpm > 0));
+        $telemetry = md12xx_parse_fan_telemetry(implode("\n", $lines));
+        if ($telemetry['state'] !== 'normal') throw new RuntimeException($telemetry['message']);
+        $rpms = $telemetry['fanRpms'];
         $candidate['fanCount'] = count($rpms);
         $candidate['averageRpm'] = $rpms ? (int) round(array_sum($rpms) / count($rpms)) : 0;
         $candidates[] = $candidate;
@@ -3081,7 +3006,229 @@ try {
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission-job.sh">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/safety.php">
+<INLINE>
+<![CDATA[
+<?php
+declare(strict_types=1);
+
+// Parse individual Cooling elements, never the SES overall/aggregate descriptor.
+function md12xx_parse_fan_telemetry(string $output): array
+{
+    $values = [];
+    $faults = [];
+    if (preg_match_all('/Element type:\s*Cooling\b(.*?)(?=\n\s*Element type:|\z)/is', $output, $sections)) {
+        foreach ($sections[1] as $section) {
+            preg_match_all('/^\s*element\s+\d+\s+descriptor:(.*?)(?=^\s*(?:element\s+\d+\s+descriptor:|Overall descriptor:)|\z)/ims', $section, $elements);
+            foreach ($elements[1] as $element) {
+                if (!preg_match('/Actual\s+speed\s*=\s*(\d+)\s*rpm/i', $element, $speed)) {
+                    $faults[] = 'Fan speed is missing';
+                    continue;
+                }
+                $values[] = (int) $speed[1];
+                if ((int) $speed[1] <= 0 || preg_match('/\b(?:Fail|Disabled|Predicted failure|CRIT|UNRECOV)\s*=\s*1\b/i', $element)
+                    || (preg_match('/\bstatus:\s*([^\r\n]+)/i', $element, $status) && trim($status[1]) !== 'OK')) {
+                    $faults[] = 'Cooling element reports a stopped, failed, disabled, or unhealthy fan';
+                }
+            }
+        }
+    }
+    if (count($values) !== 4) $faults[] = 'Expected four individual MD12xx fan readings';
+    return [
+        'state' => $faults ? 'fault' : 'normal',
+        'averageRpm' => $values ? (int) round(array_sum($values) / count($values)) : null,
+        'fanCount' => count($values), 'fanRpms' => $values,
+        'message' => implode('; ', array_unique($faults)),
+    ];
+}
+
+// Before pairing is proven, monitor disks mapped to every candidate enclosure.
+// Do not trust a stale manual shelf assignment during identification.
+function md12xx_commission_temperature_policy(array $config, array $disks): array
+{
+    $safe = count($disks) > 0;
+    $required = 20;
+    $active = 0;
+    foreach ($disks as $disk) {
+        $asleep = in_array(strtolower(trim((string) ($disk['spundown'] ?? ''))), ['1', 'yes', 'true', 'on'], true)
+            || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
+        if ($asleep) continue;
+        $active++;
+        $raw = $disk['temp'] ?? null;
+        if (!is_numeric($raw) || (float) $raw <= 0) { $safe = false; $required = max($required, (int) $config['sensorFailureSpeed']); continue; }
+        $speed = (int) $config['curve'][0]['speed'];
+        foreach ($config['curve'] as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
+        $required = max($required, $speed);
+        if ((float) $raw >= 35 || $speed > 20) $safe = false;
+    }
+    if (!$disks) $required = max($required, (int) $config['sensorFailureSpeed']);
+    // The current configuration may be manual, but commissioning must not
+    // restore below its saved manual target if the test is interrupted.
+    if (($config['mode'] ?? '') === 'manual') $required = max($required, (int) $config['manualSpeed']);
+    return ['safe' => $safe && $required === 20, 'restoreSpeed' => $required, 'activeDisks' => $active];
+}
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/include/watchdog-health.php">
+<INLINE>
+<![CDATA[
+<?php
+declare(strict_types=1);
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
+// Read-only liveness assessment. Never kill a hardware writer based on this.
+$state = json_decode((string) @file_get_contents($argv[1] ?? ''), true);
+$started = (int) ($argv[2] ?? time());
+$now = (int) ($argv[3] ?? time());
+$generated = (int) ($state['generatedAt'] ?? 0);
+$budget = max(60, min(300, (int) ($state['controller']['pollSeconds'] ?? 5)) * 3 + 30);
+if ($generated < $started || $generated > $now + 5 || $now - $generated > $budget) {
+    echo $now - $started < $budget ? 'recovering' : 'fault';
+} elseif (($state['controller']['state'] ?? '') === 'fault') {
+    echo 'fault';
+} else {
+    echo 'normal';
+}
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/MD12xxFanControl.page">
+<INLINE>
+<![CDATA[
+Menu="Utilities"
+Title="MD12xx Fan Control"
+Type="xmenu"
+Icon="icon-disks"
+Tag="icon-disk"
+Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'7.3.2','>=')"
+
+---
+
+<?php
+$pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';
+require_once $pluginRoot . '/include/common.php';
+$config = md12xx_read_config();
+$webRoot = '/plugins/md12xx.fancontrol';
+$cssVersion = @filemtime($pluginRoot . '/assets/css/settings.css') ?: 0;
+$jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
+?>
+<link rel="stylesheet" href="<?=$webRoot?>/assets/css/settings.css?v=<?=$cssVersion?>">
+
+<section class="md12xx-page">
+  <header class="md12xx-hero">
+    <div>
+      <h2>Dell MD1200 / MD1220 Fan Control</h2>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.4.14</span></p>
+    </div>
+    <div class="md12xx-hero-actions">
+      <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
+      <span id="md12xx-health" class="md12xx-pill is-loading">LOADING</span>
+    </div>
+  </header>
+
+  <p class="md12xx-beta"><b>Beta:</b> verified on two MD1200 shelves. MD1220 and additional HBA/firmware reports are wanted. The plugin never uploads data automatically.</p>
+
+  <p class="md12xx-beta"><b>Requirements:</b> a Dell PowerVault MD1200 (verified) or MD1220 (experimental), a compatible SAS HBA/controller exposing the shelf as <code>/dev/sg*</code>, <code>sg_ses</code>, and the active EMM console on a persistent <code>/dev/serial/by-id</code> path. The tested MD1200 serial path uses a Dell-compatible six-pin service/password-reset cable and an FTDI USB-to-serial adapter. MD1400, MD1420, and other shelves are unsupported.</p>
+
+  <p id="md12xx-controller-detail" class="md12xx-controller-detail" hidden></p>
+
+  <section id="md12xx-help" class="md12xx-panel md12xx-help" hidden>
+    <h3>Safe setup</h3>
+    <ol>
+      <li>Keep this controller disabled and stop every other process that controls the same shelf.</li>
+      <li>Connect the Dell-compatible service/password-reset cable to the active/primary EMM, then connect its FTDI USB-to-serial adapter to Unraid. Matching firmware on both EMMs is strongly recommended.</li>
+      <li>Confirm Unraid can see both the shelf's persistent serial adapter and its SES enclosure before adding it.</li>
+      <li>Temporarily enable <b>Test likely FTDI adapters</b>, refresh discovery, add a shelf, choose its persistent serial adapter, and save.</li>
+      <li>Select <b>Identify &amp; test</b>. The app verifies the console, proves the 20% → 50% response, pairs the SES enclosure and disks, then independently proves the return to 20%.</li>
+      <li>Repeat for every shelf. Confirm each shelf says <b>Commissioned: yes</b> and review its associated disks.</li>
+      <li>Active connection testing turns off automatically when setup completes. Passive inventory remains available. Enable this controller only after every competing fan writer is disabled.</li>
+    </ol>
+    <p><b>Separate safety paths:</b> fan commands travel only through USB serial. The SAS HBA is used read-only for topology and independent SES RPM telemetry; the plugin does not configure or flash it.</p>
+    <p class="md12xx-warning"><b>Recovery:</b> if a test cannot prove the final 20% state, keep every controller stopped and follow the on-screen recovery message before continuing.</p>
+  </section>
+
+  <div id="md12xx-message" class="md12xx-message" hidden></div>
+
+  <section class="md12xx-panel">
+    <h3>Controller</h3>
+    <div class="md12xx-grid">
+      <label><span>Controller enabled</span><input id="md12xx-enabled" type="checkbox"></label>
+      <label><span>Quiet startup recovery (35%)</span><input id="md12xx-startup-recovery" type="checkbox"></label>
+      <label><span>Mode</span><select id="md12xx-mode"><option value="auto">Auto</option><option value="manual">Manual</option></select></label>
+      <label><span>Manual speed</span><select id="md12xx-manual"><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option></select></label>
+      <label><span>Telemetry interval</span><input id="md12xx-poll" type="number" min="5" max="300" step="5"><small>Seconds; 5 recommended. Saved control changes are detected immediately.</small></label>
+      <label><span>Reassert interval</span><input id="md12xx-reassert" type="number" min="60" max="3600" step="30"><small>Seconds; 900 recommended</small></label>
+      <label><span>Sensor-failure speed</span><input id="md12xx-failsafe" type="number" min="20" max="100" step="5"><small>50% recommended</small></label>
+    </div>
+    <p class="md12xx-warning"><b>Safety:</b> enabling the controller does not enable an uncommissioned shelf. Each hardware pairing must pass Identify &amp; test.</p>
+  </section>
+
+  <section class="md12xx-panel">
+    <h3>Connection discovery</h3>
+    <div class="md12xx-grid">
+      <label><span>Test likely FTDI adapters</span><input id="md12xx-probe-ftdi" type="checkbox"><small>Optional; automatically turns off after all configured shelves pass Identify &amp; test</small></label>
+      <label><span>Discovery interval</span><input id="md12xx-discovery-interval" type="number" min="60" max="3600" step="60"><small>Seconds; 300 recommended</small></label>
+      <label><span>Response wait</span><input id="md12xx-response-seconds" type="number" min="1" max="10" step="1"><small>Seconds; 3 recommended</small></label>
+    </div>
+    <p id="md12xx-discovery-summary" class="md12xx-discovery-summary">Waiting for passive inventory…</p>
+    <p class="md12xx-warning"><b>Read-only test:</b> sends only <code>_who</code> with the hardware-confirmed carriage return. It never sends a fan-speed command, runs only while this controller is disabled, and pauses whenever another fan controller is active.</p>
+  </section>
+
+  <section class="md12xx-panel">
+    <div class="md12xx-title-row"><h3>Shelves</h3><button id="md12xx-add" type="button">Add shelf</button></div>
+    <div id="md12xx-shelves"></div>
+  </section>
+
+  <section class="md12xx-panel">
+    <div class="md12xx-title-row">
+      <h3>Auto curve</h3>
+      <label class="md12xx-point-count"><span>Number of points</span><input id="md12xx-curve-points" type="number" min="2" max="10" step="1"></label>
+    </div>
+    <div id="md12xx-curve" class="md12xx-curve"></div>
+    <label class="md12xx-inline"><span>Downshift hysteresis</span><input id="md12xx-hysteresis" type="number" min="0" max="10" step="0.5"><em>°C</em></label>
+  </section>
+
+  <section class="md12xx-panel md12xx-support">
+    <h3>Support and transparency</h3>
+    <p><b>Diagnostics stay local until you choose to share them.</b> Export and inspect the redacted archive first. Files attached to an issue in this public repository are publicly accessible.</p>
+    <div class="md12xx-support-actions">
+      <button id="md12xx-diagnostics" type="button">Export local diagnostics</button>
+      <a class="md12xx-button-link" href="https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml" target="_blank" rel="noopener noreferrer">Report issue on GitHub</a>
+    </div>
+    <p class="md12xx-credit"><b>Development transparency:</b> Erik Boettcher / TheIlluminate92 owns and directs the project, supplies hardware validation, and approves releases. OpenAI Codex (GPT-5) provided primary implementation, testing, documentation, packaging, and debugging assistance under that direction and review.</p>
+  </section>
+
+  <footer class="md12xx-actions">
+    <button id="md12xx-refresh" type="button">Refresh discovery</button>
+    <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
+  </footer>
+</section>
+
+<script>
+window.MD12xxBootstrap = <?=json_encode([
+    'version' => '0.4.14',
+    'endpoint' => $webRoot . '/include/api.php',
+    'config' => $config,
+], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
+</script>
+<script src="<?=$webRoot?>/assets/js/settings.js?v=<?=$jsVersion?>"></script>
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/README.md">
+<INLINE>
+<![CDATA[
+**MD12xx Fan Control**
+
+Local temperature-based fan control with independent SES fan telemetry for Dell PowerVault MD1200 and MD1220 disk shelves.
+
+]]>
+</INLINE>
+</FILE>
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/commission-job.sh">
 <INLINE>
 <![CDATA[
 #!/bin/bash
@@ -3149,7 +3296,7 @@ exit "$RESULT"
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/commission.sh">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/commission.sh">
 <INLINE>
 <![CDATA[
 #!/bin/bash
@@ -3184,6 +3331,8 @@ if [ "$MODE" = startup35 ]; then
   BASELINE_WAIT_SECONDS=15
   RESPONSE_TIMEOUT_SECONDS=20
   php "$PLUGIN_DIR/include/quiet.php" baseline
+else
+  php "$PLUGIN_DIR/include/commission-safety.php" baseline
 fi
 
 if [ "$MODE" != startup35 ] && jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
@@ -3275,6 +3424,7 @@ query_sas_identity() {
 send_speed() {
   local SPEED="$1" CAPTURE
   if [ "$MODE" = startup35 ] && [ "${RESTORING:-false}" != true ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
+  if [ "$MODE" != startup35 ] && [ "${RESTORING:-false}" != true ]; then php "$PLUGIN_DIR/include/commission-safety.php" temperatures || return 1; fi
   CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
@@ -3302,7 +3452,7 @@ sample_device_rpm() {
   SAFE="$(basename "$DEVICE")"
   RAW="$RESULT_DIR/${LABEL}-${SAFE}-ses.txt"
   timeout "$QUERY_TIMEOUT" sg_ses -p es "$DEVICE" > "$RAW" 2>&1 || return 1
-  SPEEDS="$(sed -n 's/.*Actual speed=\([0-9][0-9]*\) rpm.*/\1/p' "$RAW" | awk '$1 > 0')"
+  SPEEDS="$(php -r 'require $argv[1]; $v=md12xx_parse_fan_telemetry(file_get_contents($argv[2])); if ($v["state"] !== "normal") exit(1); echo implode("\n",$v["fanRpms"]);' "$PLUGIN_DIR/include/common.php" "$RAW")" || return 1
   COUNT="$(printf '%s\n' "$SPEEDS" | sed '/^$/d' | wc -l | tr -d ' ')"
   [ "$COUNT" -ge 2 ] || return 1
   AVERAGE="$(printf '%s\n' "$SPEEDS" | awk '{sum += $1; count++} END {printf "%.0f", sum / count}')"
@@ -3333,6 +3483,7 @@ sample_candidates_for_window() {
     [ "$DELAY" -le "$REMAINING" ] || DELAY="$REMAINING"
     sleep "$DELAY"
     if [ "$MODE" = startup35 ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
+    if [ "$MODE" != startup35 ]; then php "$PLUGIN_DIR/include/commission-safety.php" temperatures || return 1; fi
 
     while IFS=$'\t' read -r ADDRESS DEVICE; do
       NOW="$(date +%s)"
@@ -3394,6 +3545,10 @@ candidate_ses() {
 restore_safe() {
   local RESTORE_SPEED=20
   if [ "$MODE" = startup35 ]; then RESTORE_SPEED="$(php "$PLUGIN_DIR/include/quiet.php" restore-speed 2>/dev/null || echo 100)"; fi
+  if [ "$MODE" != startup35 ]; then RESTORE_SPEED="$(php "$PLUGIN_DIR/include/commission-safety.php" restore-speed 2>/dev/null || echo 100)"; fi
+  [[ "$RESTORE_SPEED" =~ ^[0-9]+$ ]] && [ "$RESTORE_SPEED" -ge 20 ] && [ "$RESTORE_SPEED" -le 100 ] || RESTORE_SPEED=100
+  # Reaching a higher safe target aborts the 20% calibration; never certify it.
+  if [ "$RESTORE_SPEED" -gt 20 ]; then THERMAL_ABORT=true; fi
   echo "Returning the selected MD12xx console to ${RESTORE_SPEED}%..."
   RESTORING=true
   if send_speed "$RESTORE_SPEED"; then RESTORING=false; return 0; fi
@@ -3405,6 +3560,20 @@ restore_safe() {
 restore_and_cleanup() {
   restore_safe || true
   rm -f "$COMMISSION_MARKER"
+}
+
+thermal_wait() {
+  local remaining="$1"
+  while [ "$remaining" -gt 0 ]; do
+    sleep 1
+    if [ "$MODE" = startup35 ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1;
+    else php "$PLUGIN_DIR/include/commission-safety.php" temperatures || return 1; fi
+    remaining=$((remaining - 1))
+  done
+}
+
+require_cool_restore() {
+  [ "${THERMAL_ABORT:-false}" != true ] || { echo "Cooling demand rose; restored the required higher target. Commissioning aborted." >&2; return 1; }
 }
 
 echo "Verifying the selected serial console with a read-only identity query..."
@@ -3430,8 +3599,9 @@ if [ "$MODE" = manual-identify ]; then
   send_speed 20
   echo "Commanding 50% for 15 seconds. Observe which physical shelf changes."
   send_speed 50
-  sleep 15
+  thermal_wait 15
   restore_safe
+  require_cool_restore
   jq -n --arg port "$PORT" --argjson time "$(date +%s)" '{serialPort:$port,completedAt:$time}' > "$STATE_DIR/manual-identify-${SHELF_ID}.json.tmp"
   mv -f "$STATE_DIR/manual-identify-${SHELF_ID}.json.tmp" "$STATE_DIR/manual-identify-${SHELF_ID}.json"
   trap 'rm -f "$COMMISSION_MARKER"' EXIT
@@ -3488,8 +3658,9 @@ sas_pairing_fallback() {
   echo "Commanding 20%, then 50% for 15 seconds, then restoring 20%..."
   send_speed 20
   send_speed 50
-  sleep 15
+  thermal_wait 15
   restore_safe
+  require_cool_restore
   # Both interfaces have the same enclosure identity. SES fan RPM is not
   # claimed as live proof of the acknowledged serial speed commands.
   MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
@@ -3571,6 +3742,7 @@ sample_candidates_for_window "${HIGH_SPEED}-percent" "$HIGH_HISTORY" "$HIGH" max
 
 RESTORE_SENT=true
 restore_safe || RESTORE_SENT=false
+require_cool_restore
 
 MATCHES="$RESULT_DIR/matches.tsv"
 cp "$STABLE_MATCH" "$MATCHES"
@@ -3594,14 +3766,15 @@ FIRST_RESPONSE_SECONDS="$(awk -F '\t' -v wanted="$SES_ADDRESS" -v low="$RPM_20" 
 ' "$HIGH_HISTORY")"
 
 echo "Waiting ${RESTORE_WAIT_SECONDS}s to prove the selected enclosure returned to 20%..."
-sleep "$RESTORE_WAIT_SECONDS"
+thermal_wait "$RESTORE_WAIT_SECONDS"
 FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore || true)"
 FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 
 if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_HIGH" "$FINAL_RPM"; then
   echo "The first 20% restore was not proven by SES telemetry (${FINAL_RPM:-no RPM} RPM); retrying once." >&2
   restore_safe || true
-  sleep "$RESTORE_WAIT_SECONDS"
+  require_cool_restore
+  thermal_wait "$RESTORE_WAIT_SECONDS"
   FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore-retry || true)"
   FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 fi
@@ -3709,7 +3882,7 @@ fi
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/controller-supervisor.sh">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/controller-supervisor.sh">
 <INLINE>
 <![CDATA[
 #!/bin/bash
@@ -3776,7 +3949,9 @@ trim_log() {
   size="$(wc -c < "$CONTROLLER_LOG" 2>/dev/null || echo 0)"
   [ "$size" -le "$MAX_LOG_BYTES" ] && return
   tmp="$CONTROLLER_LOG.tmp.$$"
-  tail -c "$MAX_LOG_BYTES" "$CONTROLLER_LOG" > "$tmp" 2>/dev/null && mv -f "$tmp" "$CONTROLLER_LOG"
+  # Keep the inode: the running child still holds this log open.
+  if tail -c "$MAX_LOG_BYTES" "$CONTROLLER_LOG" > "$tmp" 2>/dev/null; then cat "$tmp" > "$CONTROLLER_LOG"; fi
+  rm -f "$tmp"
 }
 
 shutdown() {
@@ -3810,13 +3985,28 @@ while $running; do
   if [ "$restart_count" -gt 0 ]; then
     write_watchdog "recovering" "Controller restarted; monitoring recovery" 0 "$child_pid"
   else
-    write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
+    write_watchdog "recovering" "Waiting for fresh controller status" 0 "$child_pid"
   fi
   recovered=false
+  health_state="recovering"
+  current_health="recovering"
 
   while $running && process_alive "$child_pid"; do
     alive_for=$(( $(date +%s) - started_at ))
-    if [ "$alive_for" -ge 60 ] && [ "$recovered" = false ]; then
+    if [ $((alive_for % 30)) -eq 0 ]; then trim_log; fi
+    if [ $((alive_for % 5)) -eq 0 ]; then
+      current_health="$(/usr/bin/php "$RUNTIME_DIR/include/watchdog-health.php" "$STATE_DIR/status.json" "$started_at" 2>/dev/null || echo fault)"
+    fi
+    current_health="${current_health:-recovering}"
+    if [ "$current_health" = fault ]; then
+      if [ "$health_state" != fault ]; then
+        write_watchdog "fault" "Controller is alive but its status is faulted or stale; no automatic restart was attempted" 0 "$child_pid"
+      fi
+      notify_local alert "Controller requires attention" "The controller process is alive but reports a fault or has stopped publishing fresh status. Review the shelf status; the supervisor will not create a competing writer."
+      failure_notified=true
+      recovered=false
+    fi
+    if [ "$alive_for" -ge 60 ] && [ "$current_health" = normal ] && [ "$recovered" = false ]; then
       recovered=true
       consecutive_failures=0
       write_watchdog "normal" "Controller is running under supervision" 0 "$child_pid"
@@ -3825,6 +4015,7 @@ while $running; do
         failure_notified=false
       fi
     fi
+    health_state="$current_health"
     sleep 1
   done
 
@@ -3854,7 +4045,7 @@ done
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/diagnose.sh">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/diagnose.sh">
 <INLINE>
 <![CDATA[
 #!/bin/bash
@@ -3906,6 +4097,7 @@ if [ -f /var/run/md12xx.fancontrol/status.json ]; then
       .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
       .assignedDisks = ((.assignedDisks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring))) |
       .missingDisks = ((.missingDisks // []) | to_entries | map("missing-disk-" + ((.key + 1) | tostring))) |
+      .missingTemperatures = ((.missingTemperatures // []) | to_entries | map("unknown-temperature-" + ((.key + 1) | tostring))) |
       if has("temperatureSource") and .temperatureSource != null then .temperatureSource = "mapped-disk" else . end
     ))
   ' /var/run/md12xx.fancontrol/status.json > "$RESULT_DIR/status.redacted.json"
@@ -3953,7 +4145,7 @@ echo "Read-only diagnostics: $RESULT_ROOT/${STAMP}.tar.gz"
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/interrogate-emm.sh">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/interrogate-emm.sh">
 <INLINE>
 <![CDATA[
 #!/bin/bash
@@ -4057,7 +4249,7 @@ done
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/select-candidates.awk">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/select-candidates.awk">
 <INLINE>
 <![CDATA[
 # Select RPM-test candidates without treating stale host addresses as identity.
@@ -4089,7 +4281,7 @@ END {
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/stable-response.awk">
 <INLINE>
 <![CDATA[
 BEGIN { FS="\t" }
@@ -4139,7 +4331,7 @@ END {
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/start.sh">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/start.sh">
 <INLINE>
 <![CDATA[
 #!/bin/bash
@@ -4189,7 +4381,7 @@ fi
 ]]>
 </INLINE>
 </FILE>
-<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stop.sh">
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/stop.sh">
 <INLINE>
 <![CDATA[
 #!/bin/bash
@@ -4232,16 +4424,52 @@ rm -f "$STATE_DIR/diagnostics.lock"
 <INLINE>
 <![CDATA[
 set -e
-RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+RUNTIME_DIR="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
 chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
-chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php" "$RUNTIME_DIR/include/quiet.php"
+chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php" "$RUNTIME_DIR/include/quiet.php" "$RUNTIME_DIR/include/safety.php" "$RUNTIME_DIR/include/commission-safety.php" "$RUNTIME_DIR/include/watchdog-health.php"
 chmod 0644 "$RUNTIME_DIR/scripts/stable-response.awk" "$RUNTIME_DIR/scripts/select-candidates.awk"
 chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/interrogate-emm.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
 
 for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
+
+for SHELL_FILE in "$RUNTIME_DIR"/scripts/*.sh; do bash -n "$SHELL_FILE"; done
+
+# Staged validation must complete before stopping the installed processes.
+STAGED_DIR="$RUNTIME_DIR"
+RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+PREVIOUS_DIR="/usr/local/emhttp/plugins/.md12xx.fancontrol.previous"
+[ ! -L "$RUNTIME_DIR" ] && [ ! -L "$PREVIOUS_DIR" ] || exit 1
+HAD_PREVIOUS=false
+ACTIVATING=false
+rollback_runtime() {
+  local result=$?
+  if [ "$result" -ne 0 ] && [ "$ACTIVATING" = true ]; then
+    # A failed new start must be stopped before a previous writer is restored.
+    if [ -x "$RUNTIME_DIR/scripts/stop.sh" ] && ! "$RUNTIME_DIR/scripts/stop.sh"; then
+      echo "New runtime could not stop; previous runtime retained for supervised recovery." >&2
+      return
+    fi
+    rm -rf -- "$RUNTIME_DIR"
+    if $HAD_PREVIOUS; then
+      mv -- "$PREVIOUS_DIR" "$RUNTIME_DIR"
+      "$RUNTIME_DIR/scripts/start.sh" || true
+    fi
+    echo "Plugin activation failed; prior runtime restored when available." >&2
+  fi
+}
+trap rollback_runtime EXIT
+if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then "$RUNTIME_DIR/scripts/stop.sh"; fi
+# Keep a previous successful runtime until the next activation. Never touch config.
+if [ -d "$RUNTIME_DIR" ]; then
+  rm -rf -- "$PREVIOUS_DIR"
+  mv -- "$RUNTIME_DIR" "$PREVIOUS_DIR"
+  HAD_PREVIOUS=true
+fi
+ACTIVATING=true
+mv -- "$STAGED_DIR" "$RUNTIME_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   cat > "$CONFIG_FILE" <<'MD12XX_CONFIG'
@@ -4282,6 +4510,7 @@ php -r '
 ' "$RUNTIME_DIR/include/common.php" "$CONFIG_FILE"
 mkdir -p /var/run/md12xx.fancontrol
 "$RUNTIME_DIR/scripts/start.sh"
+trap - EXIT
 cat <<'MD12XX_BANNER'
 
               \   |   /
@@ -4294,7 +4523,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.4.13 installed. Configure it under Settings → Utilities."
+echo "Version 0.4.14 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>
@@ -4309,6 +4538,7 @@ if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
   "$RUNTIME_DIR/scripts/stop.sh"
 fi
 rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"
+rm -rf "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "/usr/local/emhttp/plugins/.md12xx.fancontrol.previous"
 rm -f "/boot/config/plugins/md12xx.fancontrol.plg"
 echo "MD12xx Fan Control removed. Configuration, commissioning results, and runtime state were deleted."
 ]]>

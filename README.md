@@ -1,5 +1,7 @@
 # MD12xx Fan Control for Unraid
 
+Current maintenance build: **0.4.14 / 2026.10.20.01**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
+
 Standalone, host-native fan control for Dell PowerVault MD1200 and MD1220 disk shelves.
 
 > **Beta:** MD1200 control and SES telemetry have been verified on real hardware. MD1220 uses the same Dell MD12xx enclosure family and is included for testing, but its serial fan response still requires independent hardware confirmation.

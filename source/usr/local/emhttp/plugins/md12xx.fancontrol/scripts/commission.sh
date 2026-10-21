@@ -30,6 +30,8 @@ if [ "$MODE" = startup35 ]; then
   BASELINE_WAIT_SECONDS=15
   RESPONSE_TIMEOUT_SECONDS=20
   php "$PLUGIN_DIR/include/quiet.php" baseline
+else
+  php "$PLUGIN_DIR/include/commission-safety.php" baseline
 fi
 
 if [ "$MODE" != startup35 ] && jq -e '.enabled == true' "$CONFIG_FILE" >/dev/null; then
@@ -121,6 +123,7 @@ query_sas_identity() {
 send_speed() {
   local SPEED="$1" CAPTURE
   if [ "$MODE" = startup35 ] && [ "${RESTORING:-false}" != true ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
+  if [ "$MODE" != startup35 ] && [ "${RESTORING:-false}" != true ]; then php "$PLUGIN_DIR/include/commission-safety.php" temperatures || return 1; fi
   CAPTURE="$RESULT_DIR/speed-${SPEED}-$$-$RANDOM.txt"
   (
     flock -w 15 9 || { echo "Serial adapter remained locked for 15 seconds." >&2; exit 1; }
@@ -148,7 +151,7 @@ sample_device_rpm() {
   SAFE="$(basename "$DEVICE")"
   RAW="$RESULT_DIR/${LABEL}-${SAFE}-ses.txt"
   timeout "$QUERY_TIMEOUT" sg_ses -p es "$DEVICE" > "$RAW" 2>&1 || return 1
-  SPEEDS="$(sed -n 's/.*Actual speed=\([0-9][0-9]*\) rpm.*/\1/p' "$RAW" | awk '$1 > 0')"
+  SPEEDS="$(php -r 'require $argv[1]; $v=md12xx_parse_fan_telemetry(file_get_contents($argv[2])); if ($v["state"] !== "normal") exit(1); echo implode("\n",$v["fanRpms"]);' "$PLUGIN_DIR/include/common.php" "$RAW")" || return 1
   COUNT="$(printf '%s\n' "$SPEEDS" | sed '/^$/d' | wc -l | tr -d ' ')"
   [ "$COUNT" -ge 2 ] || return 1
   AVERAGE="$(printf '%s\n' "$SPEEDS" | awk '{sum += $1; count++} END {printf "%.0f", sum / count}')"
@@ -179,6 +182,7 @@ sample_candidates_for_window() {
     [ "$DELAY" -le "$REMAINING" ] || DELAY="$REMAINING"
     sleep "$DELAY"
     if [ "$MODE" = startup35 ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1; fi
+    if [ "$MODE" != startup35 ]; then php "$PLUGIN_DIR/include/commission-safety.php" temperatures || return 1; fi
 
     while IFS=$'\t' read -r ADDRESS DEVICE; do
       NOW="$(date +%s)"
@@ -240,6 +244,10 @@ candidate_ses() {
 restore_safe() {
   local RESTORE_SPEED=20
   if [ "$MODE" = startup35 ]; then RESTORE_SPEED="$(php "$PLUGIN_DIR/include/quiet.php" restore-speed 2>/dev/null || echo 100)"; fi
+  if [ "$MODE" != startup35 ]; then RESTORE_SPEED="$(php "$PLUGIN_DIR/include/commission-safety.php" restore-speed 2>/dev/null || echo 100)"; fi
+  [[ "$RESTORE_SPEED" =~ ^[0-9]+$ ]] && [ "$RESTORE_SPEED" -ge 20 ] && [ "$RESTORE_SPEED" -le 100 ] || RESTORE_SPEED=100
+  # Reaching a higher safe target aborts the 20% calibration; never certify it.
+  if [ "$RESTORE_SPEED" -gt 20 ]; then THERMAL_ABORT=true; fi
   echo "Returning the selected MD12xx console to ${RESTORE_SPEED}%..."
   RESTORING=true
   if send_speed "$RESTORE_SPEED"; then RESTORING=false; return 0; fi
@@ -251,6 +259,20 @@ restore_safe() {
 restore_and_cleanup() {
   restore_safe || true
   rm -f "$COMMISSION_MARKER"
+}
+
+thermal_wait() {
+  local remaining="$1"
+  while [ "$remaining" -gt 0 ]; do
+    sleep 1
+    if [ "$MODE" = startup35 ]; then php "$PLUGIN_DIR/include/quiet.php" temperatures || return 1;
+    else php "$PLUGIN_DIR/include/commission-safety.php" temperatures || return 1; fi
+    remaining=$((remaining - 1))
+  done
+}
+
+require_cool_restore() {
+  [ "${THERMAL_ABORT:-false}" != true ] || { echo "Cooling demand rose; restored the required higher target. Commissioning aborted." >&2; return 1; }
 }
 
 echo "Verifying the selected serial console with a read-only identity query..."
@@ -276,8 +298,9 @@ if [ "$MODE" = manual-identify ]; then
   send_speed 20
   echo "Commanding 50% for 15 seconds. Observe which physical shelf changes."
   send_speed 50
-  sleep 15
+  thermal_wait 15
   restore_safe
+  require_cool_restore
   jq -n --arg port "$PORT" --argjson time "$(date +%s)" '{serialPort:$port,completedAt:$time}' > "$STATE_DIR/manual-identify-${SHELF_ID}.json.tmp"
   mv -f "$STATE_DIR/manual-identify-${SHELF_ID}.json.tmp" "$STATE_DIR/manual-identify-${SHELF_ID}.json"
   trap 'rm -f "$COMMISSION_MARKER"' EXIT
@@ -334,8 +357,9 @@ sas_pairing_fallback() {
   echo "Commanding 20%, then 50% for 15 seconds, then restoring 20%..."
   send_speed 20
   send_speed 50
-  sleep 15
+  thermal_wait 15
   restore_safe
+  require_cool_restore
   # Both interfaces have the same enclosure identity. SES fan RPM is not
   # claimed as live proof of the acknowledged serial speed commands.
   MAPPING_JSON="$(php -r 'require $argv[1]; echo json_encode(md12xx_ses_disk_mapping($argv[2]), JSON_UNESCAPED_SLASHES);' "$PLUGIN_DIR/include/common.php" "$SES_ADDRESS")"
@@ -417,6 +441,7 @@ sample_candidates_for_window "${HIGH_SPEED}-percent" "$HIGH_HISTORY" "$HIGH" max
 
 RESTORE_SENT=true
 restore_safe || RESTORE_SENT=false
+require_cool_restore
 
 MATCHES="$RESULT_DIR/matches.tsv"
 cp "$STABLE_MATCH" "$MATCHES"
@@ -440,14 +465,15 @@ FIRST_RESPONSE_SECONDS="$(awk -F '\t' -v wanted="$SES_ADDRESS" -v low="$RPM_20" 
 ' "$HIGH_HISTORY")"
 
 echo "Waiting ${RESTORE_WAIT_SECONDS}s to prove the selected enclosure returned to 20%..."
-sleep "$RESTORE_WAIT_SECONDS"
+thermal_wait "$RESTORE_WAIT_SECONDS"
 FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore || true)"
 FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 
 if [ "$RESTORE_SENT" != true ] || [ -z "$FINAL_RPM" ] || ! restoration_proven "$RPM_20" "$RPM_HIGH" "$FINAL_RPM"; then
   echo "The first 20% restore was not proven by SES telemetry (${FINAL_RPM:-no RPM} RPM); retrying once." >&2
   restore_safe || true
-  sleep "$RESTORE_WAIT_SECONDS"
+  require_cool_restore
+  thermal_wait "$RESTORE_WAIT_SECONDS"
   FINAL_SAMPLE="$(sample_device_rpm "$SES_DEVICE" final-restore-retry || true)"
   FINAL_RPM="${FINAL_SAMPLE%%$'\t'*}"
 fi

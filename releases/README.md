@@ -1,6 +1,6 @@
-# Current release: 0.4.13
+# Current release: 0.4.14
 
-`md12xx.fancontrol.plg` is the normal update installer; `md12xx.fancontrol-0.4.13.plg` is its immutable versioned copy. Both are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.12.01**; Settings and the API show application **0.4.13**. The date-based build fixes Unraid update ordering from the test installers.
+`md12xx.fancontrol.plg` is the normal update installer; `md12xx.fancontrol-0.4.14.plg` is its immutable versioned copy. Both are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.20.01**; Settings and the API show application **0.4.14**. The date-based build fixes Unraid update ordering from the test installers.
 
 ```text
 https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg
@@ -17,3 +17,5 @@ Automated Linux/GitHub validation passed, and the affected top MD1200 shelf pass
 Earlier versioned Beta and test installers remain immutable history, including test1's failed migration attempt and its correction in test2. Rollback requires the appropriate saved configuration backup; installing an old package does not migrate new settings backward.
 
 Versioned artifacts must be saved as `md12xx.fancontrol.plg` before deliberate installation. Existing duplicates require a reviewed registration migration; do not uninstall the alias. See [migration plan](../docs/PLUGIN_UPDATES.md).
+
+Read [maintenance and migration](../docs/MAINTENANCE_AND_MIGRATION.md) for the new safety checks, staged runtime rollback, hardware-validation limits and R730xd/R360 split.

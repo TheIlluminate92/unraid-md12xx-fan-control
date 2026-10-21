@@ -237,3 +237,7 @@ These are documented for transparency, not as a stable third-party API. They enf
 The API reads plugin state under `/var/run/md12xx.fancontrol` and saved plugin configuration under `/boot/config/plugins/md12xx.fancontrol`. It does not read array/share file contents, use the Docker socket, contact GitHub, or upload diagnostics.
 
 See [SECURITY.md](../SECURITY.md) for the complete local read/write and network boundary.
+
+## 0.4.14 safety status
+
+Shelf status adds `missingTemperatures` (active assigned disk names without valid temperatures). `telemetryState: "fault"` includes missing, stopped or unhealthy individual cooling elements; aggregate descriptors are excluded. Auto targets at least `sensorFailureSpeed` on a fan telemetry fault. `writeState` remains faulted until healthy telemetry returns; a prior command verification cannot hide it. Manual remains operator-selected. Diagnostic exports redact the added disk names.
