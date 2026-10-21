@@ -8,3 +8,10 @@
 *.xml text eol=lf
 *.md text eol=lf
 *.json text eol=lf
+
+*.ps1 text eol=lf
+*.yml text eol=lf
+VERSION text eol=lf
+PLUGIN_VERSION text eol=lf
+RELEASE text eol=lf
+SHA256SUMS text eol=lf

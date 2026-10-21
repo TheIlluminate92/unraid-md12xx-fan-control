@@ -19,7 +19,7 @@ Persistent writes are restricted to `/boot/config/plugins/md12xx.fancontrol`. Vo
 
 ## Control boundaries
 
-Passive discovery sends nothing. Optional active discovery sends only the read-only `_who` query, only while fan control is disabled, and never sends `set_speed`. Speed commands require an explicitly selected persistent serial path and a shelf that passed RPM-proven commissioning. Serial locks, competing-controller checks, and independent SES telemetry prevent two writers from being treated as safe. If the local ownership-checking utility is unavailable, serial access fails closed rather than assuming the adapter is free.
+Passive discovery sends nothing. Optional active discovery sends only the read-only `_who` query, only while fan control is disabled, and never sends `set_speed`. Speed commands require an explicitly selected persistent serial path and a commissioned shelf with RPM-proven, SAS identity-matched, or explicitly operator-confirmed pairing. Serial locks, competing-controller checks, and independent SES telemetry prevent two writers from being treated as safe. If the local ownership-checking utility is unavailable, serial access fails closed rather than assuming the adapter is free.
 
 State-changing WebGUI requests use Unraid's authenticated local WebGUI session and CSRF token. Configuration input is range-checked and hardware paths are restricted to single-component persistent serial identifiers, `/dev/sgN`, and stable SCSI addresses. Nested and traversal-style serial paths are rejected before hardware access.
 
@@ -30,3 +30,7 @@ The local diagnostic exporter removes hostnames, serial adapter identifiers, dis
 ## Automated checks
 
 CI builds and parses the plugin XML, checks PHP/shell/JavaScript syntax, rejects known server-specific identifiers, verifies generic MD1200 and synthetic 24-bay MD1220 topology fixtures, confirms discovery contains no speed command, and rejects outbound-network primitives or broad filesystem paths in runtime source.
+
+## Maintenance safety boundaries
+
+Auto fails safe for any missing active disk temperature or failed/missing individual cooling element. Manual remains an explicit operator target. Commissioning requires safe known temperatures and preserves rising cooling demand on abort. Read [maintenance and migration](docs/MAINTENANCE_AND_MIGRATION.md) for validation limits, runtime rollback, stopped-controller behavior and host moves.

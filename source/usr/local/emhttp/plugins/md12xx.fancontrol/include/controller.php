@@ -42,6 +42,7 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
     $seen = 0;
     $active = 0;
     $missing = [];
+    $missingTemperatures = [];
     foreach ($assigned as $name) {
         $disk = $disks[strtolower((string) $name)] ?? null;
         if (!is_array($disk)) { $missing[] = (string) $name; continue; }
@@ -49,6 +50,7 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
         if (!md12xx_controller_spun_down($disk)) $active++;
         $raw = trim((string) ($disk['temp'] ?? ''));
         if (is_numeric($raw) && (float) $raw > 0.0) $temperatures[(string) $name] = (float) $raw;
+        elseif (!md12xx_controller_spun_down($disk)) $missingTemperatures[] = (string) $name;
     }
     arsort($temperatures, SORT_NUMERIC);
     $source = $temperatures ? (string) array_key_first($temperatures) : null;
@@ -58,6 +60,7 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
         'assignedCount' => count($assigned),
         'assignedSeen' => $seen,
         'missingDisks' => $missing,
+        'missingTemperatures' => $missingTemperatures,
         'activeDisks' => $active,
         'allSpunDown' => count($assigned) > 0 && $seen === count($assigned) && $active === 0,
     ];
@@ -77,6 +80,9 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
         return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'assigned disk inventory incomplete; fail-safe'];
     }
     if ($thermal['allSpunDown']) return ['speed' => $cool, 'reason' => 'assigned disks spun down'];
+    if (!empty($thermal['missingTemperatures'])) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'active disk temperature unavailable; fail-safe'];
+    }
     if ($thermal['temperatureC'] === null) {
         return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'temperature unavailable; fail-safe'];
     }
@@ -171,10 +177,7 @@ function md12xx_controller_rpm(string $id, string $device, string $fixtureDirect
         if ($exitCode !== 0) return ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'SES telemetry read failed'];
         $output = implode("\n", $lines);
     }
-    preg_match_all('/Actual\s+speed\s*=\s*([0-9]+)\s*rpm/i', $output, $matches);
-    $values = array_values(array_filter(array_map('intval', $matches[1] ?? []), static fn(int $rpm): bool => $rpm > 0));
-    if (!$values) return ['state' => 'unavailable', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => 'No fan RPM values were reported'];
-    return ['state' => 'normal', 'averageRpm' => (int) round(array_sum($values) / count($values)), 'fanCount' => count($values), 'fanRpms' => $values, 'message' => ''];
+    return md12xx_parse_fan_telemetry($output);
 }
 
 function md12xx_controller_write_state(string $path, array $state): void
@@ -331,8 +334,15 @@ while ($running) {
         $thermal = md12xx_controller_temperature($assignedDisks, $disks);
         $thermal['mappingChanged'] = $mappingChanged;
         $auto = md12xx_controller_auto_target($config, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
+        $telemetry = $invalidSesMapping
+            ? ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $connection['message']]
+            : md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
         $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
         $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
+        if ($mode === 'auto' && $telemetry['state'] === 'fault') {
+            $target = max($target, (int) $config['sensorFailureSpeed']);
+            $reason = 'fan telemetry fault; fail-safe';
+        }
         if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {
             unset($pendingVerifications[$id]);
         }
@@ -373,7 +383,6 @@ while ($running) {
             }
         }
 
-        $telemetry = md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
         if ($invalidSesMapping) {
             $telemetry = ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $diskMapping['message']];
             $write = $quietRecoveryActive ? ['state' => 'blocked', 'message' => 'Quiet 35% startup recovery is active'] : ['state' => 'fault', 'message' => $diskMapping['message']];
@@ -418,6 +427,11 @@ while ($running) {
         } elseif (($lastVerifications[$id]['target'] ?? null) === $target && !isset($pendingVerifications[$id]) && in_array($write['state'], ['idle', 'sent', 'unconfirmed'], true)) {
             $write = $lastVerifications[$id];
         }
+        if ($operable && $telemetry['state'] === 'fault') {
+            // A previous successful command cannot certify a newly failed fan.
+            unset($lastVerifications[$id]);
+            $write = ['state' => 'fault', 'message' => $telemetry['message']];
+        }
         if ($operable && $write['state'] === 'fault') { $controllerState = 'fault'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $write['state'] === 'unverified' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $write['state'] === 'pending' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
@@ -425,6 +439,7 @@ while ($running) {
         elseif ($operable && $identityVerified && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $identityLabel . ' pairing; SES fan response is not verified'; }
         elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
         elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }
+        elseif ($operable && !empty($thermal['missingTemperatures']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': active disk temperature unavailable'; }
         elseif ($enabled && (bool) $shelf['enabled'] && !(bool) $shelf['commissioned'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': commissioning required'; }
         elseif ($enabled && (bool) $shelf['enabled'] && $telemetry['state'] !== 'normal' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $telemetry['message']; }
 
@@ -446,6 +461,7 @@ while ($running) {
             'assignedCount' => $thermal['assignedCount'],
             'assignedSeen' => $thermal['assignedSeen'],
             'missingDisks' => $thermal['missingDisks'],
+            'missingTemperatures' => $thermal['missingTemperatures'],
             'activeDisks' => $thermal['activeDisks'],
             'temperatureC' => $thermal['temperatureC'],
             'temperatureSource' => $thermal['temperatureSource'],

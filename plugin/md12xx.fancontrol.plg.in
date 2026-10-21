@@ -8,6 +8,9 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
 <CHANGES>
+### 0.4.14 - Build 2026.10.20.01
+- Partial active-temperature loss and failed/missing fans now fail safe in Auto. Commissioning monitors thermal demand and preserves higher cooling on abort. Status-aware supervision and staged runtime validation/rollback preserve saved commissioning. Adds safety/activation regressions and migration documentation. New failure paths are software-tested; supervised hardware validation remains pending.
+
 ### 0.4.13 - Build 2026.10.12.01
 - Rejects noncanonical installer filenames and duplicate internal-name registrations before touching runtime or configuration.
 - Keeps canonical install/update naming, date-based build metadata, and existing project credits.
@@ -169,11 +172,10 @@ set -e
 RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 
-if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
-  "$RUNTIME_DIR/scripts/stop.sh"
-fi
-rm -rf "$RUNTIME_DIR"
-mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
+# Populate a separate tree while the installed runtime keeps running.
+[ ! -L "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" ] || { echo "Staging path is a symlink" >&2; exit 1; }
+rm -rf -- "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged"
+mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
 ]]>
 </INLINE>
 </FILE>
@@ -184,16 +186,52 @@ mkdir -p "$RUNTIME_DIR" "$CONFIG_DIR"
 <INLINE>
 <![CDATA[
 set -e
-RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+RUNTIME_DIR="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged"
 CONFIG_DIR="/boot/config/plugins/md12xx.fancontrol"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 
 chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIME_DIR/assets/css/settings.css" "$RUNTIME_DIR/assets/js/settings.js" "$RUNTIME_DIR/assets/icon.svg"
-chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php" "$RUNTIME_DIR/include/quiet.php"
+chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php" "$RUNTIME_DIR/include/quiet.php" "$RUNTIME_DIR/include/safety.php" "$RUNTIME_DIR/include/commission-safety.php" "$RUNTIME_DIR/include/watchdog-health.php"
 chmod 0644 "$RUNTIME_DIR/scripts/stable-response.awk" "$RUNTIME_DIR/scripts/select-candidates.awk"
 chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/interrogate-emm.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
 
 for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
+
+for SHELL_FILE in "$RUNTIME_DIR"/scripts/*.sh; do bash -n "$SHELL_FILE"; done
+
+# Staged validation must complete before stopping the installed processes.
+STAGED_DIR="$RUNTIME_DIR"
+RUNTIME_DIR="/usr/local/emhttp/plugins/md12xx.fancontrol"
+PREVIOUS_DIR="/usr/local/emhttp/plugins/.md12xx.fancontrol.previous"
+[ ! -L "$RUNTIME_DIR" ] && [ ! -L "$PREVIOUS_DIR" ] || exit 1
+HAD_PREVIOUS=false
+ACTIVATING=false
+rollback_runtime() {
+  local result=$?
+  if [ "$result" -ne 0 ] && [ "$ACTIVATING" = true ]; then
+    # A failed new start must be stopped before a previous writer is restored.
+    if [ -x "$RUNTIME_DIR/scripts/stop.sh" ] && ! "$RUNTIME_DIR/scripts/stop.sh"; then
+      echo "New runtime could not stop; previous runtime retained for supervised recovery." >&2
+      return
+    fi
+    rm -rf -- "$RUNTIME_DIR"
+    if $HAD_PREVIOUS; then
+      mv -- "$PREVIOUS_DIR" "$RUNTIME_DIR"
+      "$RUNTIME_DIR/scripts/start.sh" || true
+    fi
+    echo "Plugin activation failed; prior runtime restored when available." >&2
+  fi
+}
+trap rollback_runtime EXIT
+if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then "$RUNTIME_DIR/scripts/stop.sh"; fi
+# Keep a previous successful runtime until the next activation. Never touch config.
+if [ -d "$RUNTIME_DIR" ]; then
+  rm -rf -- "$PREVIOUS_DIR"
+  mv -- "$RUNTIME_DIR" "$PREVIOUS_DIR"
+  HAD_PREVIOUS=true
+fi
+ACTIVATING=true
+mv -- "$STAGED_DIR" "$RUNTIME_DIR"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   cat > "$CONFIG_FILE" <<'MD12XX_CONFIG'
@@ -234,6 +272,7 @@ php -r '
 ' "$RUNTIME_DIR/include/common.php" "$CONFIG_FILE"
 mkdir -p /var/run/md12xx.fancontrol
 "$RUNTIME_DIR/scripts/start.sh"
+trap - EXIT
 cat <<'MD12XX_BANNER'
 
               \   |   /
@@ -261,6 +300,7 @@ if [ -x "$RUNTIME_DIR/scripts/stop.sh" ]; then
   "$RUNTIME_DIR/scripts/stop.sh"
 fi
 rm -rf "$RUNTIME_DIR" "/var/run/md12xx.fancontrol" "$CONFIG_DIR"
+rm -rf "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "/usr/local/emhttp/plugins/.md12xx.fancontrol.previous"
 rm -f "/boot/config/plugins/md12xx.fancontrol.plg"
 echo "MD12xx Fan Control removed. Configuration, commissioning results, and runtime state were deleted."
 ]]>

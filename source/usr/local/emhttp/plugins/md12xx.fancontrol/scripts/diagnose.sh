@@ -47,6 +47,7 @@ if [ -f /var/run/md12xx.fancontrol/status.json ]; then
       .sesDevice = (if (.sesDevice // "") == "" then "" else "/dev/sg[redacted]" end) |
       .assignedDisks = ((.assignedDisks // []) | to_entries | map("mapped-disk-" + ((.key + 1) | tostring))) |
       .missingDisks = ((.missingDisks // []) | to_entries | map("missing-disk-" + ((.key + 1) | tostring))) |
+      .missingTemperatures = ((.missingTemperatures // []) | to_entries | map("unknown-temperature-" + ((.key + 1) | tostring))) |
       if has("temperatureSource") and .temperatureSource != null then .temperatureSource = "mapped-disk" else . end
     ))
   ' /var/run/md12xx.fancontrol/status.json > "$RESULT_DIR/status.redacted.json"

@@ -11,8 +11,8 @@ if LC_ALL=C grep -q $'\r' "$TMP_DIR/md12xx.fancontrol.plg"; then
   echo "Built installer contains CRLF bytes that Git would normalize" >&2
   exit 1
 fi
-grep -Fq '<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/README.md">' "$TMP_DIR/md12xx.fancontrol.plg"
-grep -Fq '<FILE Name="/usr/local/emhttp/plugins/md12xx.fancontrol/scripts/stable-response.awk">' "$TMP_DIR/md12xx.fancontrol.plg"
+grep -Fq '<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/README.md">' "$TMP_DIR/md12xx.fancontrol.plg"
+grep -Fq '<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/stable-response.awk">' "$TMP_DIR/md12xx.fancontrol.plg"
 grep -Fq '**MD12xx Fan Control**' "$TMP_DIR/md12xx.fancontrol.plg"
 grep -Fq 'Dell PowerVault MD1200 and MD1220 disk shelves.' "$TMP_DIR/md12xx.fancontrol.plg"
 for FILE in "$PLUGIN_DIR"/include/*.php; do php -l "$FILE" >/dev/null; done
@@ -20,6 +20,7 @@ for FILE in "$PLUGIN_DIR"/scripts/*.sh "$PROJECT_DIR/scripts/build.sh"; do bash 
 node --check "$PLUGIN_DIR/assets/js/settings.js"
 bash "$PROJECT_DIR/tests/security.sh"
 php "$PROJECT_DIR/tests/registration.php" "$TMP_DIR/md12xx.fancontrol.plg"
+php "$PROJECT_DIR/tests/activation.php" "$TMP_DIR/md12xx.fancontrol.plg"
 if grep -qE 'require_once[[:space:]]+__DIR__' "$PLUGIN_DIR/MD12xxFanControl.page"; then
   echo "Settings page relies on the page builder __DIR__ context." >&2
   exit 1
@@ -442,4 +443,5 @@ if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP
   exit 1
 fi
 
+php "$PROJECT_DIR/tests/safety.php" "$PROJECT_DIR"
 echo "MD12xx runtime verification passed."

@@ -18,8 +18,9 @@ try {
         exec('timeout 3 sg_ses -p es ' . escapeshellarg($candidate['device']) . ' 2>/dev/null', $lines, $exitCode);
         if ($exitCode !== 0) throw new RuntimeException('Baseline telemetry unavailable');
         if (preg_match('/\b(?:Fail|CRIT|UNRECOV)=1\b/', implode("\n", $lines))) throw new RuntimeException('Enclosure reports a hardware fault; quiet recovery is blocked');
-        preg_match_all('/Actual\s+speed\s*=\s*([0-9]+)\s*rpm/i', implode("\n", $lines), $values);
-        $rpms = array_values(array_filter(array_map('intval', $values[1]), static fn(int $rpm): bool => $rpm > 0));
+        $telemetry = md12xx_parse_fan_telemetry(implode("\n", $lines));
+        if ($telemetry['state'] !== 'normal') throw new RuntimeException($telemetry['message']);
+        $rpms = $telemetry['fanRpms'];
         $candidate['fanCount'] = count($rpms);
         $candidate['averageRpm'] = $rpms ? (int) round(array_sum($rpms) / count($rpms)) : 0;
         $candidates[] = $candidate;
