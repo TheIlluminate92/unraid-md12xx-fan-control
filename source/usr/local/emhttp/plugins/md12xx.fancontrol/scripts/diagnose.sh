@@ -58,6 +58,11 @@ if [ -f /var/run/md12xx.fancontrol/watchdog.json ]; then
     /var/run/md12xx.fancontrol/watchdog.json > "$RESULT_DIR/watchdog.json"
 fi
 
+if [ -f "$STATE_DIR/ipmi-status.json" ]; then
+  jq '{generatedAt, state, enabled, mode, targetPercent, cpuMaxC, inletC, fanRpms, averageRpm, healthy, message, targetReason, latched}' \
+    "$STATE_DIR/ipmi-status.json" > "$RESULT_DIR/ipmi-status.redacted.json"
+fi
+
 if [ -f /var/run/md12xx.fancontrol/discovery.json ]; then
   jq '
     .serialPorts = ((.serialPorts // []) | map({

@@ -6,8 +6,15 @@
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
-<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="server">
+<PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
+### 0.5.0 Beta - Build 2026.10.22.04
+- Adds configurable downshift hysteresis to each Individual shelf/IPMI curve; Global devices follow the Global hysteresis. IPMI defaults to 1°C, increases speed immediately, and delays downshifts until below the threshold minus hysteresis. Fault/thermal handback remains immediate.
+- Individual IPMI curves now support a 15% minimum. Global and MD12xx shelf curves retain their 20% minimum. Emergency iDRAC cooling takes priority over a curve's maximum.
+- Adds disabled-by-default local IPMI chassis control for R730/R730xd, with a bundled static tool and licenses. Thermal or sensor faults return control to iDRAC; persistent host-bound ownership supports recovery after process loss or reboot. Live R730xd fan response and explicit firmware handback passed; load, 15% hardware response, crash recovery and reboot validation remain pending.
+- Each shelf and IPMI may follow the Global curve or retain an Individual curve. Each device uses its own temperature; mixed Global/Individual setups are supported.
+- Hides unavailable hardware sections, with a Show unavailable controls option. Adds the bundled plugin PNG icon and preserves the existing update identity and MD12xx commissioning.
+
 ### 0.4.14 - Build 2026.10.20.01
 - Partial active-temperature loss and failed/missing fans now fail safe in Auto. Commissioning monitors thermal demand and preserves higher cooling on abort. Status-aware supervision and staged runtime validation/rollback preserve saved commissioning. Adds safety/activation regressions and migration documentation. New failure paths are software-tested; supervised hardware validation remains pending.
 
@@ -194,6 +201,11 @@ chmod 0644 "$RUNTIME_DIR/MD12xxFanControl.page" "$RUNTIME_DIR/icon.svg" "$RUNTIM
 chmod 0644 "$RUNTIME_DIR/include/common.php" "$RUNTIME_DIR/include/controller.php" "$RUNTIME_DIR/include/discovery.php" "$RUNTIME_DIR/include/api.php" "$RUNTIME_DIR/include/download.php" "$RUNTIME_DIR/include/quiet.php" "$RUNTIME_DIR/include/safety.php" "$RUNTIME_DIR/include/commission-safety.php" "$RUNTIME_DIR/include/watchdog-health.php"
 chmod 0644 "$RUNTIME_DIR/scripts/stable-response.awk" "$RUNTIME_DIR/scripts/select-candidates.awk"
 chmod 0755 "$RUNTIME_DIR/scripts/start.sh" "$RUNTIME_DIR/scripts/stop.sh" "$RUNTIME_DIR/scripts/controller-supervisor.sh" "$RUNTIME_DIR/scripts/diagnose.sh" "$RUNTIME_DIR/scripts/interrogate-emm.sh" "$RUNTIME_DIR/scripts/commission.sh" "$RUNTIME_DIR/scripts/commission-job.sh"
+chmod 0755 "$RUNTIME_DIR/scripts/ipmi-supervisor.sh" "$RUNTIME_DIR/bin/ipmitool.bin"
+chmod 0644 "$RUNTIME_DIR/icon.png"
+php -r '$image = getimagesize($argv[1]); if (!$image || $image[0] !== 256 || $image[1] !== 256 || $image[2] !== IMAGETYPE_PNG) exit(1);' "$RUNTIME_DIR/icon.png"
+"$RUNTIME_DIR/bin/ipmitool.bin" -V >/dev/null
+(cd "$RUNTIME_DIR/bin" && sha256sum -c SHA256SUMS >/dev/null)
 
 for PHP_FILE in "$RUNTIME_DIR"/include/*.php; do php -l "$PHP_FILE" >/dev/null; done
 

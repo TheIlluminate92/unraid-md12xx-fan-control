@@ -18,6 +18,12 @@ grep -Fq 'Dell PowerVault MD1200 and MD1220 disk shelves.' "$TMP_DIR/md12xx.fanc
 for FILE in "$PLUGIN_DIR"/include/*.php; do php -l "$FILE" >/dev/null; done
 for FILE in "$PLUGIN_DIR"/scripts/*.sh "$PROJECT_DIR/scripts/build.sh"; do bash -n "$FILE"; done
 node --check "$PLUGIN_DIR/assets/js/settings.js"
+node --check "$PLUGIN_DIR/assets/js/ipmi.js"
+node --check "$PLUGIN_DIR/assets/js/curves.js"
+node --test "$PROJECT_DIR/tests/curves.test.mjs"
+php "$PROJECT_DIR/tests/ipmi.php"
+php "$PROJECT_DIR/tests/mixed-curves.php"
+php "$PROJECT_DIR/tests/ipmi-lifecycle.php"
 bash "$PROJECT_DIR/tests/security.sh"
 php "$PROJECT_DIR/tests/registration.php" "$TMP_DIR/md12xx.fancontrol.plg"
 php "$PROJECT_DIR/tests/activation.php" "$TMP_DIR/md12xx.fancontrol.plg"
@@ -256,7 +262,19 @@ grep -Fq "'timeout 10 '" "$PLUGIN_DIR/include/controller.php"
 grep -Fq "unset(\$controlConfig['discovery'], \$controlConfig['pollSeconds'])" "$PLUGIN_DIR/include/controller.php"
 grep -Fq 'Setup is complete; turn off Test likely FTDI adapters' "$PLUGIN_DIR/assets/js/settings.js"
 grep -Fq 'Setup is already complete; active connection testing was turned off.' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
-grep -Fq 'icon="server"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
+grep -Fq 'icon="icon.png"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
+php -r '
+$xml = simplexml_load_file($argv[1], "SimpleXMLElement", LIBXML_NOCDATA);
+foreach ($xml->FILE as $file) if (str_ends_with((string)$file["Name"], "/icon.png")) {
+  if ((string)$file["Type"] !== "base64") exit(1);
+  $data = base64_decode(trim((string)$file->INLINE), true);
+  $image = getimagesizefromstring($data);
+  if (!$image || $image[0] !== 256 || $image[1] !== 256 || $image[2] !== IMAGETYPE_PNG) exit(1);
+  exit(0);
+}
+exit(1);
+' "$TMP_DIR/md12xx.fancontrol.plg"
+(cd "$PLUGIN_DIR/bin" && sha256sum -c SHA256SUMS)
 grep -Fq 'support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/"' "$PROJECT_DIR/plugin/md12xx.fancontrol.plg.in"
 grep -Fq '<Support>https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/</Support>' "$PROJECT_DIR/plugins/md12xx.fancontrol.xml"
 grep -Fq '<Forum>https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/</Forum>' "$PROJECT_DIR/ca_profile.xml"
@@ -438,7 +456,7 @@ php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --state="$TMP_DIR/manual-state.json"
 jq -e '.controller.mode == "manual" and .shelves[0].model == "MD1220" and .shelves[0].targetPercent == 100 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/manual-state.json" >/dev/null
 
-if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP|BOTTOM)_' "$PROJECT_DIR/source"; then
+if grep -R -I -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP|BOTTOM)_' "$PROJECT_DIR/source"; then
   echo "Server-specific values remain in standalone source." >&2
   exit 1
 fi

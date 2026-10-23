@@ -18,6 +18,11 @@ stop_pid() {
   fi
   rm -f "$FILE"
 }
+stop_pid "$STATE_DIR/ipmi-supervisor.pid" '/md12xx.fancontrol/scripts/ipmi-supervisor.sh' 40
+stop_pid "$STATE_DIR/ipmi-controller.pid" '/md12xx.fancontrol/include/ipmi-controller.php' 25
+if [ -f /boot/config/plugins/md12xx.fancontrol/ipmi-owned.json ]; then
+  /usr/bin/php /usr/local/emhttp/plugins/md12xx.fancontrol/include/ipmi-recover.php || { echo 'Cannot restore iDRAC automatic cooling; refusing removal' >&2; exit 1; }
+fi
 stop_pid "$STATE_DIR/supervisor.pid" '/md12xx.fancontrol/scripts/controller-supervisor.sh' 20
 stop_pid "$PID_FILE" '/md12xx.fancontrol/include/controller.php' 20
 stop_pid "$STATE_DIR/discovery.pid" '/md12xx.fancontrol/include/discovery.php' 20

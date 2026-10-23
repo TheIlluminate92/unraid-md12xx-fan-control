@@ -58,6 +58,9 @@
           enabled: shelf.enabled,
           commissioned: shelf.commissioned,
           model: shelf.model,
+          curveMode: shelf.curveMode,
+          curve: shelf.curve,
+          hysteresisC: shelf.hysteresisC,
           serialPort: shelf.serialPort,
           sesAddress: shelf.sesAddress,
           sesDevice: shelf.sesDevice,
@@ -309,7 +312,9 @@
           '<label><span>Serial adapter</span><select class="md12xx-port">' + serialOptions(shelf.serialPort || "", shelf.id) + '</select><small>This is the only hardware choice needed for automatic setup</small></label>' +
           '<label><span>Disk assignment</span><select class="md12xx-assignment">' + option("automatic", "Automatic from detected SES enclosure", assignment === "automatic") + option("manual", "Manual override", assignment === "manual") + '</select><small class="md12xx-assignment-summary">' + esc(assignmentSummary(shelf)) + '</small></label>' +
           '<label><span>Shelf enabled</span><input class="md12xx-shelf-enabled" type="checkbox"' + (shelf.enabled !== false ? " checked" : "") + '><small>' + esc(calibrationSummary(shelf)) + '</small></label>' +
+          '<label><span>Fan curve</span><select class="md12xx-curve-source">' + option('global', 'Global', shelf.curveMode !== 'individual') + option('individual', 'Individual', shelf.curveMode === 'individual') + '</select><small>This shelf always uses its own disk temperatures</small></label>' +
         '</div>' +
+        '<div class="cooling-curve-editor"' + (shelf.curveMode === 'individual' ? '' : ' hidden') + '></div>' +
         '<div class="md12xx-mapped-disks"><strong>Associated Unraid disks</strong><span class="md12xx-mapped-disk-list">' + esc(mappedDisks(shelf).length ? mappedDisks(shelf).join(", ") : "None detected yet") + '</span></div>' +
         '<details class="md12xx-manual"' + (assignment === "manual" ? " open" : "") + '><summary>Manual mapping fallback</summary><div class="md12xx-shelf-grid">' +
           '<label><span>SES enclosure</span><select class="md12xx-ses">' + sesOptions(shelf) + '</select><small>Normally filled by Identify & test</small></label>' +
@@ -330,6 +335,11 @@
           '<pre class="md12xx-commission-output" hidden></pre><a class="md12xx-commission-result" href="#" hidden>Download test results (review identifiers before sharing)</a></div>' +
       '</article>';
     }).join("");
+    Array.prototype.forEach.call(root.querySelectorAll('.md12xx-shelf'), function (card, index) {
+      var editor = card.querySelector('.cooling-curve-editor');
+      window.WAZCoolingCurves.mount(editor, shelves[index].curve || config.curve, 20, shelves[index].hysteresisC == null ? config.hysteresisC : shelves[index].hysteresisC);
+      card.querySelector('.md12xx-curve-source').addEventListener('change', function () { editor.hidden = this.value !== 'individual'; });
+    });
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-remove"), function (button) {
       button.addEventListener("click", function () {
         var card = button.closest(".md12xx-shelf");
@@ -480,6 +490,9 @@
         id: shelfId,
         name: name,
         model: card.querySelector(".md12xx-model").value,
+        curveMode: card.querySelector('.md12xx-curve-source').value,
+        curve: window.WAZCoolingCurves.read(card.querySelector('.cooling-curve-editor')),
+        hysteresisC: window.WAZCoolingCurves.readHysteresis(card.querySelector('.cooling-curve-editor')),
         enabled: card.querySelector(".md12xx-shelf-enabled").checked,
         commissioned: card.getAttribute("data-commissioned") === "1",
         serialPort: card.querySelector(".md12xx-port").value,

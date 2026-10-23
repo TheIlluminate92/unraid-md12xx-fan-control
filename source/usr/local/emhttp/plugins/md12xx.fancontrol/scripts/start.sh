@@ -41,3 +41,13 @@ if ! pid_matches "$DISCOVERY_PID_FILE" '/md12xx.fancontrol/include/discovery.php
   nohup /usr/bin/php "$RUNTIME_DIR/include/discovery.php" >/dev/null 2>&1 &
   echo "$!" > "$DISCOVERY_PID_FILE"
 fi
+
+# The kernel drivers are supplied by Unraid; load the local device interface only on the supported host family.
+if grep -qxE 'PowerEdge R730(xd)?' /sys/class/dmi/id/product_name 2>/dev/null; then
+  /sbin/modprobe ipmi_devintf || true
+  /sbin/modprobe ipmi_si || true
+fi
+if ! pid_matches "$STATE_DIR/ipmi-supervisor.pid" '/md12xx.fancontrol/scripts/ipmi-supervisor.sh'; then
+  nohup "$RUNTIME_DIR/scripts/ipmi-supervisor.sh" >/dev/null 2>&1 &
+  echo "$!" > "$STATE_DIR/ipmi-supervisor.pid"
+fi

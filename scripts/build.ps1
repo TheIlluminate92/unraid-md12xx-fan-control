@@ -14,6 +14,11 @@ if (-not $OutputPath) {
 $blocks = foreach ($file in (Get-ChildItem -LiteralPath $sourceRoot -File -Recurse | Sort-Object FullName)) {
     $relative = $file.FullName.Substring($sourceRoot.Length).Replace('\', '/')
     $relative = $relative.Replace('/plugins/md12xx.fancontrol/', '/plugins/.md12xx.fancontrol.staged/')
+    if ($file.Extension -eq '.png' -or $relative.Contains('/bin/')) {
+        $encoded = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($file.FullName))
+        "<FILE Name=`"$relative`" Type=`"base64`"><INLINE>$encoded</INLINE></FILE>"
+        continue
+    }
     $content = [System.IO.File]::ReadAllText($file.FullName).Replace("`r`n", "`n")
     $content = $content.Replace('@@VERSION@@', $version).Replace('@@PLUGIN_VERSION@@', $pluginVersion)
     if ($content.Contains(']]>')) { throw "Source file cannot be embedded in CDATA: $($file.FullName)" }

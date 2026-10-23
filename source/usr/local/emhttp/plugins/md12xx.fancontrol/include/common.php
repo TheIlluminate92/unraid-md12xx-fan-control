@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/safety.php';
+require_once __DIR__ . '/curves.php';
 
 const MD12XX_CONFIG_FILE = '/boot/config/plugins/md12xx.fancontrol/config.json';
 const MD12XX_STATE_FILE = '/var/run/md12xx.fancontrol/status.json';
@@ -201,6 +202,9 @@ function md12xx_validate_config(array $input): array
         $validatedShelves[] = [
             'id' => $id,
             'name' => substr(trim((string) ($shelf['name'] ?? ($model . ' ' . ($index + 1)))), 0, 80),
+            'curveMode' => in_array($shelf['curveMode'] ?? 'global', ['global', 'individual'], true) ? ($shelf['curveMode'] ?? 'global') : throw new InvalidArgumentException('Curve source must be Global or Individual'),
+            'curve' => cooling_validate_curve($shelf['curve'] ?? $config['curve']),
+            'hysteresisC' => cooling_validate_hysteresis($shelf['hysteresisC'] ?? $config['hysteresisC']),
             'model' => $model,
             'enabled' => filter_var($shelf['enabled'] ?? true, FILTER_VALIDATE_BOOL),
             'commissioned' => filter_var($shelf['commissioned'] ?? false, FILTER_VALIDATE_BOOL),
@@ -458,12 +462,15 @@ function md12xx_fuser_binary(): ?string
 
 function md12xx_public_status(): array
 {
+    require_once __DIR__ . '/ipmi.php';
     $config = md12xx_read_config();
     $state = md12xx_read_state();
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
         'version' => '@@VERSION@@',
+        'md12xxAvailable' => count($config['shelves']) > 0 || count(array_filter(md12xx_read_discovery()['sesDevices'] ?? [], static fn(array $device): bool => preg_match('/MD12(?:00|20)/i', (string) ($device['model'] ?? '')) === 1)) > 0,
+        'ipmi' => cooling_ipmi_public(),
         'pluginVersion' => '@@PLUGIN_VERSION@@',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
@@ -782,18 +789,20 @@ function md12xx_quiet_temperature_policy(array $config, array $disks): array
     if (!$shelves) { $safe = false; $required = max($required, (int) $config['sensorFailureSpeed']); }
     foreach ($shelves as $shelf) {
         if (empty($shelf['serialPort']) || !md12xx_serial_path_is_safe((string) $shelf['serialPort']) || empty($shelf['enabled']) || empty($shelf['commissioned']) || empty($shelf['sesIdentity']) || ($shelf['verificationMode'] ?? 'rpm') !== 'rpm' || md12xx_controller_calibration($shelf) === null || empty($shelf['disks'])) $safe = false;
-        $speed = (int) $config['curve'][0]['speed'];
-        if (empty($shelf['disks'])) $speed = max($speed, (int) $config['sensorFailureSpeed']);
+        $deviceCurve = cooling_device_curve($shelf, $config['curve']);
+        $deviceFailure = max((int) $config['sensorFailureSpeed'], max(array_column($deviceCurve, 'speed')));
+        $speed = (int) $deviceCurve[0]['speed'];
+        if (empty($shelf['disks'])) $speed = max($speed, $deviceFailure);
         foreach (($shelf['disks'] ?? []) as $name) {
             $disk = $disks[$name] ?? null;
-            if (!is_array($disk)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            if (!is_array($disk)) { $safe = false; $speed = max($speed, $deviceFailure); continue; }
             $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
             $asleep = in_array($explicit, ['1', 'yes', 'true', 'on'], true) || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
             $raw = trim((string) ($disk['temp'] ?? ''));
-            if (!$asleep && (!is_numeric($raw) || (float) $raw <= 0)) { $safe = false; $speed = max($speed, (int) $config['sensorFailureSpeed']); continue; }
+            if (!$asleep && (!is_numeric($raw) || (float) $raw <= 0)) { $safe = false; $speed = max($speed, $deviceFailure); continue; }
             if (is_numeric($raw) && (float) $raw > 0) {
                 if ((float) $raw >= 35) $safe = false;
-                foreach ($config['curve'] as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
+                foreach ($deviceCurve as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
             }
         }
         if ($speed !== 20) $safe = false;

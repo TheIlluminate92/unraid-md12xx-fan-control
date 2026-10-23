@@ -146,7 +146,7 @@ foreach ($marker in 'RESULT_DIR_FILE', 'MD12XX_JOB_DIR=', 'tar -czf', 'Results: 
 }
 $templateSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'plugin/md12xx.fancontrol.plg.in'))
 if (-not $templateSource.Contains('Setup is already complete; active connection testing was turned off.')) { throw 'Upgrade-time discovery shutdown is missing.' }
-if (-not $templateSource.Contains('icon="server"')) { throw 'Plugins page stock server icon is not configured.' }
+if (-not $templateSource.Contains('icon="icon.png"')) { throw 'Bundled Plugins page icon is not configured.' }
 if ($templateSource.Contains('icon="fan"')) { throw 'Unsupported Plugins page fan icon was reintroduced.' }
 if (-not $templateSource.Contains("support=`"$forumUrl`"")) { throw 'Plugin support URL is missing or incorrect.' }
 $commonSource = [System.IO.File]::ReadAllText((Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol/include/common.php'))
@@ -185,7 +185,7 @@ if (-not (Test-Path (Join-Path $projectRoot 'tests/fixtures/disks-md1220.ini')))
 if (-not (Test-Path (Join-Path $projectRoot 'tests/fixtures/disks-duplicates.ini'))) { throw 'Duplicate block-device alias fixture is missing.' }
 
 $runtimeRoot = Join-Path $projectRoot 'source/usr/local/emhttp/plugins/md12xx.fancontrol'
-$runtimeFiles = Get-ChildItem $runtimeRoot -Recurse -File | Where-Object { $_.Extension -ne '.svg' }
+$runtimeFiles = Get-ChildItem $runtimeRoot -Recurse -File | Where-Object { $_.Extension -notin @('.svg', '.png', '.bin') -and $_.Name -notlike '*LICENSE*' }
 $runtimeText = ($runtimeFiles | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName) }) -join "`n"
 $allowedSupportUrl = 'https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/new?template=bug-report.yml'
 if (-not $pageSource.Contains("href=`"$allowedSupportUrl`"") -or -not $pageSource.Contains('target="_blank" rel="noopener noreferrer"')) { throw 'User-activated GitHub support link is missing or unsafe.' }
