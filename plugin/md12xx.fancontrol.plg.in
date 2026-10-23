@@ -8,8 +8,9 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
-### 0.5.0 - Build 2026.10.22.01 (preview)
-- Adds disabled-by-default local IPMI chassis control for R730/R730xd, with a bundled static tool and licenses. Thermal or sensor faults return control to iDRAC; persistent host-bound ownership supports recovery after process loss or reboot. Live fan-control validation remains pending.
+### 0.5.0 - Build 2026.10.22.02 (preview)
+- Individual IPMI curves now support a 15% minimum. Global and MD12xx shelf curves retain their 20% minimum. Emergency iDRAC cooling takes priority over a curve's maximum.
+- Adds disabled-by-default local IPMI chassis control for R730/R730xd, with a bundled static tool and licenses. Thermal or sensor faults return control to iDRAC; persistent host-bound ownership supports recovery after process loss or reboot. Live R730xd fan response and explicit firmware handback passed; load, 15% hardware response, crash recovery and reboot validation remain pending.
 - Each shelf and IPMI may follow the Global curve or retain an Individual curve. Each device uses its own temperature; mixed Global/Individual setups are supported.
 - Hides unavailable hardware sections, with a Show unavailable controls option. Adds the bundled plugin PNG icon and preserves the existing update identity and MD12xx commissioning.
 

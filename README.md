@@ -2,7 +2,7 @@
 
 Preserves the `md12xx.fancontrol` update identity and existing shelf settings.
 
-Development preview: **0.5.0 / 2026.10.22.01**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
+Development preview: **0.5.0 / 2026.10.22.02**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
 
 Host-native chassis and disk-shelf cooling. This preview adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [preview scope and validation](docs/IPMI_PREVIEW.md).
 

@@ -1,6 +1,6 @@
 # Development preview: 0.5.0
 
-`md12xx.fancontrol.plg` is the normal update installer; `md12xx.fancontrol-0.5.0.plg` is its immutable versioned copy. Both are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.22.01**; Settings and the API show application **0.5.0**. The date-based build fixes Unraid update ordering from the test installers.
+`md12xx.fancontrol.plg` is the current update installer; `md12xx.fancontrol-0.5.0-2026.10.22.02.plg` is its immutable versioned copy. The initial `md12xx.fancontrol-0.5.0.plg` is retained unchanged. All are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.22.02**; Settings and the API show application **0.5.0**. Individual IPMI curves now allow a 15% minimum; shelf/Global limits remain 20%.
 
 ```text
 https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg

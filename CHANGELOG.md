@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 preview — 2026-10-22 (build 2026.10.22.02)
+
+- Adds local R730/R730xd IPMI chassis control, bundled dependencies, independent Global/Individual curves, and hardware-aware sections under WAZ Cooling Control.
+- Individual IPMI curves accept 15–100%; shared Global and shelf curves retain 20–100%. Curve maxima do not override emergency iDRAC handback. IPMI manual presets remain 20–100%.
+- Live R730xd tests verified manual 80%, explicit return to firmware control, and idle Auto operation. Load, 15% hardware response, real crash recovery, and reboot tests remain pending.
+
 ## 0.4.14 — 2026-10-20
 
 Partial active-temperature loss and failed/missing fans now fail safe in Auto. Commissioning monitors thermal demand and preserves higher cooling on abort. Status-aware supervision and staged runtime validation/rollback preserve saved commissioning. Adds safety/activation regressions and migration documentation. New failure paths are software-tested; supervised hardware validation remains pending.

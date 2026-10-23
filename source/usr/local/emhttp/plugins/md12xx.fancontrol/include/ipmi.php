@@ -32,7 +32,7 @@ function cooling_ipmi_config(array $input): array {
     $curveMode = $input['curveMode'] ?? 'global';
     if (!in_array($curveMode, ['global', 'individual'], true)) throw new InvalidArgumentException('Curve source must be Global or Individual');
     return ['enabled' => $input['enabled'] ?? false, 'mode' => $mode, 'manualSpeed' => $speed,
-        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve())];
+        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve(), 15)];
 }
 function cooling_ipmi_profile(string $vendor, string $model): bool {
     return trim($vendor) === 'Dell Inc.' && in_array(trim($model), ['PowerEdge R730', 'PowerEdge R730xd'], true);
@@ -50,7 +50,7 @@ function cooling_ipmi_run(array $args): array {
         || $args === ['raw', '0x30', '0x30', '0x01', '0x01'] || $args === ['raw', '0x30', '0x30', '0x01', '0x00'];
     if (count($args) === 6 && array_slice($args, 0, 5) === ['raw', '0x30', '0x30', '0x02', '0xff'] && preg_match('/^0x[0-9a-f]{2}$/', $args[5])) {
         $speed = hexdec(substr($args[5], 2));
-        $allowed = $speed >= 20 && $speed <= 100;
+        $allowed = $speed >= 15 && $speed <= 100;
     }
     if (!$allowed) throw new InvalidArgumentException('Unsupported local IPMI operation');
     $pipes = [];

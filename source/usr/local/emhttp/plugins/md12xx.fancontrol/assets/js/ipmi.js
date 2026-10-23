@@ -27,7 +27,7 @@
       node('cooling-ipmi-mode').value = data.config.mode;
       node('cooling-ipmi-speed').value = String(data.config.manualSpeed);
       node('cooling-ipmi-curve-source').value = data.config.curveMode;
-      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve);
+      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve, 15);
       node('cooling-ipmi-curve').hidden = data.config.curveMode !== 'individual';
       initialized = true;
     }

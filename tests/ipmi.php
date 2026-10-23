@@ -17,6 +17,20 @@ foreach ([['manualSpeed' => 19], ['manualSpeed' => 101], ['manualSpeed' => 25], 
 $global = [['temperatureC' => 0, 'speed' => 20], ['temperatureC' => 35, 'speed' => 30], ['temperatureC' => 50, 'speed' => 60]];
 $individual = [['temperatureC' => 0, 'speed' => 40], ['temperatureC' => 50, 'speed' => 80]];
 $config = cooling_ipmi_config(['enabled' => true, 'mode' => 'auto', 'curveMode' => 'individual', 'curve' => $individual]);
+$quiet = cooling_ipmi_config(['enabled'=>true, 'mode'=>'auto', 'curveMode'=>'individual', 'curve'=>[
+    ['temperatureC'=>0, 'speed'=>15], ['temperatureC'=>32, 'speed'=>20],
+    ['temperatureC'=>35, 'speed'=>25], ['temperatureC'=>37, 'speed'=>30],
+    ['temperatureC'=>39, 'speed'=>35], ['temperatureC'=>40, 'speed'=>40]
+]]);
+$quiet['effectiveCurve'] = cooling_device_curve($quiet, $global, 15);
+foreach ([30=>15, 32=>20, 35=>25, 37=>30, 39=>35, 40=>40, 69=>40] as $temp=>$speed) {
+    ipmi_check(cooling_ipmi_target($quiet, array_replace($sensors, ['cpuMaxC'=>$temp]))['percent'] === $speed, 'Individual IPMI 15–40% curve');
+}
+ipmi_check(cooling_ipmi_target($quiet, array_replace($sensors, ['cpuMaxC'=>70]))['mode'] === 'firmware', 'Configured maximum never disables emergency firmware handback');
+try { cooling_validate_curve($quiet['curve']); throw new RuntimeException('Shelf accepted IPMI-only minimum'); } catch (InvalidArgumentException $expected) {}
+$tooLow = $quiet; $tooLow['curve'][0]['speed'] = 14;
+try { cooling_ipmi_config($tooLow); throw new RuntimeException('IPMI accepted speed below 15%'); } catch (InvalidArgumentException $expected) {}
+try { cooling_ipmi_run(['raw','0x30','0x30','0x02','0xff','0x0e']); throw new RuntimeException('Raw speed below 15% accepted'); } catch (InvalidArgumentException $expected) {}
 $config['effectiveCurve'] = cooling_device_curve($config, $global);
 ipmi_check(cooling_ipmi_target($config, $sensors)['percent'] === 40, 'Individual chassis curve');
 $config['curveMode'] = 'global'; $config['effectiveCurve'] = cooling_device_curve($config, $global);
@@ -33,6 +47,10 @@ try {
     ipmi_check($calls[1] === ['raw','0x30','0x30','0x02','0xff','0x3c'], 'Correct 60% encoding');
     ipmi_check(is_file($lease), 'Ownership survives process loss');
     ipmi_check(cooling_ipmi_restore($run, $lease) && !is_file($lease), 'Firmware restore clears ownership only after acknowledgement');
+    $calls = [];
+    ipmi_check(cooling_ipmi_apply(['mode'=>'auto','percent'=>15,'reason'=>'test'], $run, $lease)['ok'], '15% target reaches command layer');
+    ipmi_check($calls[1] === ['raw','0x30','0x30','0x02','0xff','0x0f'], 'Correct 15% encoding');
+    ipmi_check(cooling_ipmi_restore($run, $lease), 'Restore after 15% simulated command');
     $sequence = 0;
     $failed = function (array $args) use (&$sequence): array { return ['code' => ++$sequence === 2 ? 1 : 0, 'output' => '']; };
     $result = cooling_ipmi_apply($target, $failed, $lease);

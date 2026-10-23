@@ -8,6 +8,8 @@ The existing Auto curve is the Global curve. Each shelf and IPMI independently s
 
 Configured shelves remain visible when disconnected so their faults can be reviewed. Unavailable device sections are hidden; **Show unavailable controls** reveals setup and compatibility information. Shelf and chassis enablement are separate.
 
+Individual IPMI curves allow 15–100% fan targets. Global and MD12xx curves retain a 20% minimum; IPMI manual presets remain 20–100%. The last curve point is the maximum for normal curve control, but emergency iDRAC handback can exceed it. A curve targets a temperature range without guaranteeing it under every workload or inlet temperature.
+
 ## IPMI implementation and dependencies
 
 Initial support is limited to Dell PowerEdge R730/R730xd on x86-64 Unraid. The bundled ipmitool 1.8.19 is built from upstream commit `19d78782d795d0cf4ceefe655f616210c9143e62` in official Alpine image `sha256:21f3e19bafab57a9ff7aa9dd571dac72f868370472c10f450cc0416cc1aca553` with musl 1.2.5 and OpenSSL 3.5.9. The executable is static PIE: no separate userspace library package or other IPMI plugin is needed. Licenses and dependency SHA-256 checksums ship in `bin/`; the installer verifies their exact bytes before stopping any service.
@@ -27,4 +29,4 @@ The device drivers come from Unraid's own matching kernel. Startup loads `ipmi_d
 
 ## Validation status
 
-The bundled binary successfully read the R730's BMC identity, six fans, inlet/exhaust and two CPU temperatures. Those checks were read-only. No manual fan command has been sent. Synthetic tests cover sensor loss, thermal guards, command failure, restore failure, ownership and mixed curve selection. Hardware fan response and recovery must still be tested on the R730 before release. No production upgrade or MD12xx re-commissioning is part of this preview.
+The native-installed preview successfully read both CPU temperatures, the inlet and all six fan RPMs on an R730xd running Unraid 7.3.3. A manual 80% command produced approximately 14,040–14,400 RPM; explicit firmware handback succeeded and returned fan speeds to approximately 8,760–9,000 RPM. Idle Auto/Global operation at 25% produced approximately 5,520–5,640 RPM with CPUs at 37/36°C. Synthetic tests cover sensor loss, thermal guards, command failure, restore failure, ownership, mixed curves and a 15% individual target. Load, live 15% response, actual process-death recovery and reboot validation remain pending. Existing MD12xx commissioning was preserved.

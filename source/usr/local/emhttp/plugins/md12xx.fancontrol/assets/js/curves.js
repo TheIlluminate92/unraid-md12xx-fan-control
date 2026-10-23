@@ -17,7 +17,8 @@
       return { temperatureC: Number(row.querySelector('.cooling-curve-temp').value), speed: Number(row.querySelector('.cooling-curve-speed').value) };
     });
   }
-  function mount(root, points) {
+  function mount(root, points, minimumSpeed) {
+    minimumSpeed = minimumSpeed === 15 ? 15 : 20;
     root.replaceChildren();
     var label = document.createElement('label'), count = document.createElement('input');
     label.textContent = 'Curve points (2–10) ';
@@ -26,7 +27,7 @@
     label.appendChild(count); root.appendChild(label);
     points.forEach(function (point) {
       var row = document.createElement('div'); row.className = 'cooling-curve-point';
-      [['Temperature °C', 'cooling-curve-temp', point.temperatureC, 0, 100], ['Fan %', 'cooling-curve-speed', point.speed, 20, 100]].forEach(function (field) {
+      [['Temperature °C', 'cooling-curve-temp', point.temperatureC, 0, 100], ['Fan %', 'cooling-curve-speed', point.speed, minimumSpeed, 100]].forEach(function (field) {
         var item = document.createElement('label'), input = document.createElement('input');
         item.textContent = field[0] + ' '; input.className = field[1]; input.type = 'number'; input.step = field[1] === 'cooling-curve-temp' ? '0.5' : '1';
         input.value = String(field[2]); input.min = String(field[3]); input.max = String(field[4]);
@@ -36,7 +37,7 @@
     });
     count.addEventListener('change', function () {
       var desired = Math.max(2, Math.min(10, Math.round(Number(count.value) || 2)));
-      mount(root, resize(read(root), desired));
+      mount(root, resize(read(root), desired), minimumSpeed);
     });
   }
   window.WAZCoolingCurves = { read: read, mount: mount, resize: resize };

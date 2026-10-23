@@ -2,14 +2,15 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "2026.10.22.01">
+  <!ENTITY version "2026.10.22.02">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
-### 0.5.0 - Build 2026.10.22.01 (preview)
-- Adds disabled-by-default local IPMI chassis control for R730/R730xd, with a bundled static tool and licenses. Thermal or sensor faults return control to iDRAC; persistent host-bound ownership supports recovery after process loss or reboot. Live fan-control validation remains pending.
+### 0.5.0 - Build 2026.10.22.02 (preview)
+- Individual IPMI curves now support a 15% minimum. Global and MD12xx shelf curves retain their 20% minimum. Emergency iDRAC cooling takes priority over a curve's maximum.
+- Adds disabled-by-default local IPMI chassis control for R730/R730xd, with a bundled static tool and licenses. Thermal or sensor faults return control to iDRAC; persistent host-bound ownership supports recovery after process loss or reboot. Live R730xd fan response and explicit firmware handback passed; load, 15% hardware response, crash recovery and reboot validation remain pending.
 - Each shelf and IPMI may follow the Global curve or retain an Individual curve. Each device uses its own temperature; mixed Global/Individual setups are supported.
 - Hides unavailable hardware sections, with a Show unavailable controls option. Adds the bundled plugin PNG icon and preserves the existing update identity and MD12xx commissioning.
 
@@ -303,7 +304,8 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
       return { temperatureC: Number(row.querySelector('.cooling-curve-temp').value), speed: Number(row.querySelector('.cooling-curve-speed').value) };
     });
   }
-  function mount(root, points) {
+  function mount(root, points, minimumSpeed) {
+    minimumSpeed = minimumSpeed === 15 ? 15 : 20;
     root.replaceChildren();
     var label = document.createElement('label'), count = document.createElement('input');
     label.textContent = 'Curve points (2–10) ';
@@ -312,7 +314,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
     label.appendChild(count); root.appendChild(label);
     points.forEach(function (point) {
       var row = document.createElement('div'); row.className = 'cooling-curve-point';
-      [['Temperature °C', 'cooling-curve-temp', point.temperatureC, 0, 100], ['Fan %', 'cooling-curve-speed', point.speed, 20, 100]].forEach(function (field) {
+      [['Temperature °C', 'cooling-curve-temp', point.temperatureC, 0, 100], ['Fan %', 'cooling-curve-speed', point.speed, minimumSpeed, 100]].forEach(function (field) {
         var item = document.createElement('label'), input = document.createElement('input');
         item.textContent = field[0] + ' '; input.className = field[1]; input.type = 'number'; input.step = field[1] === 'cooling-curve-temp' ? '0.5' : '1';
         input.value = String(field[2]); input.min = String(field[3]); input.max = String(field[4]);
@@ -322,7 +324,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
     });
     count.addEventListener('change', function () {
       var desired = Math.max(2, Math.min(10, Math.round(Number(count.value) || 2)));
-      mount(root, resize(read(root), desired));
+      mount(root, resize(read(root), desired), minimumSpeed);
     });
   }
   window.WAZCoolingCurves = { read: read, mount: mount, resize: resize };
@@ -363,7 +365,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
       node('cooling-ipmi-mode').value = data.config.mode;
       node('cooling-ipmi-speed').value = String(data.config.manualSpeed);
       node('cooling-ipmi-curve-source').value = data.config.curveMode;
-      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve);
+      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve, 15);
       node('cooling-ipmi-curve').hidden = data.config.curveMode !== 'individual';
       initialized = true;
     }
@@ -2003,7 +2005,7 @@ function md12xx_public_status(): array
         'version' => '0.5.0',
         'md12xxAvailable' => count($config['shelves']) > 0 || count(array_filter(md12xx_read_discovery()['sesDevices'] ?? [], static fn(array $device): bool => preg_match('/MD12(?:00|20)/i', (string) ($device['model'] ?? '')) === 1)) > 0,
         'ipmi' => cooling_ipmi_public(),
-        'pluginVersion' => '2026.10.22.01',
+        'pluginVersion' => '2026.10.22.02',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -2898,21 +2900,21 @@ declare(strict_types=1);
 function cooling_default_curve(): array {
     return [['temperatureC' => 0.0, 'speed' => 20], ['temperatureC' => 35.0, 'speed' => 25], ['temperatureC' => 45.0, 'speed' => 30], ['temperatureC' => 50.0, 'speed' => 50]];
 }
-function cooling_validate_curve($curve): array {
+function cooling_validate_curve($curve, int $minimumSpeed = 20): array {
     if (!is_array($curve) || count($curve) < 2 || count($curve) > 10) throw new InvalidArgumentException('A fan curve needs 2–10 points');
     $result = [];
     foreach ($curve as $step) {
         if (!is_array($step) || !is_numeric($step['temperatureC'] ?? null) || !is_numeric($step['speed'] ?? null)) throw new InvalidArgumentException('Each point needs a temperature and speed');
         $temp = (float) $step['temperatureC']; $speed = (int) $step['speed'];
-        if (!is_finite($temp) || $temp < 0 || $temp > 100 || $speed < 20 || $speed > 100) throw new InvalidArgumentException('Curve temperatures must be 0–100°C and speeds 20–100%');
+        if (!is_finite($temp) || $temp < 0 || $temp > 100 || $speed < $minimumSpeed || $speed > 100) throw new InvalidArgumentException('Curve temperatures must be 0–100°C and speeds ' . $minimumSpeed . '–100%');
         $result[] = ['temperatureC' => $temp, 'speed' => $speed];
     }
     usort($result, static fn(array $a, array $b): int => $a['temperatureC'] <=> $b['temperatureC']);
     for ($i = 1; $i < count($result); $i++) if ($result[$i]['temperatureC'] <= $result[$i - 1]['temperatureC'] || $result[$i]['speed'] < $result[$i - 1]['speed']) throw new InvalidArgumentException('Temperatures must increase; fan speeds cannot decrease');
     return $result;
 }
-function cooling_device_curve(array $device, array $global): array {
-    return ($device['curveMode'] ?? 'global') === 'individual' ? cooling_validate_curve($device['curve'] ?? $global) : $global;
+function cooling_device_curve(array $device, array $global, int $minimumSpeed = 20): array {
+    return ($device['curveMode'] ?? 'global') === 'individual' ? cooling_validate_curve($device['curve'] ?? $global, $minimumSpeed) : $global;
 }
 function cooling_curve_speed(array $curve, float $temperature): int {
     $speed = (int) $curve[0]['speed'];
@@ -3227,7 +3229,7 @@ while ($running) {
             $recoverStartup = false;
         }
         $globalCurve = cooling_validate_curve(cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json')['curve'] ?? cooling_default_curve());
-        $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve);
+        $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve, 15);
         $output = $capability['available'] ? cooling_ipmi_run(['sdr', 'elist', 'all']) : ['code' => 1, 'output' => ''];
         $sensors = cooling_ipmi_sensors($output['code'] === 0 ? $output['output'] : '', $capability['cpuCount']);
         $target = cooling_ipmi_target($config, $sensors);
@@ -3300,7 +3302,7 @@ function cooling_ipmi_config(array $input): array {
     $curveMode = $input['curveMode'] ?? 'global';
     if (!in_array($curveMode, ['global', 'individual'], true)) throw new InvalidArgumentException('Curve source must be Global or Individual');
     return ['enabled' => $input['enabled'] ?? false, 'mode' => $mode, 'manualSpeed' => $speed,
-        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve())];
+        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve(), 15)];
 }
 function cooling_ipmi_profile(string $vendor, string $model): bool {
     return trim($vendor) === 'Dell Inc.' && in_array(trim($model), ['PowerEdge R730', 'PowerEdge R730xd'], true);
@@ -3318,7 +3320,7 @@ function cooling_ipmi_run(array $args): array {
         || $args === ['raw', '0x30', '0x30', '0x01', '0x01'] || $args === ['raw', '0x30', '0x30', '0x01', '0x00'];
     if (count($args) === 6 && array_slice($args, 0, 5) === ['raw', '0x30', '0x30', '0x02', '0xff'] && preg_match('/^0x[0-9a-f]{2}$/', $args[5])) {
         $speed = hexdec(substr($args[5], 2));
-        $allowed = $speed >= 20 && $speed <= 100;
+        $allowed = $speed >= 15 && $speed <= 100;
     }
     if (!$allowed) throw new InvalidArgumentException('Unsupported local IPMI operation');
     $pipes = [];

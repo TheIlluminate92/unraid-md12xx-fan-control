@@ -39,6 +39,9 @@ try {
     lifecycle_wait(fn()=>(int)@file_get_contents($root.'/state/ipmi-controller.pid') !== $pid, 'Controller did not restart after recovery');
     lifecycle_wait(fn()=>(json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true)['mode']??'')==='firmware','Restart did not remain in firmware mode');
     lifecycle_check(substr_count(file_get_contents($root.'/commands'),'0x01 0x00')===$manualCount, 'Restart re-entered manual mode despite latch');
+    file_put_contents($root.'/config/ipmi.json', json_encode(['enabled'=>true,'mode'=>'auto','curveMode'=>'individual','curve'=>[['temperatureC'=>0,'speed'=>15],['temperatureC'=>40,'speed'=>40]]]));
+    unlink($root.'/state/ipmi-fault-latched');
+    lifecycle_wait(fn()=>str_contains((string)@file_get_contents($root.'/commands'),'0x02 0xff 0x0f'), 'Controller did not apply IPMI individual 15% curve');
     echo "IPMI supervisor process-loss recovery and latched restart passed.\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); $end=microtime(true)+30; do { $status=proc_get_status($process); if (!$status['running']) break; usleep(100000); } while (microtime(true)<$end); proc_close($process); }

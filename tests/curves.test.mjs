@@ -15,6 +15,17 @@ const window = {};
 vm.runInNewContext(readFileSync(new URL('../source/usr/local/emhttp/plugins/md12xx.fancontrol/assets/js/curves.js', import.meta.url), 'utf8'), { window, document: { createElement: tag => new Element(tag) } });
 const curves = window.WAZCoolingCurves;
 const plain = value => JSON.parse(JSON.stringify(value));
+
+test('IPMI 15% minimum survives point-count edits without relaxing shelf limits', () => {
+  const chassis = new Element('div'), shelf = new Element('div');
+  curves.mount(chassis, [{ temperatureC: 0, speed: 15 }, { temperatureC: 40, speed: 40 }], 15);
+  curves.mount(shelf, [{ temperatureC: 0, speed: 20 }, { temperatureC: 50, speed: 50 }]);
+  assert.equal(chassis.querySelector('.cooling-curve-speed').min, '15');
+  const count = chassis.querySelector('input'); count.value = '3'; count.events.change();
+  assert.equal(chassis.querySelector('.cooling-curve-speed').min, '15');
+  assert.equal(curves.read(chassis)[0].speed, 15);
+  assert.equal(shelf.querySelector('.cooling-curve-speed').min, '20');
+});
 test('independent device editors do not share or overwrite draft curve values', () => {
   const shelf = new Element('div'), chassis = new Element('div');
   const global = [{ temperatureC: 0, speed: 20 }, { temperatureC: 50, speed: 50 }];

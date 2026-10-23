@@ -28,7 +28,7 @@ while ($running) {
             $recoverStartup = false;
         }
         $globalCurve = cooling_validate_curve(cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json')['curve'] ?? cooling_default_curve());
-        $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve);
+        $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve, 15);
         $output = $capability['available'] ? cooling_ipmi_run(['sdr', 'elist', 'all']) : ['code' => 1, 'output' => ''];
         $sensors = cooling_ipmi_sensors($output['code'] === 0 ? $output['output'] : '', $capability['cpuCount']);
         $target = cooling_ipmi_target($config, $sensors);
