@@ -21,6 +21,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 <section class="md12xx-page">
   <header class="md12xx-hero"><div><h2>WAZ Cooling Control</h2><p>Local chassis and disk-shelf cooling. Each controller keeps its own settings.</p></div></header>
   <label class="md12xx-inline"><input id="cooling-show-unavailable" type="checkbox"><span>Show unavailable controls</span></label>
+  <div id="md12xx-message" class="md12xx-message" role="status" aria-live="polite" hidden></div>
   <section id="cooling-ipmi" class="md12xx-panel" hidden>
     <div class="md12xx-title-row"><h3>IPMI chassis fans</h3><span id="cooling-ipmi-health" class="md12xx-pill">READING</span></div>
     <p id="cooling-ipmi-description">Checking local IPMI support…</p>
@@ -69,8 +70,6 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <p><b>Separate safety paths:</b> fan commands travel only through USB serial. The SAS HBA is used read-only for topology and independent SES RPM telemetry; the plugin does not configure or flash it.</p>
     <p class="md12xx-warning"><b>Recovery:</b> if a test cannot prove the final 20% state, keep every controller stopped and follow the on-screen recovery message before continuing.</p>
   </section>
-
-  <div id="md12xx-message" class="md12xx-message" hidden></div>
 
   <section class="md12xx-panel">
     <h3>Controller</h3>
