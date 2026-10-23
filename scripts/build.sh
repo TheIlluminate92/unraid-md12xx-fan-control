@@ -11,6 +11,12 @@ trap 'rm -f "$FILES_PATH"' EXIT
 while IFS= read -r -d '' SOURCE_FILE; do
   RELATIVE="/${SOURCE_FILE#"$PROJECT_DIR/source/"}"
   RELATIVE="${RELATIVE/\/plugins\/md12xx.fancontrol\//\/plugins\/.md12xx.fancontrol.staged\/}"
+  if [[ "$SOURCE_FILE" == *.png || "$RELATIVE" == */bin/* ]]; then
+    printf '<FILE Name="%s" Type="base64"><INLINE>' "$RELATIVE" >> "$FILES_PATH"
+    base64 < "$SOURCE_FILE" | tr -d '\r\n' >> "$FILES_PATH"
+    printf '</INLINE></FILE>\n' >> "$FILES_PATH"
+    continue
+  fi
   grep -q ']]>' "$SOURCE_FILE" && { echo "Source contains invalid CDATA terminator: $SOURCE_FILE" >&2; exit 1; }
   printf '<FILE Name="%s">\n<INLINE>\n<![CDATA[\n' "$RELATIVE" >> "$FILES_PATH"
   sed "s/@@VERSION@@/$VERSION/g;s/@@PLUGIN_VERSION@@/$PLUGIN_VERSION/g;s/\r$//" "$SOURCE_FILE" >> "$FILES_PATH"

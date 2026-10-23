@@ -1,5 +1,5 @@
 Menu="Utilities"
-Title="MD12xx Fan Control"
+Title="WAZ Cooling Control"
 Type="xmenu"
 Icon="icon-disks"
 Tag="icon-disk"
@@ -10,6 +10,7 @@ Cond="version_compare(parse_ini_file('/etc/unraid-version')['version'],'7.3.2','
 <?php
 $pluginRoot = '/usr/local/emhttp/plugins/md12xx.fancontrol';
 require_once $pluginRoot . '/include/common.php';
+require_once $pluginRoot . '/include/ipmi.php';
 $config = md12xx_read_config();
 $webRoot = '/plugins/md12xx.fancontrol';
 $cssVersion = @filemtime($pluginRoot . '/assets/css/settings.css') ?: 0;
@@ -18,6 +19,25 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 <link rel="stylesheet" href="<?=$webRoot?>/assets/css/settings.css?v=<?=$cssVersion?>">
 
 <section class="md12xx-page">
+  <header class="md12xx-hero"><div><h2>WAZ Cooling Control</h2><p>Local chassis and disk-shelf cooling. Each controller keeps its own settings.</p></div></header>
+  <label class="md12xx-inline"><input id="cooling-show-unavailable" type="checkbox"><span>Show unavailable controls</span></label>
+  <section id="cooling-ipmi" class="md12xx-panel" hidden>
+    <div class="md12xx-title-row"><h3>IPMI chassis fans</h3><span id="cooling-ipmi-health" class="md12xx-pill">READING</span></div>
+    <p id="cooling-ipmi-description">Checking local IPMI support…</p>
+    <div class="md12xx-grid">
+      <label><span>Plugin control enabled</span><input id="cooling-ipmi-enabled" type="checkbox"></label>
+      <label><span>Mode</span><select id="cooling-ipmi-mode"><option value="firmware">iDRAC automatic</option><option value="auto">Temperature curve</option><option value="manual">Manual with thermal guard</option></select></label>
+      <label><span>Manual speed</span><select id="cooling-ipmi-speed"><option>20</option><option>30</option><option>40</option><option>50</option><option selected>60</option><option>70</option><option>80</option><option>90</option><option>100</option></select><small>Percent</small></label>
+      <label><span>Fan curve</span><select id="cooling-ipmi-curve-source"><option value="global">Global</option><option value="individual">Individual</option></select><small>Uses the hottest CPU temperature; inlet protection is independent</small></label>
+    </div>
+    <div id="cooling-ipmi-curve" class="cooling-curve-editor" hidden></div>
+    <p id="cooling-ipmi-readings">Waiting for chassis telemetry</p>
+    <p id="cooling-ipmi-message" role="status"></p>
+    <p>R730/R730xd only in this beta. CPU ≥70°C, inlet ≥35°C, sensor loss, or service failure returns control to iDRAC and pauses plugin control. Stop any competing chassis fan controller before enabling this one.</p>
+    <button id="cooling-ipmi-save" type="button">Save chassis settings</button>
+    <button id="cooling-ipmi-restore" type="button">Return to iDRAC automatic</button>
+  </section>
+  <div id="cooling-md12xx">
   <header class="md12xx-hero">
     <div>
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
@@ -82,9 +102,10 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <div id="md12xx-shelves"></div>
   </section>
 
+  </div>
   <section class="md12xx-panel">
     <div class="md12xx-title-row">
-      <h3>Auto curve</h3>
+      <h3>Global fan curve</h3>
       <label class="md12xx-point-count"><span>Number of points</span><input id="md12xx-curve-points" type="number" min="2" max="10" step="1"></label>
     </div>
     <div id="md12xx-curve" class="md12xx-curve"></div>
@@ -103,7 +124,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
   <footer class="md12xx-actions">
     <button id="md12xx-refresh" type="button">Refresh discovery</button>
-    <button id="md12xx-save" class="md12xx-primary" type="button">Save configuration</button>
+    <button id="md12xx-save" class="md12xx-primary" type="button">Save global curve and shelf settings</button>
   </footer>
 </section>
 
@@ -114,4 +135,6 @@ window.MD12xxBootstrap = <?=json_encode([
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
 </script>
+<script src="<?=$webRoot?>/assets/js/curves.js?v=<?=@filemtime($pluginRoot . '/assets/js/curves.js') ?: 0?>"></script>
 <script src="<?=$webRoot?>/assets/js/settings.js?v=<?=$jsVersion?>"></script>
+<script src="<?=$webRoot?>/assets/js/ipmi.js?v=<?=@filemtime($pluginRoot . '/assets/js/ipmi.js') ?: 0?>"></script>

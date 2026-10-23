@@ -1,8 +1,10 @@
-# MD12xx Fan Control for Unraid
+# WAZ Cooling Control for Unraid
 
-Current maintenance build: **0.4.14 / 2026.10.20.01**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
+Preserves the `md12xx.fancontrol` update identity and existing shelf settings.
 
-Standalone, host-native fan control for Dell PowerVault MD1200 and MD1220 disk shelves.
+Development preview: **0.5.0 / 2026.10.22.01**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
+
+Host-native chassis and disk-shelf cooling. This preview adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [preview scope and validation](docs/IPMI_PREVIEW.md).
 
 > **Beta:** MD1200 control and SES telemetry have been verified on real hardware. MD1220 uses the same Dell MD12xx enclosure family and is included for testing, but its serial fan response still requires independent hardware confirmation.
 

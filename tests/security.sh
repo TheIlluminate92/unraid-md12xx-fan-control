@@ -16,17 +16,17 @@ while IFS= read -r -d '' SOURCE_FILE; do
       exit 1
     fi
   done < "$SOURCE_FILE"
-done < <(find "$RUNTIME_DIR" -type f ! -name '*.svg' -print0)
+done < <(find "$RUNTIME_DIR" -type f ! -name '*.svg' ! -name '*.png' ! -name '*.bin' ! -name '*LICENSE*' -print0)
 
 grep -Fq "href=\"$ALLOWED_SUPPORT_URL\"" "$RUNTIME_DIR/MD12xxFanControl.page"
 grep -Fq 'target="_blank" rel="noopener noreferrer"' "$RUNTIME_DIR/MD12xxFanControl.page"
 
-if grep -R -n -E '/mnt(/|$)|/root(/|$)|/home(/|$)|docker\.sock' "$RUNTIME_DIR"; then
+if grep -R -I -n -E '/mnt(/|$)|/root(/|$)|/home(/|$)|docker\.sock' "$RUNTIME_DIR"; then
   echo "Broad filesystem or Docker socket access found in installed runtime." >&2
   exit 1
 fi
 
-if grep -R -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP|BOTTOM)_' "$PROJECT_DIR/source"; then
+if grep -R -I -n -E '/dev/sg(11|18)|FTE33O9T|FTE32AB2|/mnt/user/Back-Up|MD1200_(TOP|BOTTOM)_' "$PROJECT_DIR/source"; then
   echo "Server-specific identifier found in installed runtime." >&2
   exit 1
 fi

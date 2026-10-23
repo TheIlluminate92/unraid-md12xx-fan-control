@@ -21,7 +21,8 @@ foreach (['success','invalid-php','failed-start','failed-stop'] as $scenario) {
             $target = strtr($target,$map);
             check(str_starts_with($target,$staged.'/'), 'All payload files must be staged');
             if (!is_dir(dirname($target))) mkdir(dirname($target),0755,true);
-            file_put_contents($target,ltrim(strtr((string)$file->INLINE,$map), "\r\n"));
+            $contents = (string)$file->INLINE;
+            file_put_contents($target, (string)$file['Type'] === 'base64' ? base64_decode(trim($contents), true) : ltrim(strtr($contents,$map), "\r\n"));
         }
         mkdir($live . '/scripts',0755,true);
         mkdir($root . '/config/' . $name,0755,true);

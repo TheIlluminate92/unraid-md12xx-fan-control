@@ -35,6 +35,9 @@ function md12xx_parse_fan_telemetry(string $output): array
 // Do not trust a stale manual shelf assignment during identification.
 function md12xx_commission_temperature_policy(array $config, array $disks): array
 {
+    $curves = [$config['curve']];
+    foreach ($config['shelves'] ?? [] as $shelf) if (($shelf['curveMode'] ?? 'global') === 'individual') $curves[] = $shelf['curve'];
+    $failureSpeed = max((int) $config['sensorFailureSpeed'], ...array_map(static fn(array $curve): int => max(array_column($curve, 'speed')), $curves));
     $safe = count($disks) > 0;
     $required = 20;
     $active = 0;
@@ -44,13 +47,16 @@ function md12xx_commission_temperature_policy(array $config, array $disks): arra
         if ($asleep) continue;
         $active++;
         $raw = $disk['temp'] ?? null;
-        if (!is_numeric($raw) || (float) $raw <= 0) { $safe = false; $required = max($required, (int) $config['sensorFailureSpeed']); continue; }
-        $speed = (int) $config['curve'][0]['speed'];
-        foreach ($config['curve'] as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
+        if (!is_numeric($raw) || (float) $raw <= 0) { $safe = false; $required = max($required, $failureSpeed); continue; }
+        $speed = 20;
+        foreach ($curves as $curve) {
+            $speed = max($speed, (int) $curve[0]['speed']);
+            foreach ($curve as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
+        }
         $required = max($required, $speed);
         if ((float) $raw >= 35 || $speed > 20) $safe = false;
     }
-    if (!$disks) $required = max($required, (int) $config['sensorFailureSpeed']);
+    if (!$disks) $required = max($required, $failureSpeed);
     // The current configuration may be manual, but commissioning must not
     // restore below its saved manual target if the test is interrupted.
     if (($config['mode'] ?? '') === 'manual') $required = max($required, (int) $config['manualSpeed']);

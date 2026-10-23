@@ -333,14 +333,17 @@ while ($running) {
         }
         $thermal = md12xx_controller_temperature($assignedDisks, $disks);
         $thermal['mappingChanged'] = $mappingChanged;
-        $auto = md12xx_controller_auto_target($config, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
+        $deviceConfig = $config;
+        $deviceConfig['curve'] = cooling_device_curve($shelf, $config['curve']);
+        $deviceConfig['sensorFailureSpeed'] = max($config['sensorFailureSpeed'], max(array_column($deviceConfig['curve'], 'speed')));
+        $auto = md12xx_controller_auto_target($deviceConfig, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
         $telemetry = $invalidSesMapping
             ? ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $connection['message']]
             : md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
         $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
         $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
         if ($mode === 'auto' && $telemetry['state'] === 'fault') {
-            $target = max($target, (int) $config['sensorFailureSpeed']);
+            $target = max($target, (int) $deviceConfig['sensorFailureSpeed']);
             $reason = 'fan telemetry fault; fail-safe';
         }
         if (isset($pendingVerifications[$id]) && (int) ($pendingVerifications[$id]['target'] ?? -1) !== $target) {

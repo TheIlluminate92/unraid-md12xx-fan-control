@@ -1,6 +1,6 @@
-# Current release: 0.4.14
+# Development preview: 0.5.0
 
-`md12xx.fancontrol.plg` is the normal update installer; `md12xx.fancontrol-0.4.14.plg` is its immutable versioned copy. Both are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.20.01**; Settings and the API show application **0.4.14**. The date-based build fixes Unraid update ordering from the test installers.
+`md12xx.fancontrol.plg` is the normal update installer; `md12xx.fancontrol-0.5.0.plg` is its immutable versioned copy. Both are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.22.01**; Settings and the API show application **0.5.0**. The date-based build fixes Unraid update ordering from the test installers.
 
 ```text
 https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg
@@ -19,3 +19,5 @@ Earlier versioned Beta and test installers remain immutable history, including t
 Versioned artifacts must be saved as `md12xx.fancontrol.plg` before deliberate installation. Existing duplicates require a reviewed registration migration; do not uninstall the alias. See [migration plan](../docs/PLUGIN_UPDATES.md).
 
 Read [maintenance and migration](../docs/MAINTENANCE_AND_MIGRATION.md) for the new safety checks, staged runtime rollback, hardware-validation limits and R730xd/R360 split.
+
+This branch is a preview. Do not merge or deploy to production before supervised IPMI fan-response and recovery testing. New IPMI control starts disabled.
