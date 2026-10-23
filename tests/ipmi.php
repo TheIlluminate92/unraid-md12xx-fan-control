@@ -23,6 +23,18 @@ $quiet = cooling_ipmi_config(['enabled'=>true, 'mode'=>'auto', 'curveMode'=>'ind
     ['temperatureC'=>39, 'speed'=>35], ['temperatureC'=>40, 'speed'=>40]
 ]]);
 $quiet['effectiveCurve'] = cooling_device_curve($quiet, $global, 15);
+ipmi_check($quiet['hysteresisC'] === 1.0, 'IPMI hysteresis defaults to one degree');
+foreach ([['temp'=>40.0,'previous'=>30,'expected'=>40], ['temp'=>39.5,'previous'=>40,'expected'=>40], ['temp'=>39.0,'previous'=>40,'expected'=>40], ['temp'=>38.5,'previous'=>40,'expected'=>30]] as $case) {
+    ipmi_check(cooling_ipmi_target($quiet, array_replace($sensors, ['cpuMaxC'=>$case['temp']]), $case['previous'])['percent'] === $case['expected'], 'Immediate upshift and hysteresis-protected downshift');
+}
+$noHysteresis = $quiet; $noHysteresis['hysteresisC'] = 0.0;
+ipmi_check(cooling_ipmi_target($noHysteresis, array_replace($sensors, ['cpuMaxC'=>39.5]), 40)['percent'] === 35, 'Zero hysteresis disables the hold');
+foreach ([-1, 11, 'invalid', INF, NAN] as $badHysteresis) {
+    try { cooling_ipmi_config(['hysteresisC'=>$badHysteresis]); throw new RuntimeException('Invalid hysteresis accepted'); } catch (InvalidArgumentException $expected) {}
+}
+foreach ([array_replace($sensors, ['cpuMaxC'=>70]), array_replace($sensors, ['inletC'=>35]), array_replace($sensors, ['healthy'=>false])] as $fault) {
+    ipmi_check(cooling_ipmi_target($quiet, $fault, 40)['mode'] === 'firmware', 'Hysteresis cannot delay emergency handback');
+}
 foreach ([30=>15, 32=>20, 35=>25, 37=>30, 39=>35, 40=>40, 69=>40] as $temp=>$speed) {
     ipmi_check(cooling_ipmi_target($quiet, array_replace($sensors, ['cpuMaxC'=>$temp]))['percent'] === $speed, 'Individual IPMI 15–40% curve');
 }

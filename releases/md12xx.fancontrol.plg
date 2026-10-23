@@ -2,13 +2,14 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "2026.10.22.03">
+  <!ENTITY version "2026.10.22.04">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
-### 0.5.0 Beta - Build 2026.10.22.03
+### 0.5.0 Beta - Build 2026.10.22.04
+- Adds configurable downshift hysteresis to each Individual shelf/IPMI curve; Global devices follow the Global hysteresis. IPMI defaults to 1°C, increases speed immediately, and delays downshifts until below the threshold minus hysteresis. Fault/thermal handback remains immediate.
 - Individual IPMI curves now support a 15% minimum. Global and MD12xx shelf curves retain their 20% minimum. Emergency iDRAC cooling takes priority over a curve's maximum.
 - Adds disabled-by-default local IPMI chassis control for R730/R730xd, with a bundled static tool and licenses. Thermal or sensor faults return control to iDRAC; persistent host-bound ownership supports recovery after process loss or reboot. Live R730xd fan response and explicit firmware handback passed; load, 15% hardware response, crash recovery and reboot validation remain pending.
 - Each shelf and IPMI may follow the Global curve or retain an Individual curve. Each device uses its own temperature; mixed Global/Individual setups are supported.
@@ -304,7 +305,8 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
       return { temperatureC: Number(row.querySelector('.cooling-curve-temp').value), speed: Number(row.querySelector('.cooling-curve-speed').value) };
     });
   }
-  function mount(root, points, minimumSpeed) {
+  function readHysteresis(root) { return Number(root.querySelector('.cooling-curve-hysteresis').value); }
+  function mount(root, points, minimumSpeed, hysteresis) {
     minimumSpeed = minimumSpeed === 15 ? 15 : 20;
     root.replaceChildren();
     var label = document.createElement('label'), count = document.createElement('input');
@@ -312,6 +314,12 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
     count.type = 'number'; count.min = '2'; count.max = '10'; count.value = String(points.length);
     count.setAttribute('aria-label', 'Number of individual curve points');
     label.appendChild(count); root.appendChild(label);
+    var downshiftLabel = document.createElement('label'), downshift = document.createElement('input');
+    downshiftLabel.textContent = 'Downshift hysteresis °C ';
+    downshift.type = 'number'; downshift.className = 'cooling-curve-hysteresis'; downshift.min = '0'; downshift.max = '10'; downshift.step = '0.5';
+    downshift.value = String(hysteresis == null ? 1 : hysteresis);
+    downshift.setAttribute('aria-label', 'Individual downshift hysteresis °C');
+    downshiftLabel.appendChild(downshift); root.appendChild(downshiftLabel);
     points.forEach(function (point) {
       var row = document.createElement('div'); row.className = 'cooling-curve-point';
       [['Temperature °C', 'cooling-curve-temp', point.temperatureC, 0, 100], ['Fan %', 'cooling-curve-speed', point.speed, minimumSpeed, 100]].forEach(function (field) {
@@ -324,10 +332,10 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
     });
     count.addEventListener('change', function () {
       var desired = Math.max(2, Math.min(10, Math.round(Number(count.value) || 2)));
-      mount(root, resize(read(root), desired), minimumSpeed);
+      mount(root, resize(read(root), desired), minimumSpeed, readHysteresis(root));
     });
   }
-  window.WAZCoolingCurves = { read: read, mount: mount, resize: resize };
+  window.WAZCoolingCurves = { read: read, readHysteresis: readHysteresis, mount: mount, resize: resize };
 })();
 
 ]]>
@@ -365,7 +373,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
       node('cooling-ipmi-mode').value = data.config.mode;
       node('cooling-ipmi-speed').value = String(data.config.manualSpeed);
       node('cooling-ipmi-curve-source').value = data.config.curveMode;
-      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve, 15);
+      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve, 15, data.config.hysteresisC);
       node('cooling-ipmi-curve').hidden = data.config.curveMode !== 'individual';
       initialized = true;
     }
@@ -394,7 +402,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
     } catch (error) { node('cooling-ipmi-message').textContent = error.message; }
   }
   node('cooling-ipmi-curve-source').addEventListener('change', function () { node('cooling-ipmi-curve').hidden = this.value !== 'individual'; });
-  function draft() { return { enabled: node('cooling-ipmi-enabled').checked, mode: node('cooling-ipmi-mode').value, manualSpeed: Number(node('cooling-ipmi-speed').value), curveMode: node('cooling-ipmi-curve-source').value, curve: window.WAZCoolingCurves.read(node('cooling-ipmi-curve')) }; }
+  function draft() { return { enabled: node('cooling-ipmi-enabled').checked, mode: node('cooling-ipmi-mode').value, manualSpeed: Number(node('cooling-ipmi-speed').value), curveMode: node('cooling-ipmi-curve-source').value, curve: window.WAZCoolingCurves.read(node('cooling-ipmi-curve')), hysteresisC: window.WAZCoolingCurves.readHysteresis(node('cooling-ipmi-curve')) }; }
   node('cooling-ipmi-save').addEventListener('click', function () { save(draft()); });
   node('cooling-ipmi-restore').addEventListener('click', function () { var settings = current && current.config ? JSON.parse(JSON.stringify(current.config)) : { enabled: false, mode: 'firmware', manualSpeed: 60 }; settings.enabled = false; settings.mode = 'firmware'; save(settings); });
   visibility(); refresh();
@@ -468,6 +476,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
           model: shelf.model,
           curveMode: shelf.curveMode,
           curve: shelf.curve,
+          hysteresisC: shelf.hysteresisC,
           serialPort: shelf.serialPort,
           sesAddress: shelf.sesAddress,
           sesDevice: shelf.sesDevice,
@@ -744,7 +753,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
     }).join("");
     Array.prototype.forEach.call(root.querySelectorAll('.md12xx-shelf'), function (card, index) {
       var editor = card.querySelector('.cooling-curve-editor');
-      window.WAZCoolingCurves.mount(editor, shelves[index].curve || config.curve);
+      window.WAZCoolingCurves.mount(editor, shelves[index].curve || config.curve, 20, shelves[index].hysteresisC == null ? config.hysteresisC : shelves[index].hysteresisC);
       card.querySelector('.md12xx-curve-source').addEventListener('change', function () { editor.hidden = this.value !== 'individual'; });
     });
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-remove"), function (button) {
@@ -899,6 +908,7 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
         model: card.querySelector(".md12xx-model").value,
         curveMode: card.querySelector('.md12xx-curve-source').value,
         curve: window.WAZCoolingCurves.read(card.querySelector('.cooling-curve-editor')),
+        hysteresisC: window.WAZCoolingCurves.readHysteresis(card.querySelector('.cooling-curve-editor')),
         enabled: card.querySelector(".md12xx-shelf-enabled").checked,
         commissioned: card.getAttribute("data-commissioned") === "1",
         serialPort: card.querySelector(".md12xx-port").value,
@@ -1739,6 +1749,7 @@ function md12xx_validate_config(array $input): array
             'name' => substr(trim((string) ($shelf['name'] ?? ($model . ' ' . ($index + 1)))), 0, 80),
             'curveMode' => in_array($shelf['curveMode'] ?? 'global', ['global', 'individual'], true) ? ($shelf['curveMode'] ?? 'global') : throw new InvalidArgumentException('Curve source must be Global or Individual'),
             'curve' => cooling_validate_curve($shelf['curve'] ?? $config['curve']),
+            'hysteresisC' => cooling_validate_hysteresis($shelf['hysteresisC'] ?? $config['hysteresisC']),
             'model' => $model,
             'enabled' => filter_var($shelf['enabled'] ?? true, FILTER_VALIDATE_BOOL),
             'commissioned' => filter_var($shelf['commissioned'] ?? false, FILTER_VALIDATE_BOOL),
@@ -2005,7 +2016,7 @@ function md12xx_public_status(): array
         'version' => '0.5.0',
         'md12xxAvailable' => count($config['shelves']) > 0 || count(array_filter(md12xx_read_discovery()['sesDevices'] ?? [], static fn(array $device): bool => preg_match('/MD12(?:00|20)/i', (string) ($device['model'] ?? '')) === 1)) > 0,
         'ipmi' => cooling_ipmi_public(),
-        'pluginVersion' => '2026.10.22.03',
+        'pluginVersion' => '2026.10.22.04',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -2475,17 +2486,7 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
     }
 
     $temperature = (float) $thermal['temperatureC'];
-    $candidate = $cool;
-    foreach ($curve as $step) {
-        if ($temperature >= (float) $step['temperatureC']) $candidate = (int) $step['speed'];
-    }
-    if ($previous !== null && $candidate < $previous) {
-        $threshold = null;
-        foreach ($curve as $step) {
-            if ((int) $step['speed'] >= $previous) { $threshold = (float) $step['temperatureC']; break; }
-        }
-        if ($threshold !== null && $temperature >= ($threshold - (float) $config['hysteresisC'])) $candidate = $previous;
-    }
+    $candidate = cooling_curve_target($curve, $temperature, $previous, (float) $config['hysteresisC']);
     return ['speed' => $candidate, 'reason' => ($thermal['temperatureSource'] ?? 'disk') . ' ' . $temperature . '°C'];
 }
 
@@ -2722,8 +2723,9 @@ while ($running) {
         $thermal['mappingChanged'] = $mappingChanged;
         $deviceConfig = $config;
         $deviceConfig['curve'] = cooling_device_curve($shelf, $config['curve']);
+        $deviceConfig['hysteresisC'] = cooling_device_hysteresis($shelf, $config['hysteresisC']);
         $deviceConfig['sensorFailureSpeed'] = max($config['sensorFailureSpeed'], max(array_column($deviceConfig['curve'], 'speed')));
-        $auto = md12xx_controller_auto_target($deviceConfig, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
+        $auto = md12xx_controller_auto_target($deviceConfig, $thermal, $previousMode === 'auto' && !$controlChanged ? ($previousTargets[$id] ?? null) : null);
         $telemetry = $invalidSesMapping
             ? ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $connection['message']]
             : md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
@@ -2920,6 +2922,25 @@ function cooling_curve_speed(array $curve, float $temperature): int {
     $speed = (int) $curve[0]['speed'];
     foreach ($curve as $step) if ($temperature >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
     return $speed;
+}
+function cooling_validate_hysteresis($value): float {
+    if (!is_numeric($value) || !is_finite((float) $value) || (float) $value < 0 || (float) $value > 10) throw new InvalidArgumentException('Downshift hysteresis must be 0–10°C');
+    return (float) $value;
+}
+function cooling_device_hysteresis(array $device, float $global): float {
+    return ($device['curveMode'] ?? 'global') === 'individual' ? cooling_validate_hysteresis($device['hysteresisC'] ?? $global) : $global;
+}
+function cooling_curve_target(array $curve, float $temperature, ?int $previous, float $hysteresis): int {
+    $candidate = cooling_curve_speed($curve, $temperature);
+    if ($previous !== null && $candidate < $previous && $hysteresis > 0) {
+        foreach ($curve as $step) {
+            if ((int) $step['speed'] === $previous) {
+                if ($temperature >= (float) $step['temperatureC'] - $hysteresis) return $previous;
+                break;
+            }
+        }
+    }
+    return $candidate;
 }
 
 ]]>
@@ -3210,6 +3231,8 @@ $lease = COOLING_IPMI_LEASE;
 $recoverStartup = is_file($lease);
 $latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
 $running = true;
+$previousAutoPercent = null;
+$previousProfile = null;
 if (function_exists('pcntl_async_signals')) {
     pcntl_async_signals(true);
     pcntl_signal(SIGTERM, function () use (&$running): void { $running = false; });
@@ -3228,19 +3251,26 @@ while ($running) {
             if (!cooling_ipmi_restore('cooling_ipmi_run', $lease)) touch($latch);
             $recoverStartup = false;
         }
-        $globalCurve = cooling_validate_curve(cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json')['curve'] ?? cooling_default_curve());
+        $globalConfig = cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json');
+        $globalCurve = cooling_validate_curve($globalConfig['curve'] ?? cooling_default_curve());
         $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve, 15);
+        $config['effectiveHysteresisC'] = cooling_device_hysteresis($config, cooling_validate_hysteresis($globalConfig['hysteresisC'] ?? 1.0));
+        $profile = json_encode([$config['enabled'], $config['mode'], $config['curveMode'], $config['effectiveCurve'], $config['effectiveHysteresisC']]);
+        if ($profile !== $previousProfile) $previousAutoPercent = null;
+        $previousProfile = $profile;
         $output = $capability['available'] ? cooling_ipmi_run(['sdr', 'elist', 'all']) : ['code' => 1, 'output' => ''];
         $sensors = cooling_ipmi_sensors($output['code'] === 0 ? $output['output'] : '', $capability['cpuCount']);
-        $target = cooling_ipmi_target($config, $sensors);
+        $target = cooling_ipmi_target($config, $sensors, $previousAutoPercent);
         if (!$capability['available'] || is_file($latch)) $target = ['mode' => 'firmware', 'percent' => null, 'reason' => is_file($latch) ? 'Control paused after a fault; review and save settings to re-arm' : $capability['message']];
         $applied = cooling_ipmi_apply($target, 'cooling_ipmi_run', $lease);
         if (!$applied['ok'] || ($config['enabled'] && $config['mode'] !== 'firmware' && (!$sensors['healthy'] || $target['mode'] === 'firmware'))) touch($latch);
         $fault = !$applied['ok'] || is_file($latch);
+        $previousAutoPercent = !$fault && $applied['mode'] === 'auto' ? $target['percent'] : null;
         cooling_ipmi_store(COOLING_IPMI_RUNTIME . '/ipmi-status.json', array_merge($sensors, [
             'generatedAt' => time(), 'state' => $fault ? 'fault' : 'normal', 'enabled' => $config['enabled'],
             'mode' => $applied['mode'], 'targetPercent' => $applied['ok'] ? $target['percent'] : null,
             'message' => $applied['message'], 'targetReason' => $target['reason'], 'latched' => is_file($latch),
+            'effectiveHysteresisC' => $config['effectiveHysteresisC'],
         ]));
     } finally { flock($guard, LOCK_UN); fclose($guard); }
     for ($i = 0; $i < 5 && $running; $i++) sleep(1);
@@ -3302,7 +3332,8 @@ function cooling_ipmi_config(array $input): array {
     $curveMode = $input['curveMode'] ?? 'global';
     if (!in_array($curveMode, ['global', 'individual'], true)) throw new InvalidArgumentException('Curve source must be Global or Individual');
     return ['enabled' => $input['enabled'] ?? false, 'mode' => $mode, 'manualSpeed' => $speed,
-        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve(), 15)];
+        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve(), 15),
+        'hysteresisC' => cooling_validate_hysteresis($input['hysteresisC'] ?? 1.0)];
 }
 function cooling_ipmi_profile(string $vendor, string $model): bool {
     return trim($vendor) === 'Dell Inc.' && in_array(trim($model), ['PowerEdge R730', 'PowerEdge R730xd'], true);
@@ -3367,12 +3398,12 @@ function cooling_ipmi_sensors(string $output, int $expectedCpus): array {
         'inletC' => $inlet, 'fanRpms' => array_values($fans), 'averageRpm' => $fans ? (int) round(array_sum($fans) / count($fans)) : null,
         'message' => $healthy ? '' : 'Complete healthy CPU, inlet and six-fan telemetry is required'];
 }
-function cooling_ipmi_target(array $config, array $sensors): array {
+function cooling_ipmi_target(array $config, array $sensors, ?int $previous = null): array {
     if (!$config['enabled'] || $config['mode'] === 'firmware') return ['mode' => 'firmware', 'percent' => null, 'reason' => 'iDRAC automatic control'];
     if (!$sensors['healthy']) return ['mode' => 'firmware', 'percent' => null, 'reason' => 'Sensor fault: returning control to iDRAC'];
     if ($sensors['cpuMaxC'] >= 70 || $sensors['inletC'] >= 35) return ['mode' => 'firmware', 'percent' => null, 'reason' => 'Thermal limit: returning control to iDRAC'];
     $speed = $config['mode'] === 'manual' ? $config['manualSpeed'] : 20;
-    if ($config['mode'] === 'auto') $speed = cooling_curve_speed($config['effectiveCurve'] ?? $config['curve'], (float) $sensors['cpuMaxC']);
+    if ($config['mode'] === 'auto') $speed = cooling_curve_target($config['effectiveCurve'] ?? $config['curve'], (float) $sensors['cpuMaxC'], $previous, (float) ($config['effectiveHysteresisC'] ?? $config['hysteresisC']));
     return ['mode' => $config['mode'], 'percent' => $speed, 'reason' => $config['mode'] === 'manual' ? 'Manual target with thermal guard' : 'CPU/inlet temperature curve'];
 }
 function cooling_ipmi_restore(callable $run, string $lease): bool {

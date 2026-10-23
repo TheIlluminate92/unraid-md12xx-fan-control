@@ -8,6 +8,8 @@ The existing Auto curve is the Global curve. Each shelf and IPMI independently s
 
 Configured shelves remain visible when disconnected so their faults can be reviewed. Unavailable device sections are hidden; **Show unavailable controls** reveals setup and compatibility information. Shelf and chassis enablement are separate.
 
+Each Individual curve retains a separate downshift hysteresis (0–10°C). IPMI defaults to 1°C; existing shelf configurations inherit their previous shared value when no individual setting is saved. Global devices use the Global hysteresis. Speeds rise immediately; a downshift waits until temperature is below the higher speed's entry threshold minus hysteresis. For example, a 40°C entry point with 1°C hysteresis remains active at 39°C and drops below 39°C. Zero disables the hold. Curve/mode changes and firmware/fault transitions reset IPMI Auto history. Thermal/sensor handback always bypasses hysteresis. This behavior is covered by software fixtures; live hardware validation is pending a native plugin update.
+
 Individual IPMI curves allow 15–100% fan targets. Global and MD12xx curves retain a 20% minimum; IPMI manual presets remain 20–100%. The last curve point is the maximum for normal curve control, but emergency iDRAC handback can exceed it. A curve targets a temperature range without guaranteeing it under every workload or inlet temperature.
 
 ## IPMI implementation and dependencies

@@ -9,6 +9,8 @@ $lease = COOLING_IPMI_LEASE;
 $recoverStartup = is_file($lease);
 $latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
 $running = true;
+$previousAutoPercent = null;
+$previousProfile = null;
 if (function_exists('pcntl_async_signals')) {
     pcntl_async_signals(true);
     pcntl_signal(SIGTERM, function () use (&$running): void { $running = false; });
@@ -27,19 +29,26 @@ while ($running) {
             if (!cooling_ipmi_restore('cooling_ipmi_run', $lease)) touch($latch);
             $recoverStartup = false;
         }
-        $globalCurve = cooling_validate_curve(cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json')['curve'] ?? cooling_default_curve());
+        $globalConfig = cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json');
+        $globalCurve = cooling_validate_curve($globalConfig['curve'] ?? cooling_default_curve());
         $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve, 15);
+        $config['effectiveHysteresisC'] = cooling_device_hysteresis($config, cooling_validate_hysteresis($globalConfig['hysteresisC'] ?? 1.0));
+        $profile = json_encode([$config['enabled'], $config['mode'], $config['curveMode'], $config['effectiveCurve'], $config['effectiveHysteresisC']]);
+        if ($profile !== $previousProfile) $previousAutoPercent = null;
+        $previousProfile = $profile;
         $output = $capability['available'] ? cooling_ipmi_run(['sdr', 'elist', 'all']) : ['code' => 1, 'output' => ''];
         $sensors = cooling_ipmi_sensors($output['code'] === 0 ? $output['output'] : '', $capability['cpuCount']);
-        $target = cooling_ipmi_target($config, $sensors);
+        $target = cooling_ipmi_target($config, $sensors, $previousAutoPercent);
         if (!$capability['available'] || is_file($latch)) $target = ['mode' => 'firmware', 'percent' => null, 'reason' => is_file($latch) ? 'Control paused after a fault; review and save settings to re-arm' : $capability['message']];
         $applied = cooling_ipmi_apply($target, 'cooling_ipmi_run', $lease);
         if (!$applied['ok'] || ($config['enabled'] && $config['mode'] !== 'firmware' && (!$sensors['healthy'] || $target['mode'] === 'firmware'))) touch($latch);
         $fault = !$applied['ok'] || is_file($latch);
+        $previousAutoPercent = !$fault && $applied['mode'] === 'auto' ? $target['percent'] : null;
         cooling_ipmi_store(COOLING_IPMI_RUNTIME . '/ipmi-status.json', array_merge($sensors, [
             'generatedAt' => time(), 'state' => $fault ? 'fault' : 'normal', 'enabled' => $config['enabled'],
             'mode' => $applied['mode'], 'targetPercent' => $applied['ok'] ? $target['percent'] : null,
             'message' => $applied['message'], 'targetReason' => $target['reason'], 'latched' => is_file($latch),
+            'effectiveHysteresisC' => $config['effectiveHysteresisC'],
         ]));
     } finally { flock($guard, LOCK_UN); fclose($guard); }
     for ($i = 0; $i < 5 && $running; $i++) sleep(1);

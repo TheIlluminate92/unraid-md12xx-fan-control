@@ -42,6 +42,28 @@ try {
     file_put_contents($root.'/config/ipmi.json', json_encode(['enabled'=>true,'mode'=>'auto','curveMode'=>'individual','curve'=>[['temperatureC'=>0,'speed'=>15],['temperatureC'=>40,'speed'=>40]]]));
     unlink($root.'/state/ipmi-fault-latched');
     lifecycle_wait(fn()=>str_contains((string)@file_get_contents($root.'/commands'),'0x02 0xff 0x0f'), 'Controller did not apply IPMI individual 15% curve');
+    foreach ([[40,40],[39,40],[38,15]] as [$temperature,$percent]) {
+        file_put_contents($root.'/sensors', strtr($sensors, ['37 degrees C'=>$temperature.' degrees C','36 degrees C'=>($temperature-1).' degrees C']));
+        lifecycle_wait(function () use ($root,$temperature,$percent): bool {
+            $state=json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true);
+            return ($state['cpuMaxC']??null)===$temperature && ($state['targetPercent']??null)===$percent;
+        }, 'Actual controller did not apply hysteresis transition');
+    }
+    file_put_contents($root.'/config/ipmi.json', json_encode(['enabled'=>true,'mode'=>'auto','curveMode'=>'individual','hysteresisC'=>0,'curve'=>[['temperatureC'=>0,'speed'=>15],['temperatureC'=>40,'speed'=>40]]]));
+    file_put_contents($root.'/sensors', strtr($sensors, ['37 degrees C'=>'39 degrees C','36 degrees C'=>'38 degrees C']));
+    lifecycle_wait(function () use ($root): bool {
+        $state=json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true);
+        return ($state['cpuMaxC']??null)===39 && ($state['targetPercent']??null)===15 && ($state['effectiveHysteresisC']??null)===0;
+    }, 'Changed hysteresis was not applied');
+    file_put_contents($root.'/config/config.json', json_encode(['curve'=>[['temperatureC'=>0,'speed'=>20],['temperatureC'=>40,'speed'=>40]],'hysteresisC'=>3]));
+    file_put_contents($root.'/config/ipmi.json', json_encode(['enabled'=>true,'mode'=>'auto','curveMode'=>'global','hysteresisC'=>0]));
+    foreach ([[40,40],[38,40],[36,20]] as [$temperature,$percent]) {
+        file_put_contents($root.'/sensors', strtr($sensors, ['37 degrees C'=>$temperature.' degrees C','36 degrees C'=>($temperature-1).' degrees C']));
+        lifecycle_wait(function () use ($root,$temperature,$percent): bool {
+            $state=json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true);
+            return ($state['cpuMaxC']??null)===$temperature && ($state['targetPercent']??null)===$percent && ($state['effectiveHysteresisC']??null)===3;
+        }, 'Global hysteresis did not override the saved individual setting');
+    }
     echo "IPMI supervisor process-loss recovery and latched restart passed.\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); $end=microtime(true)+30; do { $status=proc_get_status($process); if (!$status['running']) break; usleep(100000); } while (microtime(true)<$end); proc_close($process); }

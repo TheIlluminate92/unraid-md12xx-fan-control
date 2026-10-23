@@ -32,7 +32,8 @@ function cooling_ipmi_config(array $input): array {
     $curveMode = $input['curveMode'] ?? 'global';
     if (!in_array($curveMode, ['global', 'individual'], true)) throw new InvalidArgumentException('Curve source must be Global or Individual');
     return ['enabled' => $input['enabled'] ?? false, 'mode' => $mode, 'manualSpeed' => $speed,
-        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve(), 15)];
+        'curveMode' => $curveMode, 'curve' => cooling_validate_curve($input['curve'] ?? cooling_default_curve(), 15),
+        'hysteresisC' => cooling_validate_hysteresis($input['hysteresisC'] ?? 1.0)];
 }
 function cooling_ipmi_profile(string $vendor, string $model): bool {
     return trim($vendor) === 'Dell Inc.' && in_array(trim($model), ['PowerEdge R730', 'PowerEdge R730xd'], true);
@@ -97,12 +98,12 @@ function cooling_ipmi_sensors(string $output, int $expectedCpus): array {
         'inletC' => $inlet, 'fanRpms' => array_values($fans), 'averageRpm' => $fans ? (int) round(array_sum($fans) / count($fans)) : null,
         'message' => $healthy ? '' : 'Complete healthy CPU, inlet and six-fan telemetry is required'];
 }
-function cooling_ipmi_target(array $config, array $sensors): array {
+function cooling_ipmi_target(array $config, array $sensors, ?int $previous = null): array {
     if (!$config['enabled'] || $config['mode'] === 'firmware') return ['mode' => 'firmware', 'percent' => null, 'reason' => 'iDRAC automatic control'];
     if (!$sensors['healthy']) return ['mode' => 'firmware', 'percent' => null, 'reason' => 'Sensor fault: returning control to iDRAC'];
     if ($sensors['cpuMaxC'] >= 70 || $sensors['inletC'] >= 35) return ['mode' => 'firmware', 'percent' => null, 'reason' => 'Thermal limit: returning control to iDRAC'];
     $speed = $config['mode'] === 'manual' ? $config['manualSpeed'] : 20;
-    if ($config['mode'] === 'auto') $speed = cooling_curve_speed($config['effectiveCurve'] ?? $config['curve'], (float) $sensors['cpuMaxC']);
+    if ($config['mode'] === 'auto') $speed = cooling_curve_target($config['effectiveCurve'] ?? $config['curve'], (float) $sensors['cpuMaxC'], $previous, (float) ($config['effectiveHysteresisC'] ?? $config['hysteresisC']));
     return ['mode' => $config['mode'], 'percent' => $speed, 'reason' => $config['mode'] === 'manual' ? 'Manual target with thermal guard' : 'CPU/inlet temperature curve'];
 }
 function cooling_ipmi_restore(callable $run, string $lease): bool {

@@ -204,6 +204,7 @@ function md12xx_validate_config(array $input): array
             'name' => substr(trim((string) ($shelf['name'] ?? ($model . ' ' . ($index + 1)))), 0, 80),
             'curveMode' => in_array($shelf['curveMode'] ?? 'global', ['global', 'individual'], true) ? ($shelf['curveMode'] ?? 'global') : throw new InvalidArgumentException('Curve source must be Global or Individual'),
             'curve' => cooling_validate_curve($shelf['curve'] ?? $config['curve']),
+            'hysteresisC' => cooling_validate_hysteresis($shelf['hysteresisC'] ?? $config['hysteresisC']),
             'model' => $model,
             'enabled' => filter_var($shelf['enabled'] ?? true, FILTER_VALIDATE_BOOL),
             'commissioned' => filter_var($shelf['commissioned'] ?? false, FILTER_VALIDATE_BOOL),

@@ -88,17 +88,7 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
     }
 
     $temperature = (float) $thermal['temperatureC'];
-    $candidate = $cool;
-    foreach ($curve as $step) {
-        if ($temperature >= (float) $step['temperatureC']) $candidate = (int) $step['speed'];
-    }
-    if ($previous !== null && $candidate < $previous) {
-        $threshold = null;
-        foreach ($curve as $step) {
-            if ((int) $step['speed'] >= $previous) { $threshold = (float) $step['temperatureC']; break; }
-        }
-        if ($threshold !== null && $temperature >= ($threshold - (float) $config['hysteresisC'])) $candidate = $previous;
-    }
+    $candidate = cooling_curve_target($curve, $temperature, $previous, (float) $config['hysteresisC']);
     return ['speed' => $candidate, 'reason' => ($thermal['temperatureSource'] ?? 'disk') . ' ' . $temperature . '°C'];
 }
 
@@ -335,8 +325,9 @@ while ($running) {
         $thermal['mappingChanged'] = $mappingChanged;
         $deviceConfig = $config;
         $deviceConfig['curve'] = cooling_device_curve($shelf, $config['curve']);
+        $deviceConfig['hysteresisC'] = cooling_device_hysteresis($shelf, $config['hysteresisC']);
         $deviceConfig['sensorFailureSpeed'] = max($config['sensorFailureSpeed'], max(array_column($deviceConfig['curve'], 'speed')));
-        $auto = md12xx_controller_auto_target($deviceConfig, $thermal, $previousMode === 'auto' ? ($previousTargets[$id] ?? null) : null);
+        $auto = md12xx_controller_auto_target($deviceConfig, $thermal, $previousMode === 'auto' && !$controlChanged ? ($previousTargets[$id] ?? null) : null);
         $telemetry = $invalidSesMapping
             ? ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $connection['message']]
             : md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);

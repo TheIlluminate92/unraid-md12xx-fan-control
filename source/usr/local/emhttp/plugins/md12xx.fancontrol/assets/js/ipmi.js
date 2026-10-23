@@ -27,7 +27,7 @@
       node('cooling-ipmi-mode').value = data.config.mode;
       node('cooling-ipmi-speed').value = String(data.config.manualSpeed);
       node('cooling-ipmi-curve-source').value = data.config.curveMode;
-      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve, 15);
+      window.WAZCoolingCurves.mount(node('cooling-ipmi-curve'), data.config.curve || data.globalCurve, 15, data.config.hysteresisC);
       node('cooling-ipmi-curve').hidden = data.config.curveMode !== 'individual';
       initialized = true;
     }
@@ -56,7 +56,7 @@
     } catch (error) { node('cooling-ipmi-message').textContent = error.message; }
   }
   node('cooling-ipmi-curve-source').addEventListener('change', function () { node('cooling-ipmi-curve').hidden = this.value !== 'individual'; });
-  function draft() { return { enabled: node('cooling-ipmi-enabled').checked, mode: node('cooling-ipmi-mode').value, manualSpeed: Number(node('cooling-ipmi-speed').value), curveMode: node('cooling-ipmi-curve-source').value, curve: window.WAZCoolingCurves.read(node('cooling-ipmi-curve')) }; }
+  function draft() { return { enabled: node('cooling-ipmi-enabled').checked, mode: node('cooling-ipmi-mode').value, manualSpeed: Number(node('cooling-ipmi-speed').value), curveMode: node('cooling-ipmi-curve-source').value, curve: window.WAZCoolingCurves.read(node('cooling-ipmi-curve')), hysteresisC: window.WAZCoolingCurves.readHysteresis(node('cooling-ipmi-curve')) }; }
   node('cooling-ipmi-save').addEventListener('click', function () { save(draft()); });
   node('cooling-ipmi-restore').addEventListener('click', function () { var settings = current && current.config ? JSON.parse(JSON.stringify(current.config)) : { enabled: false, mode: 'firmware', manualSpeed: 60 }; settings.enabled = false; settings.mode = 'firmware'; save(settings); });
   visibility(); refresh();

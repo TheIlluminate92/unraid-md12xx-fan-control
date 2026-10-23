@@ -24,3 +24,22 @@ function cooling_curve_speed(array $curve, float $temperature): int {
     foreach ($curve as $step) if ($temperature >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
     return $speed;
 }
+function cooling_validate_hysteresis($value): float {
+    if (!is_numeric($value) || !is_finite((float) $value) || (float) $value < 0 || (float) $value > 10) throw new InvalidArgumentException('Downshift hysteresis must be 0–10°C');
+    return (float) $value;
+}
+function cooling_device_hysteresis(array $device, float $global): float {
+    return ($device['curveMode'] ?? 'global') === 'individual' ? cooling_validate_hysteresis($device['hysteresisC'] ?? $global) : $global;
+}
+function cooling_curve_target(array $curve, float $temperature, ?int $previous, float $hysteresis): int {
+    $candidate = cooling_curve_speed($curve, $temperature);
+    if ($previous !== null && $candidate < $previous && $hysteresis > 0) {
+        foreach ($curve as $step) {
+            if ((int) $step['speed'] === $previous) {
+                if ($temperature >= (float) $step['temperatureC'] - $hysteresis) return $previous;
+                break;
+            }
+        }
+    }
+    return $candidate;
+}

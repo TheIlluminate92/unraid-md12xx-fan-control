@@ -60,6 +60,7 @@
           model: shelf.model,
           curveMode: shelf.curveMode,
           curve: shelf.curve,
+          hysteresisC: shelf.hysteresisC,
           serialPort: shelf.serialPort,
           sesAddress: shelf.sesAddress,
           sesDevice: shelf.sesDevice,
@@ -336,7 +337,7 @@
     }).join("");
     Array.prototype.forEach.call(root.querySelectorAll('.md12xx-shelf'), function (card, index) {
       var editor = card.querySelector('.cooling-curve-editor');
-      window.WAZCoolingCurves.mount(editor, shelves[index].curve || config.curve);
+      window.WAZCoolingCurves.mount(editor, shelves[index].curve || config.curve, 20, shelves[index].hysteresisC == null ? config.hysteresisC : shelves[index].hysteresisC);
       card.querySelector('.md12xx-curve-source').addEventListener('change', function () { editor.hidden = this.value !== 'individual'; });
     });
     Array.prototype.forEach.call(root.querySelectorAll(".md12xx-remove"), function (button) {
@@ -491,6 +492,7 @@
         model: card.querySelector(".md12xx-model").value,
         curveMode: card.querySelector('.md12xx-curve-source').value,
         curve: window.WAZCoolingCurves.read(card.querySelector('.cooling-curve-editor')),
+        hysteresisC: window.WAZCoolingCurves.readHysteresis(card.querySelector('.cooling-curve-editor')),
         enabled: card.querySelector(".md12xx-shelf-enabled").checked,
         commissioned: card.getAttribute("data-commissioned") === "1",
         serialPort: card.querySelector(".md12xx-port").value,

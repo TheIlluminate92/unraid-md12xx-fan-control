@@ -16,6 +16,17 @@ vm.runInNewContext(readFileSync(new URL('../source/usr/local/emhttp/plugins/md12
 const curves = window.WAZCoolingCurves;
 const plain = value => JSON.parse(JSON.stringify(value));
 
+test('individual hysteresis stays separate and survives point-count edits', () => {
+  const chassis = new Element('div'), shelf = new Element('div');
+  const points = [{ temperatureC: 0, speed: 20 }, { temperatureC: 40, speed: 40 }];
+  curves.mount(chassis, points, 15, 1); curves.mount(shelf, points, 20, 3);
+  chassis.querySelector('.cooling-curve-hysteresis').value = '2.5';
+  const count = chassis.querySelector('input'); count.value = '4'; count.events.change();
+  assert.equal(curves.readHysteresis(chassis), 2.5);
+  assert.equal(curves.readHysteresis(shelf), 3);
+  assert.equal(curves.read(chassis).length, 4);
+});
+
 test('IPMI 15% minimum survives point-count edits without relaxing shelf limits', () => {
   const chassis = new Element('div'), shelf = new Element('div');
   curves.mount(chassis, [{ temperatureC: 0, speed: 15 }, { temperatureC: 40, speed: 40 }], 15);
