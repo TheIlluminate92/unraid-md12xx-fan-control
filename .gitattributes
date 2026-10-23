@@ -18,3 +18,5 @@ SHA256SUMS text eol=lf
 *.png binary
 *.bin binary
 *.svg text eol=lf
+*.mjs text eol=lf
+source/usr/local/emhttp/plugins/md12xx.fancontrol/bin/* -text

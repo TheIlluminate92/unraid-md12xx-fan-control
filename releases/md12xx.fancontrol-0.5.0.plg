@@ -4751,7 +4751,8 @@ finish() {
   fi
   /usr/bin/php "$RUNTIME/include/ipmi-recover.php"
 }
-trap finish EXIT TERM INT
+trap finish EXIT
+trap 'exit 0' TERM INT
 while true; do
   /usr/bin/php "$RUNTIME/include/ipmi-controller.php" 8>&- &
   child=$!
