@@ -6,8 +6,8 @@
   <Project>https://github.com/TheIlluminate92/unraid-md12xx-fan-control</Project>
   <ReadMe>https://github.com/TheIlluminate92/unraid-md12xx-fan-control#readme</ReadMe>
   <Icon>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/icon.svg</Icon>
-  <Overview>Beta local fan control for Dell PowerVault MD1200 and experimental MD1220 shelves with guarded discovery, automatic disk mapping, RPM-proven commissioning, independent SES telemetry, and local controller supervision. Requires an active EMM serial console, persistent serial adapter path, SES access through sg_ses, and no competing fan writer. No automatic uploads or cloud services. AI-assisted development by OpenAI Codex under project-owner direction, hardware validation, and release approval.</Overview>
-  <Requires>Unraid 7.3.2 or newer; Dell PowerVault MD1200 (verified) or MD1220 (experimental); compatible SAS HBA/controller exposing an SES /dev/sg device; sg_ses; active EMM serial access through a persistent /dev/serial/by-id path. The tested MD1200 path uses a Dell-compatible six-pin service/password-reset cable and FTDI USB-to-serial adapter. No competing fan writer. MD1400, MD1420, and other shelves are unsupported.</Requires>
+  <Overview>WAZ Cooling Control combines local Dell PowerVault MD1200/MD1220 shelf fan control with newly added, self-contained IPMI chassis fan control for Dell PowerEdge R730/R730xd. IPMI fan response, return to iDRAC automatic control, and idle temperature-curve control are confirmed on a Dell PowerEdge R730xd running Unraid 7.3.3. Each device independently follows a Global or Individual curve using its own temperature. Includes guarded shelf discovery, disk mapping, independent SES telemetry, supervised recovery, a bundled IPMI tool, and automatic hiding of unavailable hardware. MD1200 is hardware-tested; MD1220 remains experimental. No automatic uploads or cloud services. AI-assisted development by OpenAI Codex under project-owner direction, hardware validation, and release approval.</Overview>
+  <Requires>Unraid 7.3.2 or newer. For chassis IPMI: Dell PowerEdge R730 or R730xd with local kernel IPMI access; the userspace tool and dependencies are bundled, with no BMC network credentials required. For shelf control: Dell PowerVault MD1200 (verified) or MD1220 (experimental), a compatible SAS HBA exposing an SES /dev/sg device, sg_ses, and active EMM serial access through a persistent /dev/serial/by-id path. The tested MD1200 path uses a Dell-compatible six-pin service/password-reset cable and FTDI USB-to-serial adapter. No competing fan writer. Either chassis or shelf control can be used independently. MD1400, MD1420, and other shelves are unsupported.</Requires>
   <Category>Tools:Utilities</Category>
   <Beta>true</Beta>
   <License>MIT</License>
@@ -15,5 +15,5 @@
   <Screenshot>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/screenshots/controller-and-discovery.png</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/screenshots/connection-discovery.png</Screenshot>
   <Screenshot>https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/screenshots/auto-curve.png</Screenshot>
-  <ExtraSearchTerms>Dell PowerVault MD1200 MD1220 JBOD disk shelf fan cooling SES BlueDress FTDI HBA EMM</ExtraSearchTerms>
+  <ExtraSearchTerms>Dell PowerVault PowerEdge R730 R730xd IPMI iDRAC MD1200 MD1220 JBOD chassis disk shelf fan cooling curve SES BlueDress FTDI HBA EMM</ExtraSearchTerms>
 </Plugin>

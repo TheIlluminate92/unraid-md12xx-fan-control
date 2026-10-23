@@ -1,4 +1,4 @@
-# Combined cooling preview
+# WAZ Cooling Control IPMI support and validation
 
 The plugin remains `md12xx.fancontrol` for configuration and updates. Its display name is WAZ Cooling Control. Existing MD12xx identities, commissioning, Auto settings and manual choices are retained. IPMI settings are separate and start disabled with iDRAC automatic control selected.
 
@@ -29,4 +29,4 @@ The device drivers come from Unraid's own matching kernel. Startup loads `ipmi_d
 
 ## Validation status
 
-The native-installed preview successfully read both CPU temperatures, the inlet and all six fan RPMs on an R730xd running Unraid 7.3.3. A manual 80% command produced approximately 14,040–14,400 RPM; explicit firmware handback succeeded and returned fan speeds to approximately 8,760–9,000 RPM. Idle Auto/Global operation at 25% produced approximately 5,520–5,640 RPM with CPUs at 37/36°C. Synthetic tests cover sensor loss, thermal guards, command failure, restore failure, ownership, mixed curves and a 15% individual target. Load, live 15% response, actual process-death recovery and reboot validation remain pending. Existing MD12xx commissioning was preserved.
+The native-installed preview successfully read both CPU temperatures, the inlet and all six fan RPMs on an R730xd running Unraid 7.3.3. A manual 80% command produced approximately 14,040–14,400 RPM; explicit firmware handback succeeded and returned fan speeds to approximately 8,760–9,000 RPM. Idle Auto/Global operation at 25% produced approximately 5,520–5,640 RPM with CPUs at 37/36°C. Individual Auto operation with a 40% curve ceiling also passed at idle. Synthetic tests cover sensor loss, thermal guards, command failure, restore failure, ownership, mixed curves and a 15% individual target. Load, live 15% response, actual process-death recovery and reboot validation remain pending. Existing MD12xx commissioning was preserved. The owner authorized Beta publication with these testing limits recorded.

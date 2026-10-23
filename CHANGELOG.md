@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.5.0 preview — 2026-10-22 (build 2026.10.22.02)
+## 0.5.0 Beta — 2026-10-22 (build 2026.10.22.03)
 
 - Adds local R730/R730xd IPMI chassis control, bundled dependencies, independent Global/Individual curves, and hardware-aware sections under WAZ Cooling Control.
 - Individual IPMI curves accept 15–100%; shared Global and shelf curves retain 20–100%. Curve maxima do not override emergency iDRAC handback. IPMI manual presets remain 20–100%.
 - Live R730xd tests verified manual 80%, explicit return to firmware control, and idle Auto operation. Load, 15% hardware response, real crash recovery, and reboot tests remain pending.
+- Published through the canonical Unraid plugin update channel with existing settings and commissioning retained. Builds 2026.10.22.01 and .02 are preserved as preview history.
 
 ## 0.4.14 — 2026-10-20
 

@@ -2,13 +2,13 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "2026.10.22.02">
+  <!ENTITY version "2026.10.22.03">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
-### 0.5.0 - Build 2026.10.22.02 (preview)
+### 0.5.0 Beta - Build 2026.10.22.03
 - Individual IPMI curves now support a 15% minimum. Global and MD12xx shelf curves retain their 20% minimum. Emergency iDRAC cooling takes priority over a curve's maximum.
 - Adds disabled-by-default local IPMI chassis control for R730/R730xd, with a bundled static tool and licenses. Thermal or sensor faults return control to iDRAC; persistent host-bound ownership supports recovery after process loss or reboot. Live R730xd fan response and explicit firmware handback passed; load, 15% hardware response, crash recovery and reboot validation remain pending.
 - Each shelf and IPMI may follow the Global curve or retain an Individual curve. Each device uses its own temperature; mixed Global/Individual setups are supported.
@@ -2005,7 +2005,7 @@ function md12xx_public_status(): array
         'version' => '0.5.0',
         'md12xxAvailable' => count($config['shelves']) > 0 || count(array_filter(md12xx_read_discovery()['sesDevices'] ?? [], static fn(array $device): bool => preg_match('/MD12(?:00|20)/i', (string) ($device['model'] ?? '')) === 1)) > 0,
         'ipmi' => cooling_ipmi_public(),
-        'pluginVersion' => '2026.10.22.02',
+        'pluginVersion' => '2026.10.22.03',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -3699,7 +3699,7 @@ window.MD12xxBootstrap = <?=json_encode([
 <![CDATA[
 **WAZ Cooling Control** (formerly **MD12xx Fan Control**)
 
-Local temperature-based fan control with independent SES fan telemetry for Dell PowerVault MD1200 and MD1220 disk shelves.
+Local temperature-based fan control for Dell PowerVault MD1200 and MD1220 disk shelves. Newly added IPMI chassis control for Dell PowerEdge R730/R730xd includes its userspace dependencies; fan response, return to iDRAC automatic control, and idle curve operation are confirmed on a Dell R730xd running Unraid 7.3.3.
 
 Also includes local IPMI chassis fan control for Dell PowerEdge R730/R730xd, disabled by default. Each shelf and the chassis may follow the Global curve or an Individual curve, always using its own temperature. Unavailable hardware sections are hidden unless requested. Existing MD12xx configuration and commissioning are preserved.
 

@@ -2,22 +2,25 @@
 
 Preserves the `md12xx.fancontrol` update identity and existing shelf settings.
 
-Development preview: **0.5.0 / 2026.10.22.02**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
+Current Beta release: **0.5.0 / 2026.10.22.03**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
 
-Host-native chassis and disk-shelf cooling. This preview adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [preview scope and validation](docs/IPMI_PREVIEW.md).
+Host-native chassis and disk-shelf cooling. This release adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [IPMI scope and validation](docs/IPMI_PREVIEW.md).
 
 > **Beta:** MD1200 control and SES telemetry have been verified on real hardware. MD1220 uses the same Dell MD12xx enclosure family and is included for testing, but its serial fan response still requires independent hardware confirmation.
 
 ## Hardware status
 
-| Shelf | Current confidence |
+| Device | Current confidence |
 | --- | --- |
 | Dell PowerVault MD1200 | Two independent shelves passed serial identity, automatic SES/disk mapping, 20% → 50% response, and telemetry-proven 20% restoration on Unraid 7.3.2. |
 | Dell PowerVault MD1220 | Control path and 24-bay topology are covered by synthetic tests; real serial and RPM hardware validation is still requested. |
+| Dell PowerEdge R730xd IPMI | Bundled local IPMI fan control confirmed on Unraid 7.3.3: manual fan response, explicit return to iDRAC automatic control, and idle Global/Individual curve operation. Load, live 15% response, real crash recovery and reboot tests remain pending. R730 is supported by the same hardware profile; direct hardware testing used an R730xd. |
 
 Reports from different HBAs, firmware revisions, serial adapters, and Unraid releases are wanted. Use the repository's **Beta hardware report** issue form and remove unique identifiers before posting.
 
 ## Requirements
+
+For chassis-only control, use a Dell PowerEdge R730/R730xd with local kernel IPMI access; the userspace tool and dependencies are bundled. No shelf, serial adapter, SES tools, or BMC network credentials are required for IPMI. The shelf-specific requirements below apply only when enabling MD12xx control.
 
 - Unraid 7.3.2 or newer. This is the oldest release validated by the current beta.
 - A Dell PowerVault MD1200, or an MD1220 for experimental validation. MD1400, MD1420, and other shelves are not supported by this release.

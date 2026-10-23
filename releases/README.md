@@ -1,6 +1,6 @@
-# Development preview: 0.5.0
+# Current Beta release: 0.5.0
 
-`md12xx.fancontrol.plg` is the current update installer; `md12xx.fancontrol-0.5.0-2026.10.22.02.plg` is its immutable versioned copy. The initial `md12xx.fancontrol-0.5.0.plg` is retained unchanged. All are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.22.02**; Settings and the API show application **0.5.0**. Individual IPMI curves now allow a 15% minimum; shelf/Global limits remain 20%.
+`md12xx.fancontrol.plg` is the current update installer; `md12xx.fancontrol-0.5.0-2026.10.22.03.plg` is its immutable versioned copy. The initial `md12xx.fancontrol-0.5.0.plg` and build .02 are retained unchanged. All are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.22.03**; Settings and the API show application **0.5.0**. Individual IPMI curves now allow a 15% minimum; shelf/Global limits remain 20%.
 
 ```text
 https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg
@@ -20,4 +20,4 @@ Versioned artifacts must be saved as `md12xx.fancontrol.plg` before deliberate i
 
 Read [maintenance and migration](../docs/MAINTENANCE_AND_MIGRATION.md) for the new safety checks, staged runtime rollback, hardware-validation limits and R730xd/R360 split.
 
-This branch is a preview. Do not merge or deploy to production before supervised IPMI fan-response and recovery testing. New IPMI control starts disabled.
+This is a Beta release. Supervised R730xd fan response, explicit firmware handback, and idle Auto operation passed. Load, live 15% response, real process-death recovery and reboot tests remain pending; review [IPMI validation](../docs/IPMI_PREVIEW.md). New IPMI control starts disabled. Update using Unraid's plugin manager; this release does not change existing device curves automatically.
