@@ -8,6 +8,11 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
+### 0.5.1 Beta - Build 2026.10.22.05
+- Fixes Individual IPMI curve/settings saves rejected after Unraid validates and consumes the CSRF token. The browser still sends the token and Unraid still validates it before dispatch.
+- Keeps global curve save success/errors visible on IPMI-only hosts by moving shared feedback outside the hidden shelf section.
+- Adds endpoint-level save/persistence, rejected-request and visible-feedback regressions. Preserves existing curves, hysteresis and hardware control policy.
+
 ### 0.5.0 Beta - Build 2026.10.22.04
 - Adds configurable downshift hysteresis to each Individual shelf/IPMI curve; Global devices follow the Global hysteresis. IPMI defaults to 1°C, increases speed immediately, and delays downshifts until below the threshold minus hysteresis. Fault/thermal handback remains immediate.
 - Individual IPMI curves now support a 15% minimum. Global and MD12xx shelf curves retain their 20% minimum. Emergency iDRAC cooling takes priority over a curve's maximum.

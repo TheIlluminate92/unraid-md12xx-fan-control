@@ -1,6 +1,6 @@
-# Staged Beta release: 0.5.0
+# Current Beta release: 0.5.1
 
-`md12xx.fancontrol.plg` is the current update installer; `md12xx.fancontrol-0.5.0-2026.10.22.04.plg` is its immutable versioned copy. The initial `md12xx.fancontrol-0.5.0.plg` and builds .02/.03 are retained unchanged. All are listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.22.04**; Settings and the API show application **0.5.0**. Individual IPMI curves now allow a 15% minimum; shelf/Global limits remain 20%.
+`md12xx.fancontrol.plg` is the current update installer; `md12xx.fancontrol-0.5.1.plg` is its immutable versioned copy. Earlier installers are retained unchanged and listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.22.05**; Settings and the API show application **0.5.1**. This patch fixes native IPMI saves after CSRF validation and keeps global save feedback visible on IPMI-only hosts. Existing curves, hysteresis and safety policy are preserved.
 
 ```text
 https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg

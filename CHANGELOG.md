@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 Beta — 2026-10-22 (build 2026.10.22.05)
+
+- Fixes IPMI saves returning `Current session token required` after valid native Unraid CSRF validation consumes the POST token. Client token submission and native protection remain intact. Fixes #28.
+- Makes global save success/errors visible when no shelves are configured; shared feedback now sits outside the optional MD12xx wrapper. Fixes #29.
+- Adds actual endpoint regressions for consumed-token dispatch, curve/hysteresis persistence, invalid requests preserving configuration, and visible feedback. No fan curve, ownership or thermal guard policy changes.
+
 ## 0.5.0 Beta — 2026-10-22 (build 2026.10.22.04)
 
 - Adds local R730/R730xd IPMI chassis control, bundled dependencies, independent Global/Individual curves, and hardware-aware sections under WAZ Cooling Control.

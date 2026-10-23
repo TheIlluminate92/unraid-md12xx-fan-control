@@ -2,12 +2,17 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "2026.10.22.04">
+  <!ENTITY version "2026.10.22.05">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
+### 0.5.1 Beta - Build 2026.10.22.05
+- Fixes Individual IPMI curve/settings saves rejected after Unraid validates and consumes the CSRF token. The browser still sends the token and Unraid still validates it before dispatch.
+- Keeps global curve save success/errors visible on IPMI-only hosts by moving shared feedback outside the hidden shelf section.
+- Adds endpoint-level save/persistence, rejected-request and visible-feedback regressions. Preserves existing curves, hysteresis and hardware control policy.
+
 ### 0.5.0 Beta - Build 2026.10.22.04
 - Adds configurable downshift hysteresis to each Individual shelf/IPMI curve; Global devices follow the Global hysteresis. IPMI defaults to 1°C, increases speed immediately, and delays downshifts until below the threshold minus hysteresis. Fault/thermal handback remains immediate.
 - Individual IPMI curves now support a 15% minimum. Global and MD12xx shelf curves retain their 20% minimum. Emergency iDRAC cooling takes priority over a curve's maximum.
@@ -2013,10 +2018,10 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
-        'version' => '0.5.0',
+        'version' => '0.5.1',
         'md12xxAvailable' => count($config['shelves']) > 0 || count(array_filter(md12xx_read_discovery()['sesDevices'] ?? [], static fn(array $device): bool => preg_match('/MD12(?:00|20)/i', (string) ($device['model'] ?? '')) === 1)) > 0,
         'ipmi' => cooling_ipmi_public(),
-        'pluginVersion' => '2026.10.22.04',
+        'pluginVersion' => '2026.10.22.05',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -3197,8 +3202,9 @@ try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     if ($method === 'GET') { echo json_encode(cooling_ipmi_public(), JSON_THROW_ON_ERROR); exit; }
     if ($method !== 'POST') { http_response_code(405); throw new InvalidArgumentException('Method not allowed'); }
-    // Unraid authenticates the page and validates its global POST csrf_token before dispatch.
-    if (!is_string($_POST['csrf_token'] ?? null) || $_POST['csrf_token'] === '') throw new InvalidArgumentException('Current session token required');
+    // Unraid's PHP auto-prepend handler authenticates/validates the request and
+    // consumes csrf_token before dispatch. The browser must still send it;
+    // requiring the consumed field here rejects valid native WebGUI requests.
     $config = cooling_ipmi_config(json_decode((string) ($_POST['config'] ?? ''), true, 16, JSON_THROW_ON_ERROR));
     $lock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-config.lock', 'c+');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Another cooling setting is being saved; retry shortly');
@@ -3604,6 +3610,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 <section class="md12xx-page">
   <header class="md12xx-hero"><div><h2>WAZ Cooling Control</h2><p>Local chassis and disk-shelf cooling. Each controller keeps its own settings.</p></div></header>
   <label class="md12xx-inline"><input id="cooling-show-unavailable" type="checkbox"><span>Show unavailable controls</span></label>
+  <div id="md12xx-message" class="md12xx-message" role="status" aria-live="polite" hidden></div>
   <section id="cooling-ipmi" class="md12xx-panel" hidden>
     <div class="md12xx-title-row"><h3>IPMI chassis fans</h3><span id="cooling-ipmi-health" class="md12xx-pill">READING</span></div>
     <p id="cooling-ipmi-description">Checking local IPMI support…</p>
@@ -3624,7 +3631,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   <header class="md12xx-hero">
     <div>
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
-      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.5.0</span></p>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.5.1</span></p>
     </div>
     <div class="md12xx-hero-actions">
       <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
@@ -3652,8 +3659,6 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
     <p><b>Separate safety paths:</b> fan commands travel only through USB serial. The SAS HBA is used read-only for topology and independent SES RPM telemetry; the plugin does not configure or flash it.</p>
     <p class="md12xx-warning"><b>Recovery:</b> if a test cannot prove the final 20% state, keep every controller stopped and follow the on-screen recovery message before continuing.</p>
   </section>
-
-  <div id="md12xx-message" class="md12xx-message" hidden></div>
 
   <section class="md12xx-panel">
     <h3>Controller</h3>
@@ -3713,7 +3718,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.5.0',
+    'version' => '0.5.1',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
@@ -5099,7 +5104,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.5.0 installed. Configure it under Settings → Utilities."
+echo "Version 0.5.1 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>

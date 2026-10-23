@@ -7,8 +7,9 @@ try {
     $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
     if ($method === 'GET') { echo json_encode(cooling_ipmi_public(), JSON_THROW_ON_ERROR); exit; }
     if ($method !== 'POST') { http_response_code(405); throw new InvalidArgumentException('Method not allowed'); }
-    // Unraid authenticates the page and validates its global POST csrf_token before dispatch.
-    if (!is_string($_POST['csrf_token'] ?? null) || $_POST['csrf_token'] === '') throw new InvalidArgumentException('Current session token required');
+    // Unraid's PHP auto-prepend handler authenticates/validates the request and
+    // consumes csrf_token before dispatch. The browser must still send it;
+    // requiring the consumed field here rejects valid native WebGUI requests.
     $config = cooling_ipmi_config(json_decode((string) ($_POST['config'] ?? ''), true, 16, JSON_THROW_ON_ERROR));
     $lock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-config.lock', 'c+');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Another cooling setting is being saved; retry shortly');
