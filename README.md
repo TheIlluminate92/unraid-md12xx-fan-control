@@ -1,5 +1,20 @@
 # WAZ Cooling Control for Unraid
 
+<!-- historian-overview:start -->
+## Project overview
+
+| Field | Project |
+|---|---|
+| Purpose | Unraid enclosure/chassis cooling control with hardware safety checks. |
+| Status | Maintained hardware-control plugin; qualification is device-specific. |
+| Owner | Repository: TheIlluminate92. Worker: Unassigned; project worker not recorded. |
+| Continue here | [Current work / guidance](CONTRIBUTING.md) · [Checks / context](RELEASE_CHECKLIST.md) |
+| Related projects | [Dashboard plugin](https://github.com/TheIlluminate92/unraid-dashboard) |
+
+Documentation reviewed October 27, 2026. Existing evidence dates below still apply;
+this overview is not a new release, deployment or live-system verification.
+<!-- historian-overview:end -->
+
 Preserves the `md12xx.fancontrol` update identity and existing shelf settings.
 
 Current Beta release: **0.5.1 / 2026.10.22.05**. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
