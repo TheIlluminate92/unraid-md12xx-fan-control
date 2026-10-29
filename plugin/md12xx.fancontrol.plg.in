@@ -8,6 +8,11 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
+### 0.5.2 Beta - Build 2026.10.28.01
+- Preserves the first IPMI fault reason, time, normalized readings, previous healthy sample and failed-query/command results, with one private persistent record per incident.
+- Shows active incident details and distinguishes older latches whose original cause was not recorded. Healthy latched polls no longer overwrite evidence or rewrite flash.
+- Preserves thermal limits, immediate iDRAC fallback, ownership checks and explicit re-arm. Issue #35's recurring runtime trigger remains under investigation; this is a diagnostic update.
+
 ### 0.5.1 Beta - Build 2026.10.22.05
 - Fixes Individual IPMI curve/settings saves rejected after Unraid validates and consumes the CSRF token. The browser still sends the token and Unraid still validates it before dispatch.
 - Keeps global curve save success/errors visible on IPMI-only hosts by moving shared feedback outside the hidden shelf section.
