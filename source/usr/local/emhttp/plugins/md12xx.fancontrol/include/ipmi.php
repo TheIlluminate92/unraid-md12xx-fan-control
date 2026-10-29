@@ -23,6 +23,18 @@ function cooling_ipmi_store(string $path, array $data): void {
     chmod($temp, 0600);
     if (!rename($temp, $path)) { @unlink($temp); throw new RuntimeException('Cannot activate cooling state'); }
 }
+// Record one first-cause snapshot per incident, never one flash write per poll.
+// Call under ipmi-command.lock; the latch remains authoritative if recording fails.
+function cooling_ipmi_latch(string $reason, array $evidence = []): void {
+    $latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
+    if (is_file($latch)) return;
+    touch($latch);
+    $record = ['occurredAt' => time(), 'reason' => $reason, 'evidence' => $evidence];
+    foreach ([COOLING_IPMI_RUNTIME . '/ipmi-fault.json', dirname(COOLING_IPMI_CONFIG) . '/ipmi-last-fault.json'] as $path) {
+        try { cooling_ipmi_store($path, $record); }
+        catch (Throwable $error) { error_log('Cooling: could not preserve IPMI fault evidence'); }
+    }
+}
 function cooling_ipmi_config(array $input): array {
     $mode = $input['mode'] ?? 'firmware';
     if (!in_array($mode, ['firmware', 'auto', 'manual'], true)) throw new InvalidArgumentException('Invalid IPMI control mode');
@@ -126,7 +138,9 @@ function cooling_ipmi_apply(array $target, callable $run, string $lease): array 
     $speed = $mode['code'] === 0 ? $run(['raw', '0x30', '0x30', '0x02', '0xff', sprintf('0x%02x', $target['percent'])]) : ['code' => 1];
     if ($speed['code'] !== 0) {
         $restored = cooling_ipmi_restore($run, $lease);
-        return ['ok' => false, 'mode' => $restored ? 'firmware' : 'unknown', 'message' => $restored ? 'Fan command failed; returned to iDRAC' : 'Fan command and iDRAC restoration failed; manual recovery required'];
+        return ['ok' => false, 'mode' => $restored ? 'firmware' : 'unknown', 'modeExitCode' => $mode['code'],
+            'speedExitCode' => $mode['code'] === 0 ? $speed['code'] : null,
+            'message' => $restored ? 'Fan command failed; returned to iDRAC' : 'Fan command and iDRAC restoration failed; manual recovery required'];
     }
     return ['ok' => true, 'mode' => $target['mode'], 'message' => 'Command acknowledged; RPM telemetry is shown separately'];
 }
@@ -141,6 +155,6 @@ function cooling_ipmi_public(): array {
     $state = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-status.json');
     $capability = cooling_ipmi_capability();
     $global = cooling_validate_curve(cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json')['curve'] ?? cooling_default_curve());
-    return array_merge($state, $capability, ['message' => $state['message'] ?? $capability['message'], 'capabilityMessage' => $capability['message'], 'config' => cooling_ipmi_config(cooling_ipmi_read(COOLING_IPMI_CONFIG)), 'globalCurve' => $global,
+    return array_merge($state, $capability, ['activeFault' => is_file(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched') ? cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-fault.json') : [], 'lastFault' => cooling_ipmi_read(dirname(COOLING_IPMI_CONFIG) . '/ipmi-last-fault.json'), 'message' => $state['message'] ?? $capability['message'], 'capabilityMessage' => $capability['message'], 'config' => cooling_ipmi_config(cooling_ipmi_read(COOLING_IPMI_CONFIG)), 'globalCurve' => $global,
         'stale' => !isset($state['generatedAt']) || time() - (int) $state['generatedAt'] > 40]);
 }

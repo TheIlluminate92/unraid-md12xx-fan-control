@@ -18,7 +18,9 @@
   function render(data) {
     current = data;
     visibility();
-    node('cooling-ipmi-description').textContent = (data.model || 'Unknown host') + ' · ' + data.message;
+    var fault = data.latched && data.activeFault && data.activeFault.reason
+      ? ' · First fault: ' + data.activeFault.reason + ' (' + new Date(data.activeFault.occurredAt * 1000).toLocaleString() + ')' : '';
+    node('cooling-ipmi-description').textContent = (data.model || 'Unknown host') + ' · ' + data.message + fault;
     node('cooling-ipmi-health').textContent = !data.available ? 'UNAVAILABLE' : data.stale ? 'STALE' : (data.state || 'normal').toUpperCase();
     node('cooling-ipmi-readings').textContent = 'CPU ' + (data.cpuMaxC == null ? '—' : data.cpuMaxC + '°C') + ' · Inlet ' + (data.inletC == null ? '—' : data.inletC + '°C') + ' · Fans ' + (data.averageRpm == null ? '—' : data.averageRpm + ' RPM') + ' · ' + (data.targetReason || 'iDRAC automatic');
     node('cooling-ipmi-save').disabled = !data.available || data.stale;
