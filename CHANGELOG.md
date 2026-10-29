@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — IPMI first-fault evidence
+
+- Preserve the first fault reason, timestamp, normalized sensor readings, preceding healthy sample and failed-command/query exit codes while control remains latched. Keep one private last-fault snapshot across reboot without rewriting flash on each poll.
+- Show the active incident cause in Settings and distinguish legacy latches whose original cause is unavailable. Preserve supervisor-recovery context without claiming whether process loss, stale status or shutdown was responsible.
+- Extend fake-IPMI lifecycle regressions for query failure, healthy recovery without re-arm, thermal handback and command failure. Existing immediate firmware fallback, thermal thresholds, ownership and explicit re-arm remain unchanged.
+- Tracks #35. This diagnostic change does not establish or fix the recurring runtime trigger; supervised hardware investigation remains open. No installer/release or live rollout is included.
+
 ## 0.5.1 Beta — 2026-10-22 (build 2026.10.22.05)
 
 - Fixes IPMI saves returning `Current session token required` after valid native Unraid CSRF validation consumes the POST token. Client token submission and native protection remain intact. Fixes #28.

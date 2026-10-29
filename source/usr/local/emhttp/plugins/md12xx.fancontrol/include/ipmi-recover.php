@@ -5,5 +5,6 @@ require_once __DIR__ . '/ipmi.php';
 if (!is_file(COOLING_IPMI_LEASE)) exit(0);
 $lock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-command.lock', 'c+');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit(2);
-touch(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched');
+cooling_ipmi_latch('Supervisor recovery with outstanding ownership; controller loss, stale status or shutdown',
+    ['previousStatus' => cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-status.json')]);
 exit(cooling_ipmi_restore('cooling_ipmi_run', COOLING_IPMI_LEASE) ? 0 : 1);

@@ -24,7 +24,7 @@ try {
     $sensors = "Inlet Temp | 04h | ok | 7.1 | 23 degrees C\nTemp | 0Eh | ok | 3.1 | 37 degrees C\nTemp | 0Fh | ok | 3.2 | 36 degrees C\n";
     for ($i=1; $i<=6; $i++) $sensors .= "Fan$i RPM | 30h | ok | 7.1 | 8640 RPM\n";
     file_put_contents($root.'/sensors', $sensors);
-    $binary = "#!/bin/bash\nset -eu\nshift 2\nif [ \"\$1\" = sdr ]; then cat " . escapeshellarg($root.'/sensors') . "; else echo \"\$*\" >> " . escapeshellarg($root.'/commands') . "; fi\n";
+    $binary = "#!/bin/bash\nset -eu\nshift 2\nif [ \"\$1\" = sdr ]; then if [ -f " . escapeshellarg($root.'/query-failure') . " ]; then exit 124; fi; cat " . escapeshellarg($root.'/sensors') . "; else echo \"\$*\" >> " . escapeshellarg($root.'/commands') . "; if [ -f " . escapeshellarg($root.'/command-failure') . " ] && [ \"\$*\" = 'raw 0x30 0x30 0x01 0x00' ]; then exit 1; fi; fi\n";
     file_put_contents($root.'/plugin/bin/ipmitool.bin', $binary); chmod($root.'/plugin/bin/ipmitool.bin',0755);
     file_put_contents($root.'/config/ipmi.json', json_encode(['enabled'=>true,'mode'=>'manual','manualSpeed'=>80]));
     $pipes=[];
@@ -35,6 +35,8 @@ try {
     exec('kill -KILL '.(int)$pid);
     lifecycle_wait(fn()=>str_contains((string)@file_get_contents($root.'/commands'),'0x01 0x01') && !is_file($root.'/config/ipmi-owned.json'), 'Supervisor did not restore firmware after controller death');
     lifecycle_check(is_file($root.'/state/ipmi-fault-latched'), 'Process loss did not latch control off');
+    $supervisorFault=json_decode(file_get_contents($root.'/config/ipmi-last-fault.json'),true);
+    lifecycle_check(str_contains($supervisorFault['reason'], 'Supervisor recovery'), 'Supervisor recovery cause was not preserved');
     $manualCount=substr_count(file_get_contents($root.'/commands'),'0x01 0x00');
     lifecycle_wait(fn()=>(int)@file_get_contents($root.'/state/ipmi-controller.pid') !== $pid, 'Controller did not restart after recovery');
     lifecycle_wait(fn()=>(json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true)['mode']??'')==='firmware','Restart did not remain in firmware mode');
@@ -64,7 +66,31 @@ try {
             return ($state['cpuMaxC']??null)===$temperature && ($state['targetPercent']??null)===$percent && ($state['effectiveHysteresisC']??null)===3;
         }, 'Global hysteresis did not override the saved individual setting');
     }
-    echo "IPMI supervisor process-loss recovery and latched restart passed.\n";
+    // A failed SDR command must hand back immediately and retain its first cause
+    // after healthy polls return, rather than replacing it with generic pause text.
+    touch($root.'/query-failure');
+    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'), 'Query failure did not latch');
+    $first=file_get_contents($root.'/config/ipmi-last-fault.json');
+    $fault=json_decode($first,true);
+    lifecycle_check($fault['reason']==='Sensor query failed (exit 124)', 'SDR exit code was not preserved');
+    lifecycle_check(($fault['evidence']['lastHealthy']['sensors']['healthy']??false)===true, 'Prior healthy sample missing');
+    unlink($root.'/query-failure');
+    lifecycle_wait(function()use($root):bool{$s=json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true);return ($s['healthy']??false)&&($s['mode']??'')==='firmware'&&str_contains($s['targetReason']??'','Sensor query failed (exit 124)');}, 'Healthy polls lost the first fault reason');
+    lifecycle_check(file_get_contents($root.'/config/ipmi-last-fault.json')===$first,'Healthy latched poll rewrote first fault');
+    lifecycle_check((fileperms($root.'/config/ipmi-last-fault.json')&0777)===0600,'Persistent evidence must be private');
+    // Deliberate fixture re-arm, then independent thermal and write failures.
+    unlink($root.'/state/ipmi-fault-latched');
+    file_put_contents($root.'/sensors',strtr($sensors,['37 degrees C'=>'70 degrees C']));
+    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'),'Thermal guard did not latch');
+    $thermal=json_decode(file_get_contents($root.'/config/ipmi-last-fault.json'),true);
+    lifecycle_check($thermal['reason']==='Thermal limit: returning control to iDRAC'&&$thermal['evidence']['sensors']['cpuMaxC']===70,'Thermal cause/readings lost');
+    file_put_contents($root.'/sensors',$sensors);
+    touch($root.'/command-failure'); unlink($root.'/state/ipmi-fault-latched');
+    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'),'Fan command failure did not latch');
+    $write=json_decode(file_get_contents($root.'/config/ipmi-last-fault.json'),true);
+    lifecycle_check($write['reason']==='Fan command failed; returned to iDRAC','Write failure cause lost');
+    lifecycle_check(!is_file($root.'/config/ipmi-owned.json'),'Write failure did not restore firmware');
+    echo "IPMI supervisor recovery, sensor/thermal/command fault evidence and latched restart passed.\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); $end=microtime(true)+30; do { $status=proc_get_status($process); if (!$status['running']) break; usleep(100000); } while (microtime(true)<$end); proc_close($process); }
     lifecycle_clean($root);
