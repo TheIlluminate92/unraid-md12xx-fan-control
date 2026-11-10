@@ -1,5 +1,28 @@
 # Safety maintenance and migration
 
+Current source documentation: beta **0.5.2 / 2026.10.28.01**, including bundled
+R730/R730xd IPMI chassis support; see the [README](../README.md) and
+[current IPMI scope, fault evidence and validation limits](IPMI_PREVIEW.md).
+The 0.4.14 notes below retain their historical release scope. Their statement
+that chassis control was planned is not the current implementation status.
+Source review does not establish installation or hardware acceptance.
+
+## Current IPMI recovery: preserve evidence before acting
+
+IPMI is the local management interface used to hand chassis cooling back to
+Dell's iDRAC firmware controller. Before any separately approved re-arm, preserve
+the first-fault record described in [IPMI scope and fault evidence](IPMI_PREVIEW.md).
+Keep unresolved ownership markers: they indicate that automatic control has not
+yet been confirmed. A failed return to iDRAC automatic control requires supervised
+manual recovery, not another concurrent fan writer or repeated settings saves.
+A successful settings save does not prove the recurring trigger is fixed.
+
+Load testing, live 15% fan response, actual IPMI process-death recovery and reboot
+validation remain pending in the current source record. A shelf-controller
+recovery result is not proof of chassis IPMI recovery. Follow the linked current
+record and the responsible machine owner's acceptance limits; this guide does
+not authorize a test, re-arm, fan command or service restart.
+
 ## 0.4.14 / build 2026.10.20.01
 
 This update preserves saved settings, identities, calibration, enablement, the healthy Auto curve, Manual speed choices, serial framing, reader-first sessions and existing RPM/SAS/operator pairing modes. No re-commissioning is required solely for this update. Review any reported fault instead of clearing existing commissioning.
@@ -28,10 +51,10 @@ Run shelf control only on the host physically connected to the USB service adapt
 
 Transfer configuration and commissioning records intact, then check adapter by-id paths, enclosure logical identities, mapped Unraid disks and fresh four-fan telemetry. Device numbers such as `/dev/sgN` are historical hints. Missing/changed disk names and ambiguous redundant SES paths require review; do not silently adopt another enclosure. Preserve working calibration when the same proven hardware pairing remains valid. Supervise any new commissioning.
 
-R730/R730xd **chassis** control is planned, not implemented in this release. It requires a separate iDRAC/IPMI backend, exact model/firmware validation, exclusive ownership, temperature safeguards, secure credentials if remote access is used, and a tested return to Dell automatic control. MD12xx serial commands must never be used for chassis fans.
+In **0.4.14**, R730/R730xd chassis control was planned, not implemented in that release. The current implementation is described in the linked IPMI record above. That earlier plan required a separate iDRAC/IPMI backend, exact model/firmware validation, exclusive ownership, temperature safeguards, secure credentials if remote access is used, and a tested return to Dell automatic control. MD12xx serial commands must never be used for chassis fans.
 
 ## OS compatibility
 
-Unraid 7.3.3 is the current observed deployment baseline. Local PHP 8.3 regressions and CI PHP 8.3/8.4 cover software behavior; no 7.4 hardware certification is claimed. Validate the two-server move on the same stable OS first. Then test 7.4 plugin install/update/reinstall, authentication/CSRF, task tray, restart/reboot, disk renumbering and thermal/fan failure paths on a supervised test system.
+Historical baseline for the October 20 record: Unraid 7.3.3. Accepted R730 Operations observations on November 8 recorded Unraid 7.3.4 and controller 0.5.2; they are bounded host observations, not broader compatibility certification. Local PHP 8.3 regressions and CI PHP 8.3/8.4 cover software behavior; no 7.4 hardware certification is claimed. Any future OS migration requires its own supervised plugin install/update/reinstall, authentication/CSRF, task tray, restart/reboot, disk-renumbering and thermal/fan failure checks. This documentation update performs none of those actions.
 
 As of 2026-10-20, [7.4.0-rc.1](https://docs.unraid.net/unraid-os/release-notes/7.4.0/) is a pre-release. [Unraid 8 plans](https://unraid.net/blog/unraid-8-qa) describe a new Fedora/uCore plugin/permission system; adaptation is required and this package does not claim Unraid 8 support. Review [internal-boot/TPM/ZFS rollback constraints](https://docs.unraid.net/unraid-os/release-notes/7.3.0/) before migration.
