@@ -1,19 +1,41 @@
 # WAZ Cooling Control for Unraid
 
-<!-- historian-overview:start -->
-## Project overview
+<!-- reader-guide:start -->
+## Meet the project
 
-| Field | Project |
+An Unraid cooling plugin with hardware discovery, commissioning checks, local controls and a safety model. Shelf fan control and chassis IPMI control use different interfaces and acceptance requirements.
+
+### What it is built with
+
+PHP controller/API logic, shell supervision and hardware helpers, browser UI assets, and shell/PowerShell packaging. SES means SCSI Enclosure Services; IPMI is a server-management interface.
+
+### Find your way around
+
+| Start here | What you will find |
 |---|---|
-| Purpose | Unraid enclosure/chassis cooling control with hardware safety checks. |
-| Status | Maintained hardware-control plugin; qualification is device-specific. |
-| Owner | Repository: TheIlluminate92. Worker: Unassigned; project worker not recorded. |
-| Continue here | [Current work / guidance](CONTRIBUTING.md) · [Checks / context](RELEASE_CHECKLIST.md) |
-| Related projects | [Dashboard plugin](https://github.com/TheIlluminate92/unraid-dashboard) |
+| [docs/MAINTENANCE_AND_MIGRATION.md](docs/MAINTENANCE_AND_MIGRATION.md) | Current maintenance and preserved historical limits. |
+| [docs/IPMI_PREVIEW.md](docs/IPMI_PREVIEW.md) | Chassis-control scope. |
+| [source/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php](source/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php) | Shelf controller logic. |
+| [source/usr/local/emhttp/plugins/md12xx.fancontrol/include/safety.php](source/usr/local/emhttp/plugins/md12xx.fancontrol/include/safety.php) | Safety checks. |
+| [docs/API.md](docs/API.md) | Local status interface. |
 
-Documentation reviewed October 27, 2026. Existing evidence dates below still apply;
-this overview is not a new release, deployment or live-system verification.
-<!-- historian-overview:end -->
+### When something goes wrong
+
+Start by reading the relevant source or guide below. These are investigation
+starting points, not instructions to change a live system.
+
+| Symptom or question | First place to look |
+|---|---|
+| Device is not recognized | Read the discovery/compatibility requirements; similar model names do not prove command compatibility. |
+| Control is latched or unavailable | Start with the recorded safety reason and commissioning evidence; do not re-arm merely to remove a warning. |
+| Reported speed seems wrong | Compare independent telemetry and its date; a requested speed does not prove physical fan response. |
+
+The repository owner maintains this project; a dedicated technical worker is not recorded.
+
+Reader guide reviewed November 12, 2026 against repository source and available
+owner records. Existing test, deployment and recovery evidence keeps its original
+date; this prose review did not run the application or test a restore.
+<!-- reader-guide:end -->
 
 Preserves the `md12xx.fancontrol` update identity and existing shelf settings.
 
