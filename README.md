@@ -211,3 +211,8 @@ MIT licensed. Dell does not document the BlueDress fan command used by this proj
 See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for project credits, [CONTRIBUTING.md](CONTRIBUTING.md) for safe hardware reports and development rules, and [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for the remaining Beta/Community Apps gates.
 
 See [plugin registration and update behavior](docs/PLUGIN_UPDATES.md) before migrating duplicate entries. Use only the canonical installer filename; immutable versioned installers are audit artifacts.
+
+
+## License and redistribution
+
+[MIT License](LICENSE): reuse and modification are allowed with the notice retained. Provided as is, without warranty. See [licensing and packaging scope](LICENSING.md) for third-party terms and release limitations.

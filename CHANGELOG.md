@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — licensing maintenance (2026-11-13)
+
+The plugin source payload includes LICENSE beside the existing ipmitool, musl and OpenSSL notices. The next normal build carries it into the installed plugin directory. Existing rolling installers and immutable releases were not rebuilt by this source change. See [LICENSING.md](LICENSING.md). No runtime behavior or existing release asset changed.
+
 ## 0.5.2 Beta — 2026-10-28 (build 2026.10.28.01)
 
 - Preserve the first fault reason, timestamp, normalized sensor readings, preceding healthy sample and failed-command/query exit codes while control remains latched. Keep one private last-fault snapshot across reboot without rewriting flash on each poll.
