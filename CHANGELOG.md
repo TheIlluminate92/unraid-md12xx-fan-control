@@ -1,9 +1,11 @@
 # Changelog
 
-## 0.5.4 Beta candidate — 2026-11-26 (build 2026.11.26.04)
+## 0.5.4 Beta — 2026-11-26 (build 2026.11.26.04)
 
 - Use usable native temperature reports for normal shelf Auto curves and hysteresis. The Settings label is “Unraid-reported, age unverified.” A reported standby disk can be excluded if its native state is clear and another active mapped disk supplies a usable reading.
 - Keep the fail-safe for missing active readings, ambiguous standby, unverified current automatic mapping, and all-standby shelves. Commissioning continues to require verified observations. The versioned .03 installer remains in the release index.
+
+- PHP 8.3 and 8.4 verification passed. A controlled R730 install verified iDRAC handback, healthy chassis Auto, and verified shelf writes using the Auto curves. The rolling channel remains on 0.5.3.
 
 ## 0.5.4 Beta — 2026-11-26 (build 2026.11.26.03)
 

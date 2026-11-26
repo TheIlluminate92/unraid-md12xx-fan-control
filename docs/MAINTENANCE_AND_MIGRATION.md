@@ -1,13 +1,13 @@
 # Safety maintenance and migration
 
-Published versioned beta: **0.5.4 / 2026.11.26.03**. The rolling installer remains at **0.5.3 / 2026.11.26.01**. The plugin includes bundled
+Published versioned beta **0.5.4 / 2026.11.26.04**. The rolling installer remains at **0.5.3 / 2026.11.26.01**. The plugin includes bundled
 R730/R730xd IPMI chassis support; see the [README](../README.md) and
 [current IPMI scope, fault evidence and validation limits](IPMI_PREVIEW.md).
 The 0.4.14 notes below retain their historical release scope. Their statement
 that chassis control was planned is not the current implementation status.
 Source review does not establish installation or hardware acceptance.
 
-## November 26 shelf Auto candidate (0.5.4 / 2026.11.26.04)
+## November 26 shelf Auto release (0.5.4 / 2026.11.26.04)
 
 The accepted shelf Auto policy uses valid positive numeric Unraid reports for
 active mapped disks. Reading age is unverified. The hottest usable active disk
@@ -21,7 +21,7 @@ Auto uses the greater of the failure setting and effective curve maximum for
 uncertain mapping, ambiguous disk state, a missing or invalid active reading,
 or zero usable active readings. This includes all-standby shelves. The existing
 hardware identity, writer and commissioning guards continue to apply. The
-candidate infers no reading age from file timestamps or polling cadence.
+release infers no reading age from file timestamps or polling cadence.
 
 Explicit Manual, chassis recovery, and diagnostic redaction retain .03 behavior.
 Normal and quiet commissioning ramps still require independently verifiable

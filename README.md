@@ -49,7 +49,7 @@ describes the published 0.5.3 release. See the [.03 maintenance notes](docs/MAIN
 The local .04 candidate restores shelf Auto curves using usable active disk
 temperatures. Settings labels them “Unraid-reported, age unverified.” The
 fail-safe remains active for incomplete observations and all-standby
-shelves. See the [candidate policy](docs/MAINTENANCE_AND_MIGRATION.md#november-26-shelf-auto-candidate-054--2026112604).
+shelves. See the [candidate policy](docs/MAINTENANCE_AND_MIGRATION.md#november-26-shelf-auto-release-054--2026112604).
 
 Host-native chassis and disk-shelf cooling. This release adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [IPMI scope and validation](docs/IPMI_PREVIEW.md).
 

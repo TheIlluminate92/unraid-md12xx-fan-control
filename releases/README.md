@@ -1,8 +1,8 @@
-## Local beta candidate 0.5.4 / 2026.11.26.04
+## Versioned beta 0.5.4 / 2026.11.26.04
 
-This candidate uses reported numeric temperatures from active mapped disks for
-shelf Auto. Reading age remains unverified. Its unique versioned filename is
-md12xx.fancontrol-0.5.4-2026.11.26.04.plg. See the [candidate policy](../docs/MAINTENANCE_AND_MIGRATION.md#november-26-shelf-auto-candidate-054--2026112604).
+This release uses reported numeric temperatures from active mapped disks for
+shelf Auto. Reading age remains unverified. PHP 8.3 and 8.4 checks and a controlled R730 update passed.
+Use the [versioned installer](md12xx.fancontrol-0.5.4-2026.11.26.04.plg) and see the [release policy](../docs/MAINTENANCE_AND_MIGRATION.md#november-26-shelf-auto-release-054--2026112604).
 
 ## Versioned beta 0.5.4 / 2026.11.26.03
 
