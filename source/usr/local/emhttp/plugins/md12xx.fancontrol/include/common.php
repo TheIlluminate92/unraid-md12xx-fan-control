@@ -780,35 +780,17 @@ function md12xx_discover_disks(string $path = '/var/local/emhttp/disks.ini'): ar
     return $result;
 }
 
-// Recovery must not hide an unknown temperature behind another disk's valid reading.
-function md12xx_quiet_temperature_policy(array $config, array $disks): array
+// A quiet ramp also depends on verifiably current disk observations. Keep its
+// existing restore floor and per-shelf curve coverage while the source is unverified.
+function md12xx_quiet_temperature_policy(array $config): array
 {
-    $safe = !empty($config['enabled']) && ($config['mode'] ?? '') === 'auto' && !empty($config['startupRecovery35']);
     $required = ($config['mode'] ?? '') === 'manual' ? (int) $config['manualSpeed'] : 20;
     $shelves = $config['shelves'] ?? [];
-    if (!$shelves) { $safe = false; $required = max($required, (int) $config['sensorFailureSpeed']); }
+    if (!$shelves) $required = max($required, (int) $config['sensorFailureSpeed']);
     foreach ($shelves as $shelf) {
-        if (empty($shelf['serialPort']) || !md12xx_serial_path_is_safe((string) $shelf['serialPort']) || empty($shelf['enabled']) || empty($shelf['commissioned']) || empty($shelf['sesIdentity']) || ($shelf['verificationMode'] ?? 'rpm') !== 'rpm' || md12xx_controller_calibration($shelf) === null || empty($shelf['disks'])) $safe = false;
-        $deviceCurve = cooling_device_curve($shelf, $config['curve']);
-        $deviceFailure = max((int) $config['sensorFailureSpeed'], max(array_column($deviceCurve, 'speed')));
-        $speed = (int) $deviceCurve[0]['speed'];
-        if (empty($shelf['disks'])) $speed = max($speed, $deviceFailure);
-        foreach (($shelf['disks'] ?? []) as $name) {
-            $disk = $disks[$name] ?? null;
-            if (!is_array($disk)) { $safe = false; $speed = max($speed, $deviceFailure); continue; }
-            $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
-            $asleep = in_array($explicit, ['1', 'yes', 'true', 'on'], true) || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
-            $raw = trim((string) ($disk['temp'] ?? ''));
-            if (!$asleep && (!is_numeric($raw) || (float) $raw <= 0)) { $safe = false; $speed = max($speed, $deviceFailure); continue; }
-            if (is_numeric($raw) && (float) $raw > 0) {
-                if ((float) $raw >= 35) $safe = false;
-                foreach ($deviceCurve as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
-            }
-        }
-        if ($speed !== 20) $safe = false;
-        $required = max($required, $speed);
+        $required = max($required, md12xx_sensor_failure_speed($config, cooling_device_curve($shelf, $config['curve'])));
     }
-    return ['safe' => $safe, 'restoreSpeed' => $required];
+    return ['safe' => false, 'restoreSpeed' => $required];
 }
 
 function md12xx_quiet_baseline_valid(array $config, array $candidates): bool

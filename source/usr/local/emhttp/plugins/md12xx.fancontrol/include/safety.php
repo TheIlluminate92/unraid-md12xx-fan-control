@@ -31,34 +31,27 @@ function md12xx_parse_fan_telemetry(string $output): array
     ];
 }
 
-// Before pairing is proven, monitor disks mapped to every candidate enclosure.
-// Do not trust a stale manual shelf assignment during identification.
+function md12xx_disk_reports_standby(array $disk): bool
+{
+    $explicit = strtolower(trim((string) ($disk['spundown'] ?? '')));
+    return in_array($explicit, ['1', 'yes', 'true', 'on'], true)
+        || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
+}
+
+function md12xx_sensor_failure_speed(array $config, array $curve): int
+{
+    return max((int) $config['sensorFailureSpeed'], max(array_column($curve, 'speed')));
+}
+
+// disks.ini reports values but supplies no successful observation evidence.
+// Do not infer freshness from the file timestamp, polling cadence, or standby.
 function md12xx_commission_temperature_policy(array $config, array $disks): array
 {
-    $curves = [$config['curve']];
-    foreach ($config['shelves'] ?? [] as $shelf) if (($shelf['curveMode'] ?? 'global') === 'individual') $curves[] = $shelf['curve'];
-    $failureSpeed = max((int) $config['sensorFailureSpeed'], ...array_map(static fn(array $curve): int => max(array_column($curve, 'speed')), $curves));
-    $safe = count($disks) > 0;
-    $required = 20;
-    $active = 0;
-    foreach ($disks as $disk) {
-        $asleep = in_array(strtolower(trim((string) ($disk['spundown'] ?? ''))), ['1', 'yes', 'true', 'on'], true)
-            || str_contains(strtolower((string) ($disk['color'] ?? '')), 'blink');
-        if ($asleep) continue;
-        $active++;
-        $raw = $disk['temp'] ?? null;
-        if (!is_numeric($raw) || (float) $raw <= 0) { $safe = false; $required = max($required, $failureSpeed); continue; }
-        $speed = 20;
-        foreach ($curves as $curve) {
-            $speed = max($speed, (int) $curve[0]['speed']);
-            foreach ($curve as $step) if ((float) $raw >= $step['temperatureC']) $speed = max($speed, (int) $step['speed']);
-        }
-        $required = max($required, $speed);
-        if ((float) $raw >= 35 || $speed > 20) $safe = false;
+    $required = md12xx_sensor_failure_speed($config, $config['curve']);
+    foreach ($config['shelves'] ?? [] as $shelf) {
+        $required = max($required, md12xx_sensor_failure_speed($config, cooling_device_curve($shelf, $config['curve'])));
     }
-    if (!$disks) $required = max($required, $failureSpeed);
-    // The current configuration may be manual, but commissioning must not
-    // restore below its saved manual target if the test is interrupted.
     if (($config['mode'] ?? '') === 'manual') $required = max($required, (int) $config['manualSpeed']);
-    return ['safe' => $safe && $required === 20, 'restoreSpeed' => $required, 'activeDisks' => $active];
+    $active = count(array_filter($disks, static fn(array $disk): bool => !md12xx_disk_reports_standby($disk)));
+    return ['safe' => false, 'restoreSpeed' => $required, 'activeDisks' => $active];
 }

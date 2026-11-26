@@ -266,13 +266,20 @@
     updateActionAvailability();
   }
 
+  function shelfTemperatureLabel(status) {
+    if (status.temperatureC != null) {
+      return status.temperatureC + "°C" + (status.diskInputFreshness === "unverified" ? " reported · unverified" : "");
+    }
+    return status.reportedStandby ? "Standby reported · unverified" : "—";
+  }
+
   function updateShelfStatus() {
     Array.prototype.forEach.call(document.querySelectorAll(".md12xx-shelf"), function (card) {
       var id = card.getAttribute("data-id");
       var status = stateById[id] || {};
       var values = {
         rpm: status.averageRpm == null ? "—" : status.averageRpm,
-        temperature: status.temperatureC == null ? "—" : status.temperatureC + "°C",
+        temperature: shelfTemperatureLabel(status),
         target: status.targetPercent == null ? "—" : status.targetPercent + "%",
         reason: status.targetReason || "—",
         telemetry: status.telemetryState || "—",
@@ -312,7 +319,7 @@
           '<label><span>Serial adapter</span><select class="md12xx-port">' + serialOptions(shelf.serialPort || "", shelf.id) + '</select><small>This is the only hardware choice needed for automatic setup</small></label>' +
           '<label><span>Disk assignment</span><select class="md12xx-assignment">' + option("automatic", "Automatic from detected SES enclosure", assignment === "automatic") + option("manual", "Manual override", assignment === "manual") + '</select><small class="md12xx-assignment-summary">' + esc(assignmentSummary(shelf)) + '</small></label>' +
           '<label><span>Shelf enabled</span><input class="md12xx-shelf-enabled" type="checkbox"' + (shelf.enabled !== false ? " checked" : "") + '><small>' + esc(calibrationSummary(shelf)) + '</small></label>' +
-          '<label><span>Fan curve</span><select class="md12xx-curve-source">' + option('global', 'Global', shelf.curveMode !== 'individual') + option('individual', 'Individual', shelf.curveMode === 'individual') + '</select><small>This shelf always uses its own disk temperatures</small></label>' +
+          '<label><span>Fan curve</span><select class="md12xx-curve-source">' + option('global', 'Global', shelf.curveMode !== 'individual') + option('individual', 'Individual', shelf.curveMode === 'individual') + '</select><small>The effective curve maximum is a lower bound for the fail-safe</small></label>' +
         '</div>' +
         '<div class="cooling-curve-editor"' + (shelf.curveMode === 'individual' ? '' : ' hidden') + '></div>' +
         '<div class="md12xx-mapped-disks"><strong>Associated Unraid disks</strong><span class="md12xx-mapped-disk-list">' + esc(mappedDisks(shelf).length ? mappedDisks(shelf).join(", ") : "None detected yet") + '</span></div>' +
@@ -322,7 +329,7 @@
         '</div></details>' +
         '<div class="md12xx-status">' +
           '<span>RPM<b data-status="rpm">' + esc(status.averageRpm == null ? "—" : status.averageRpm) + '</b></span>' +
-          '<span>Temperature<b data-status="temperature">' + esc(status.temperatureC == null ? "—" : status.temperatureC + "°C") + '</b></span>' +
+          '<span>Temperature<b data-status="temperature">' + esc(shelfTemperatureLabel(status)) + '</b></span>' +
           '<span>Target<b data-status="target">' + esc(status.targetPercent == null ? "—" : status.targetPercent + "%") + '</b></span>' +
           '<span>Reason<b data-status="reason">' + esc(status.targetReason || "—") + '</b></span>' +
           '<span>Telemetry<b data-status="telemetry" title="' + esc(status.telemetryMessage || "") + '">' + esc(status.telemetryState || "—") + '</b></span>' +

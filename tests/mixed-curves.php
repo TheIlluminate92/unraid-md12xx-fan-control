@@ -22,15 +22,15 @@ try {
     exec($command . ' 2>&1', $output, $code);
     mixed_check($code === 0, implode("\n", $output));
     $state = json_decode(file_get_contents($dir . '/state.json'), true);
-    mixed_check($state['shelves'][0]['targetPercent'] === 30 && $state['shelves'][1]['targetPercent'] === 60, 'Mixed Global/Individual curves applied by the actual controller');
+    mixed_check($state['shelves'][0]['targetPercent'] === 50 && $state['shelves'][1]['targetPercent'] === 80, 'Unverified observations use the maximum of each effective curve');
     $config['shelves'][1]['curveMode'] = 'global'; file_put_contents($dir . '/config.json', json_encode($config));
     exec($command . ' 2>&1', $output2, $code2);
     $state = json_decode(file_get_contents($dir . '/state.json'), true);
-    mixed_check($code2 === 0 && $state['shelves'][1]['targetPercent'] === 20, 'Global curve uses the second shelf own cool disks');
+    mixed_check($code2 === 0 && $state['shelves'][1]['targetPercent'] === 50 && $state['shelves'][1]['temperatureC'] === 28, 'Switch back to Global uses its fallback and preserves the reported temperature');
     $normalized = md12xx_validate_config($config);
     mixed_check($normalized['shelves'][1]['curve'][0]['speed'] === 60, 'Individual curve survives a switch back to Global');
     mixed_check($normalized['shelves'][1]['hysteresisC'] === 3.0 && cooling_device_hysteresis($normalized['shelves'][1], 2.0) === 2.0, 'Individual hysteresis is retained while Global is active');
     $config['shelves'][1]['curveMode'] = 'individual';
-    mixed_check(md12xx_commission_temperature_policy($config, ['disk1'=>['temp'=>'28','spundown'=>'0']])['restoreSpeed'] >= 60, 'Commissioning respects individual cooling demand');
+    mixed_check(md12xx_commission_temperature_policy($config, ['disk1'=>['temp'=>'28','spundown'=>'0']])['restoreSpeed'] === 80, 'Commissioning abort respects the individual curve maximum');
 } finally { foreach (glob($dir . '/*') as $path) unlink($path); rmdir($dir); }
 echo "Mixed per-shelf curve controller regression tests passed.\n";

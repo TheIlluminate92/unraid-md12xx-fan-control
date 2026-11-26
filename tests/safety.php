@@ -15,13 +15,19 @@ foreach ([str_replace('speed=3450', 'speed=0', $fixture), str_replace('Fail=0', 
 }
 $config = md12xx_defaults();
 $cold = ['disk1'=>['temp'=>'30', 'spundown'=>'0'], 'disk2'=>['temp'=>'31', 'spundown'=>'0']];
-check(md12xx_commission_temperature_policy($config, $cold)['safe'], 'Cold baseline allowed');
+check(!md12xx_commission_temperature_policy($config, $cold)['safe'], 'Numeric cached temperatures cannot authorize commissioning');
 $unknown = $cold; $unknown['disk2']['temp'] = '*';
 check(!md12xx_commission_temperature_policy($config, $unknown)['safe'], 'Partial unknown blocks commissioning');
 check(md12xx_commission_temperature_policy($config, $unknown)['restoreSpeed'] >= 50, 'Unknown restores fail-safe');
 $hot = $cold; $hot['disk2']['temp'] = '51';
 check(md12xx_commission_temperature_policy($config, $hot)['restoreSpeed'] >= 50, 'Heating during test preserves demand');
 check(!md12xx_commission_temperature_policy($config, [])['safe'], 'Empty disk inventory blocks commissioning');
+$standby = ['disk1'=>['temp'=>'*', 'spundown'=>'1']];
+$standbyPolicy = md12xx_commission_temperature_policy($config, $standby);
+check(!$standbyPolicy['safe'] && $standbyPolicy['restoreSpeed'] === 50 && $standbyPolicy['activeDisks'] === 0,
+    'Reported standby remains informational and cannot authorize commissioning');
+$bounded = md12xx_validate_config(array_replace($config, ['sensorFailureSpeed'=>120]));
+check(md12xx_commission_temperature_policy($bounded, $cold)['restoreSpeed'] === 100, 'Restore uses the validated failure-speed limit');
 $manual = $config; $manual['mode'] = 'manual'; $manual['manualSpeed'] = 80;
 check(md12xx_commission_temperature_policy($manual, $cold)['restoreSpeed'] === 80, 'Saved manual cooling preserved on abort');
 
@@ -29,8 +35,10 @@ $fixtureConfig = json_decode(file_get_contents($root . '/tests/fixtures/auto.jso
 $fixtureConfig['shelves'][0]['disks'] = ['disk1','disk2'];
 file_put_contents($tmp . '/config.json', json_encode($fixtureConfig));
 file_put_contents($tmp . '/shelf-1.txt', $fixture);
-function cycle(string $root, string $tmp, string $disk2): array {
-    file_put_contents($tmp . '/disks.ini', "[disk1]\nname=disk1\ntemp=30\nspundown=0\n[ disk2 ]\nname=disk2\n" . $disk2);
+function cycle(string $root, string $tmp, string $disk2, ?int $mtime = null, bool $allStandby = false): array {
+    $disk1 = $allStandby ? "temp=*\nspundown=1\n" : "temp=30\nspundown=0\n";
+    file_put_contents($tmp . '/disks.ini', "[disk1]\nname=disk1\n" . $disk1 . "[ disk2 ]\nname=disk2\n" . $disk2);
+    if ($mtime !== null) touch($tmp . '/disks.ini', $mtime);
     $command = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root . '/source/usr/local/emhttp/plugins/md12xx.fancontrol/include/controller.php') . ' --once --dry-run';
     foreach (['config'=>'config.json','disks'=>'disks.ini','state'=>'state.json','fixture-dir'=>''] as $key=>$file) $command .= ' --' . $key . '=' . escapeshellarg($file === '' ? $tmp : $tmp . '/' . $file);
     exec($command . ' 2>&1', $out, $code);
@@ -41,7 +49,26 @@ try {
     $s = cycle($root,$tmp,"temp=*\nspundown=0\n");
     check($s['shelves'][0]['targetPercent'] === 50 && $s['shelves'][0]['missingTemperatures'] === ['disk2'], 'Partial active temperature failure uses fail-safe');
     $s = cycle($root,$tmp,"temp=*\nspundown=1\n");
-    check($s['shelves'][0]['targetPercent'] === 20, 'Sleeping disk exception preserved');
+    check($s['shelves'][0]['targetPercent'] === 50 && $s['shelves'][0]['diskInputFreshness'] === 'unverified', 'Unverified standby alongside a cool report cannot authorize lower cooling');
+    foreach (['current' => time(), 'aged' => time() - 86400] as $case => $mtime) {
+        $s = cycle($root, $tmp, "temp=26\nspundown=0\nsampleTime=$mtime\n", $mtime);
+        check($s['controller']['state'] === 'attention' && $s['shelves'][0]['temperatureC'] === 30
+            && $s['shelves'][0]['diskInputFreshness'] === 'unverified' && $s['shelves'][0]['targetPercent'] === 50,
+            "The $case cache preserves reported temperature but cannot authorize lower cooling");
+        $s = cycle($root, $tmp, "temp=*\nspundown=1\nsampleTime=$mtime\n", $mtime, true);
+        check($s['shelves'][0]['targetPercent'] === 50 && $s['shelves'][0]['reportedStandby'] === true
+            && $s['shelves'][0]['diskInputFreshness'] === 'unverified', "Reported standby in the $case cache must fail safe");
+    }
+    $s = cycle($root, $tmp, "temp=1e1000\nspundown=0\n");
+    check($s['shelves'][0]['temperatureC'] === 30 && $s['shelves'][0]['targetPercent'] === 50,
+        'Invalid numeric report cannot prevent publishing the fail-safe state');
+    $manualFixture = $fixtureConfig;
+    $manualFixture['mode'] = 'manual';
+    $manualFixture['manualSpeed'] = 30;
+    file_put_contents($tmp . '/config.json', json_encode($manualFixture));
+    $s = cycle($root, $tmp, "temp=*\nspundown=1\n");
+    check($s['shelves'][0]['targetPercent'] === 30 && $s['shelves'][0]['targetReason'] === 'manual selection', 'Explicit Manual target is preserved');
+    file_put_contents($tmp . '/config.json', json_encode($fixtureConfig));
     file_put_contents($tmp . '/shelf-1.txt', str_replace('speed=3450', 'speed=0', $fixture));
     $s = cycle($root,$tmp,"temp=31\nspundown=0\n");
     check($s['controller']['state'] === 'fault' && $s['shelves'][0]['writeState'] === 'fault' && $s['shelves'][0]['targetPercent'] >= 50, 'Fan failure is visible and uses Auto fail-safe cooling');

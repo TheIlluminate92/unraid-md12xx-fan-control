@@ -8,9 +8,10 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
-### 0.5.4 Beta - Build 2026.11.26.02
+### 0.5.4 Beta - Build 2026.11.26.03
 - Preserve the chassis re-arm requirement across lost runtime state and bind re-arm to the current fault.
 - Reject invalid chassis status timestamps. Use the existing shelf fail-safe while current automatic disk membership is unverified.
+- Keep shelves at the configured fail-safe when disk temperature or standby freshness cannot be verified. Hold commissioning ramps until current observations can be established.
 - Remove diagnostic JSON reasons and messages that could include private labels.
 
 ### 0.5.3 Beta - Build 2026.11.26.01

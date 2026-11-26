@@ -4,11 +4,11 @@ require_once __DIR__ . '/common.php';
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 try {
     $config = md12xx_validate_config(md12xx_read_config());
-    $disks = md12xx_read_disk_state('/var/local/emhttp/disks.ini');
-    $policy = md12xx_quiet_temperature_policy($config, $disks);
+    $policy = md12xx_quiet_temperature_policy($config);
     $action = $argv[1] ?? '';
     if ($action === 'restore-speed') { echo $policy['restoreSpeed']; exit; }
-    if (!$policy['safe'] || md12xx_competing_controllers($config)) throw new RuntimeException('Quiet recovery is unsafe or another writer is active');
+    if (!$policy['safe']) throw new RuntimeException('Quiet recovery is held because current disk temperature and standby freshness cannot be verified');
+    if (md12xx_competing_controllers($config)) throw new RuntimeException('Another fan controller is active');
     if ($action === 'temperatures') exit;
     if ($action !== 'baseline') throw new RuntimeException('Unknown recovery check');
     $candidates = [];
