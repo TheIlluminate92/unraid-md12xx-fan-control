@@ -1,15 +1,15 @@
 # Safety maintenance and migration
 
-Current source documentation: published beta **0.5.3 / 2026.11.26.01**, including bundled
+Current source and versioned beta: **0.5.4 / 2026.11.26.03**. The rolling installer remains at **0.5.3 / 2026.11.26.01**. The plugin includes bundled
 R730/R730xd IPMI chassis support; see the [README](../README.md) and
 [current IPMI scope, fault evidence and validation limits](IPMI_PREVIEW.md).
 The 0.4.14 notes below retain their historical release scope. Their statement
 that chassis control was planned is not the current implementation status.
 Source review does not establish installation or hardware acceptance.
 
-## November 26 safety candidate (0.5.4 / 2026.11.26.03)
+## November 26 safety release (0.5.4 / 2026.11.26.03)
 
-The source candidate retains a chassis re-arm requirement across a controller
+This release retains a chassis re-arm requirement across a controller
 restart or loss of runtime files. An interrupted transient sensor check and
 historical fault evidence remain distinct. An earlier package cannot interpret
 the new active re-arm marker. Before considering an older runtime as rollback,
@@ -38,7 +38,7 @@ On the current Unraid source this means sustained Auto fail-safe cooling,
 which can increase noise and power use. When disk observations cannot be
 verified, a fresh controller heartbeat does not clear the hold.
 
-Verification is isolated from hardware. The candidate requires separate
+Verification is isolated from hardware. Other hardware requires separate
 release and native acceptance. Existing 0.5.3 installer artifacts are unchanged.
 
 ## Current IPMI recovery: preserve evidence before acting

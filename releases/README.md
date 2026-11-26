@@ -1,3 +1,7 @@
+## Versioned beta 0.5.4 / 2026.11.26.03
+
+The [versioned installer](md12xx.fancontrol-0.5.4.plg) passed PHP 8.3 and 8.4 verification and a controlled R730 installation. It retains the chassis re-arm requirement across restarts. If shelf temperature or standby freshness is unverified, shelf Auto uses the configured fail-safe or maximum effective curve speed, whichever is higher. Commissioning ramps require verified inputs. See [maintenance and migration](../docs/MAINTENANCE_AND_MIGRATION.md) for rollback requirements. The rolling installer documented below is still 0.5.3.
+
 # Current Beta release: 0.5.3
 
 `md12xx.fancontrol.plg` is the current update installer. `md12xx.fancontrol-0.5.3.plg` is its immutable versioned copy. Installed Plugins shows build **2026.11.26.01** and Settings shows **0.5.3**. An isolated Auto sensor-read fault gives iDRAC control for at least 60 seconds. Two complete samples are required to resume. Repeat and hard faults still require explicit re-arm. See [IPMI safeguards](../docs/IPMI_PREVIEW.md) for limits.
