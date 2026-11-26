@@ -13,12 +13,23 @@ try {
     $config = cooling_ipmi_config(json_decode((string) ($_POST['config'] ?? ''), true, 16, JSON_THROW_ON_ERROR));
     $lock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-config.lock', 'c+');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Another cooling setting is being saved; retry shortly');
+    $commandLock = null;
     try {
+        $commandLock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-command.lock', 'c+');
+        if (!$commandLock || !flock($commandLock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Cooling controller is busy; retry shortly');
         $status = cooling_ipmi_public();
         if ($config['enabled'] && $config['mode'] !== 'firmware' && (!$status['available'] || $status['stale'] || !($status['healthy'] ?? false))) throw new RuntimeException('Fresh healthy local CPU, inlet and fan telemetry is required before enabling control');
         cooling_ipmi_store(COOLING_IPMI_CONFIG, $config);
-        if (is_file(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched')) unlink(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched');
-    } finally { flock($lock, LOCK_UN); fclose($lock); }
+        $latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
+        if (is_file($latch)) {
+            if (is_file(COOLING_IPMI_RECOVERY) && !unlink(COOLING_IPMI_RECOVERY)) throw new RuntimeException('Cannot clear the interrupted recovery record');
+            if (!unlink($latch)) throw new RuntimeException('Cannot clear the cooling fault latch');
+        }
+    } finally {
+        if (is_resource($commandLock)) fclose($commandLock);
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
     echo json_encode(['ok' => true, 'message' => 'Saved; the cooling service will apply this change on its next cycle'], JSON_THROW_ON_ERROR);
 } catch (Throwable $error) {
     if (http_response_code() < 400) http_response_code(400);

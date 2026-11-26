@@ -1,6 +1,6 @@
-# Current Beta release: 0.5.2
+# Current Beta release: 0.5.3
 
-`md12xx.fancontrol.plg` is the current update installer; `md12xx.fancontrol-0.5.2.plg` is its immutable versioned copy. Earlier installers are retained unchanged and listed in `SHA256SUMS`. Installed Plugins shows build **2026.10.28.01**; Settings and the API show application **0.5.2**. This patch preserves the first IPMI fault cause/time, normalized readings and failed-query/command status, including one private last-incident snapshot across reboot. It does not fix or establish the recurring trigger tracked in issue #35. Existing curves, hysteresis, thermal limits, firmware fallback and explicit re-arm policy are preserved.
+`md12xx.fancontrol.plg` is the current update installer. `md12xx.fancontrol-0.5.3.plg` is its immutable versioned copy. Installed Plugins shows build **2026.11.26.01** and Settings shows **0.5.3**. An isolated Auto sensor-read fault gives iDRAC control for at least 60 seconds. Two complete samples are required to resume. Repeat and hard faults still require explicit re-arm. See [IPMI safeguards](../docs/IPMI_PREVIEW.md) for limits.
 
 ```text
 https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg

@@ -39,7 +39,7 @@ date; this prose review did not run the application or test a restore.
 
 Preserves the `md12xx.fancontrol` update identity and existing shelf settings.
 
-Current Beta release: **0.5.2 / 2026.10.28.01**. This diagnostic update preserves the first IPMI fault; it does not claim to fix an unknown recurring trigger. Read [safety, updates and R730xd/R360 migration guidance](docs/MAINTENANCE_AND_MIGRATION.md) before deployment.
+Current Beta release: **0.5.3 / 2026.11.26.01**. One transient chassis sensor-read fault in Auto hands cooling to iDRAC for at least one minute. The plugin resumes only after two complete sensor samples. See [IPMI safeguards](docs/IPMI_PREVIEW.md) and [maintenance and migration guidance](docs/MAINTENANCE_AND_MIGRATION.md).
 
 Host-native chassis and disk-shelf cooling. This release adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [IPMI scope and validation](docs/IPMI_PREVIEW.md).
 

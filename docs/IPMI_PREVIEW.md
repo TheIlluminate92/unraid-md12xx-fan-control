@@ -4,13 +4,13 @@ The plugin remains `md12xx.fancontrol` for configuration and updates. Its displa
 
 ## Independent device curves
 
-The existing Auto curve is the Global curve. Each shelf and IPMI independently selects **Global** or **Individual**. Global shares the curve definition, never the temperature: shelves use their own assigned disks; IPMI uses the hottest installed CPU and an independent inlet guard. Individual retains its own 2–10 point curve even when switched back to Global. Global/Individual combinations are supported.
+The existing Auto curve is the Global curve. Each shelf and IPMI independently selects **Global** or **Individual**. Global shares the curve definition, never the temperature: shelves use their own assigned disks; IPMI uses the hottest installed CPU and an independent inlet guard. Individual retains its own 2â€“10 point curve even when switched back to Global. Global/Individual combinations are supported.
 
 Configured shelves remain visible when disconnected so their faults can be reviewed. Unavailable device sections are hidden; **Show unavailable controls** reveals setup and compatibility information. Shelf and chassis enablement are separate.
 
-Each Individual curve retains a separate downshift hysteresis (0–10°C). IPMI defaults to 1°C; existing shelf configurations inherit their previous shared value when no individual setting is saved. Global devices use the Global hysteresis. Speeds rise immediately; a downshift waits until temperature is below the higher speed's entry threshold minus hysteresis. For example, a 40°C entry point with 1°C hysteresis remains active at 39°C and drops below 39°C. Zero disables the hold. Curve/mode changes and firmware/fault transitions reset IPMI Auto history. Thermal/sensor handback always bypasses hysteresis. This behavior is covered by software fixtures; live hardware validation is pending a native plugin update.
+Each Individual curve retains a separate downshift hysteresis (0â€“10Â°C). IPMI defaults to 1Â°C; existing shelf configurations inherit their previous shared value when no individual setting is saved. Global devices use the Global hysteresis. Speeds rise immediately; a downshift waits until temperature is below the higher speed's entry threshold minus hysteresis. For example, a 40Â°C entry point with 1Â°C hysteresis remains active at 39Â°C and drops below 39Â°C. Zero disables the hold. Curve/mode changes and firmware/fault transitions reset IPMI Auto history. Thermal/sensor handback always bypasses hysteresis. This behavior is covered by software fixtures; live hardware validation is pending a native plugin update.
 
-Individual IPMI curves allow 15–100% fan targets. Global and MD12xx curves retain a 20% minimum; IPMI manual presets remain 20–100%. The last curve point is the maximum for normal curve control, but emergency iDRAC handback can exceed it. A curve targets a temperature range without guaranteeing it under every workload or inlet temperature.
+Individual IPMI curves allow 15â€“100% fan targets. Global and MD12xx curves retain a 20% minimum; IPMI manual presets remain 20â€“100%. The last curve point is the maximum for normal curve control, but emergency iDRAC handback can exceed it. A curve targets a temperature range without guaranteeing it under every workload or inlet temperature.
 
 ## IPMI implementation and dependencies
 
@@ -23,7 +23,8 @@ The device drivers come from Unraid's own matching kernel. Startup loads `ipmi_d
 ## Safety and recovery
 
 - IPMI requires complete healthy CPU, inlet and six-fan telemetry before manual or curve control.
-- CPU ≥70°C, inlet ≥35°C, missing/unhealthy telemetry, or a failed command returns control to iDRAC and latches plugin control off pending review/save.
+- CPU â‰¥70Â°C, inlet â‰¥35Â°C, invalid or ambiguous telemetry, or a failed fan command returns control to iDRAC and latches plugin control off pending review and save.
+- In Auto with recent healthy, trusted telemetry, one incomplete or failed sensor read hands control to iDRAC. The hold starts after the BMC acknowledges handback. Auto resumes only after 60 seconds and two fresh, complete samples from the same sensors at least five seconds apart. Recovery that takes 90 seconds, another fault within five minutes of recovery, or a controller restart during the hold requires manual re-arm. Manual control still requires review after a failed read.
 - A command acknowledgement is not physical fan-response proof. RPM telemetry is shown separately.
 - A persistent ownership marker is written before entering manual mode, bound to a hash of the local chassis identity, and removed only after an acknowledged iDRAC automatic command. It is not rewritten every poll.
 - The independent supervisor restores iDRAC control after controller death or stale status. Startup handles an outstanding ownership marker before applying settings. Copied ownership from another chassis cannot issue commands there.
@@ -31,7 +32,7 @@ The device drivers come from Unraid's own matching kernel. Startup loads `ipmi_d
 
 ## Validation status
 
-### Recurring latch investigation — 2026-10-28
+### Recurring latch investigation â€” 2026-10-28
 
 [Issue #35](https://github.com/TheIlluminate92/unraid-md12xx-fan-control/issues/35) tracks a second owner-reported unexpected chassis-control latch. Subsequent healthy readings do not identify the original trigger. Prior controller code overwrites the triggering reason on the next poll and repeatedly touches the empty latch, so its modification time cannot date the incident. The original reason for the reported episodes remains unknown; #27's hardware validation is still incomplete.
 
@@ -39,4 +40,4 @@ The 0.5.2 diagnostic change preserves the first incident in runtime `ipmi-fault.
 
 These writes occur once per newly latched incident, not every poll. Recording failure must not disable the latch or firmware handback. A successful explicit settings save re-arms control under the existing healthy/fresh telemetry checks; that does not prove the underlying cause is repaired. Do not clear/re-arm repeatedly without reviewing the first-cause record. Software fixtures use a fake IPMI executable and relocated paths; they establish diagnostic behavior, not real-load cooling reliability. Owner approved the logging update followed by explicit latch reset on October 28; rollout results remain a separate hardware-validation record. No fan target, threshold or automatic recovery policy changes are part of this update.
 
-The native-installed preview successfully read both CPU temperatures, the inlet and all six fan RPMs on an R730xd running Unraid 7.3.3. A manual 80% command produced approximately 14,040–14,400 RPM; explicit firmware handback succeeded and returned fan speeds to approximately 8,760–9,000 RPM. Idle Auto/Global operation at 25% produced approximately 5,520–5,640 RPM with CPUs at 37/36°C. Individual Auto operation with a 40% curve ceiling also passed at idle. Synthetic tests cover sensor loss, thermal guards, command failure, restore failure, ownership, mixed curves and a 15% individual target. Load, live 15% response, actual process-death recovery and reboot validation remain pending. Existing MD12xx commissioning was preserved. The owner authorized Beta publication with these testing limits recorded.
+The native-installed preview successfully read both CPU temperatures, the inlet and all six fan RPMs on an R730xd running Unraid 7.3.3. A manual 80% command produced approximately 14,040â€“14,400 RPM; explicit firmware handback succeeded and returned fan speeds to approximately 8,760â€“9,000 RPM. Idle Auto/Global operation at 25% produced approximately 5,520â€“5,640 RPM with CPUs at 37/36Â°C. Individual Auto operation with a 40% curve ceiling also passed at idle. Synthetic tests cover sensor loss, thermal guards, command failure, restore failure, ownership, mixed curves and a 15% individual target. Load, live 15% response, actual process-death recovery and reboot validation remain pending. Existing MD12xx commissioning was preserved. The owner authorized Beta publication with these testing limits recorded.

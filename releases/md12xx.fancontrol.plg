@@ -2,12 +2,16 @@
 <!DOCTYPE PLUGIN [
   <!ENTITY name "md12xx.fancontrol">
   <!ENTITY author "TheIlluminate92">
-  <!ENTITY version "2026.10.28.01">
+  <!ENTITY version "2026.11.26.01">
   <!ENTITY launch "MD12xxFanControl">
 ]>
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
+### 0.5.3 Beta - Build 2026.11.26.01
+- Give iDRAC at least 60 seconds of control after an isolated Auto sensor-read fault. Resume after two complete samples from the same sensors.
+- Keep thermal, invalid sensor, failed handback, interrupted recovery and repeat faults latched for manual review.
+
 ### 0.5.2 Beta - Build 2026.10.28.01
 - Preserves the first IPMI fault reason, time, normalized readings, previous healthy sample and failed-query/command results, with one private persistent record per incident.
 - Shows active incident details and distinguishes older latches whose original cause was not recorded. Healthy latched polls no longer overwrite evidence or rewrite flash.
@@ -197,6 +201,35 @@ mkdir -p "/usr/local/emhttp/plugins/.md12xx.fancontrol.staged" "$CONFIG_DIR"
 </INLINE>
 </FILE>
 
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/LICENSE">
+<INLINE>
+<![CDATA[
+MIT License
+
+Copyright (c) 2026 Erik Boettcher
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+]]>
+</INLINE>
+</FILE>
 <FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/MD12xxFanControl.page">
 <INLINE>
 <![CDATA[
@@ -244,7 +277,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
   <header class="md12xx-hero">
     <div>
       <h2>Dell MD1200 / MD1220 Fan Control</h2>
-      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.5.2</span></p>
+      <p>Standalone temperature-based control with independent SES fan telemetry. <span class="md12xx-version">Version 0.5.3</span></p>
     </div>
     <div class="md12xx-hero-actions">
       <button id="md12xx-help-toggle" type="button" aria-expanded="false" aria-controls="md12xx-help">Setup directions</button>
@@ -331,7 +364,7 @@ $jsVersion = @filemtime($pluginRoot . '/assets/js/settings.js') ?: 0;
 
 <script>
 window.MD12xxBootstrap = <?=json_encode([
-    'version' => '0.5.2',
+    'version' => '0.5.3',
     'endpoint' => $webRoot . '/include/api.php',
     'config' => $config,
 ], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
@@ -2183,10 +2216,10 @@ function md12xx_public_status(): array
     $generatedAt = is_numeric($state['generatedAt'] ?? null) ? (int) $state['generatedAt'] : null;
     $staleAfter = max(20, ((int) $config['pollSeconds'] * 3) + 5);
     return [
-        'version' => '0.5.2',
+        'version' => '0.5.3',
         'md12xxAvailable' => count($config['shelves']) > 0 || count(array_filter(md12xx_read_discovery()['sesDevices'] ?? [], static fn(array $device): bool => preg_match('/MD12(?:00|20)/i', (string) ($device['model'] ?? '')) === 1)) > 0,
         'ipmi' => cooling_ipmi_public(),
-        'pluginVersion' => '2026.10.28.01',
+        'pluginVersion' => '2026.11.26.01',
         'enabled' => (bool) $config['enabled'],
         'mode' => (string) $config['mode'],
         'manualSpeed' => (int) $config['manualSpeed'],
@@ -3373,12 +3406,23 @@ try {
     $config = cooling_ipmi_config(json_decode((string) ($_POST['config'] ?? ''), true, 16, JSON_THROW_ON_ERROR));
     $lock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-config.lock', 'c+');
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Another cooling setting is being saved; retry shortly');
+    $commandLock = null;
     try {
+        $commandLock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-command.lock', 'c+');
+        if (!$commandLock || !flock($commandLock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Cooling controller is busy; retry shortly');
         $status = cooling_ipmi_public();
         if ($config['enabled'] && $config['mode'] !== 'firmware' && (!$status['available'] || $status['stale'] || !($status['healthy'] ?? false))) throw new RuntimeException('Fresh healthy local CPU, inlet and fan telemetry is required before enabling control');
         cooling_ipmi_store(COOLING_IPMI_CONFIG, $config);
-        if (is_file(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched')) unlink(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched');
-    } finally { flock($lock, LOCK_UN); fclose($lock); }
+        $latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
+        if (is_file($latch)) {
+            if (is_file(COOLING_IPMI_RECOVERY) && !unlink(COOLING_IPMI_RECOVERY)) throw new RuntimeException('Cannot clear the interrupted recovery record');
+            if (!unlink($latch)) throw new RuntimeException('Cannot clear the cooling fault latch');
+        }
+    } finally {
+        if (is_resource($commandLock)) fclose($commandLock);
+        flock($lock, LOCK_UN);
+        fclose($lock);
+    }
     echo json_encode(['ok' => true, 'message' => 'Saved; the cooling service will apply this change on its next cycle'], JSON_THROW_ON_ERROR);
 } catch (Throwable $error) {
     if (http_response_code() < 400) http_response_code(400);
@@ -3405,6 +3449,21 @@ $running = true;
 $previousAutoPercent = null;
 $previousProfile = null;
 $lastHealthy = null;
+$sensorGuard = [];
+$pendingMarker = COOLING_IPMI_RUNTIME . '/ipmi-confirmation-pending.json';
+$incidentFile = COOLING_IPMI_RUNTIME . '/ipmi-sensor-incidents.json';
+// A pending restart is never a clean startup, even though handback removed the ownership lease.
+$priorStatus = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-status.json');
+if (is_file(COOLING_IPMI_RECOVERY) || is_file($pendingMarker) || ($priorStatus['sensorConfirmationPending'] ?? false) === true) {
+    cooling_ipmi_latch('Controller restarted during sensor confirmation',
+        ['pendingConfirmation' => cooling_ipmi_read($pendingMarker), 'previousStatus' => $priorStatus]);
+    if (is_file($latch)) @unlink($pendingMarker);
+}
+if (is_file($incidentFile)) {
+    try { $sensorGuard = cooling_ipmi_incident_history(cooling_ipmi_read($incidentFile), hrtime(true) / 1e9); }
+    catch (Throwable $error) { cooling_ipmi_latch('Invalid persisted sensor incident history'); }
+}
+
 if (function_exists('pcntl_async_signals')) {
     pcntl_async_signals(true);
     pcntl_signal(SIGTERM, function () use (&$running): void { $running = false; });
@@ -3417,6 +3476,8 @@ while ($running) {
     $guard = fopen(COOLING_IPMI_RUNTIME . '/ipmi-command.lock', 'c+');
     if (!$guard || !flock($guard, LOCK_EX | LOCK_NB)) { sleep(1); continue; }
     try {
+        $deadlineStart = $sensorGuard['handbackAt'] ?? $sensorGuard['pendingSince'] ?? null;
+        $GLOBALS['cooling_ipmi_read_deadline'] = $deadlineStart === null ? null : $deadlineStart + COOLING_IPMI_CONFIRMATION_LIMIT;
         $capability = cooling_ipmi_capability();
         $config = cooling_ipmi_config(cooling_ipmi_read(COOLING_IPMI_CONFIG));
         if ($recoverStartup) {
@@ -3428,35 +3489,92 @@ while ($running) {
         $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve, 15);
         $config['effectiveHysteresisC'] = cooling_device_hysteresis($config, cooling_validate_hysteresis($globalConfig['hysteresisC'] ?? 1.0));
         $profile = json_encode([$config['enabled'], $config['mode'], $config['curveMode'], $config['effectiveCurve'], $config['effectiveHysteresisC']]);
-        if ($profile !== $previousProfile) $previousAutoPercent = null;
+        if ($profile !== $previousProfile) {
+            if (isset($sensorGuard['pendingSince'])) cooling_ipmi_latch('Cooling settings changed during sensor recovery');
+            $previousAutoPercent = null;
+            $sensorGuard = ['episodes' => $sensorGuard['episodes'] ?? []];
+        }
         $previousProfile = $profile;
+        $sampleStarted = hrtime(true) / 1e9;
         $output = $capability['available'] ? cooling_ipmi_run(['sdr', 'elist', 'all']) : ['code' => 1, 'output' => ''];
-        $sensors = cooling_ipmi_sensors($output['code'] === 0 ? $output['output'] : '', $capability['cpuCount']);
+        $sensors = cooling_ipmi_sensors($output['output'], $capability['cpuCount']);
+        $sampleFinished = hrtime(true) / 1e9;
+        $fresh = $output['code'] === 0 && $sampleFinished - $sampleStarted < 15;
+        if (!$fresh) $sensors['healthy'] = false;
+        $policy = ['state' => [], 'pending' => false, 'latch' => false, 'reason' => ''];
+        $wasPending = isset($sensorGuard['pendingSince']);
+        if ($config['enabled'] && $config['mode'] !== 'firmware' && $capability['available'] && !is_file($latch)) {
+            $policy = cooling_ipmi_sensor_guard($sensorGuard, $sensors, $fresh, $sampleFinished,
+                $config['mode'] === 'auto' && (is_file($lease) || $wasPending));
+            $sensorGuard = $policy['state'];
+        } else { $sensorGuard = ['episodes' => $sensorGuard['episodes'] ?? []]; }
         $target = cooling_ipmi_target($config, $sensors, $previousAutoPercent);
+        if ($policy['pending'] || $policy['latch'])
+            $target = ['mode' => 'firmware', 'percent' => null, 'reason' => $policy['reason']];
         if (!$capability['available'] || is_file($latch)) {
             $firstFault = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-fault.json');
             $target = ['mode' => 'firmware', 'percent' => null, 'reason' => is_file($latch)
                 ? 'Control paused after a fault: ' . ($firstFault['reason'] ?? 'original cause unavailable for this older latch') . '; review and save settings to re-arm'
                 : $capability['message']];
         }
+        // Persist BEFORE firmware handback can remove ownership; a crash in any later gap latches at restart.
+        if ($policy['pending'] && !$wasPending) {
+            try {
+                if (!is_file($lease)) throw new RuntimeException('Missing ownership before firmware handback');
+                cooling_ipmi_store(COOLING_IPMI_RECOVERY, ['startedAt' => time(), 'sensorExitCode' => $output['code']]);
+                cooling_ipmi_store($pendingMarker, ['schema' => 1, 'pendingSince' => $sensorGuard['pendingSince'], 'at' => $sampleFinished]);
+                cooling_ipmi_store($incidentFile, ['schema' => 1, 'at' => $sampleFinished, 'episodes' => $sensorGuard['episodes'] ?? []]);
+            } catch (Throwable $error) {
+                cooling_ipmi_latch('Cannot persist sensor confirmation safety state');
+                $policy['latch'] = true; $policy['pending'] = false;
+                $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Sensor confirmation persistence failed'];
+            }
+        }
+        // A manual latch inserted during collection always dominates a previously calculated recovery.
+        if ($wasPending && is_file($lease)) cooling_ipmi_latch('Ownership changed during iDRAC recovery');
+        if (is_file($latch) && $target['mode'] !== 'firmware') $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Control paused after a latched fault'];
+        if ($wasPending && !$policy['pending'] && !$policy['latch'] && !is_file($latch) && $target['mode'] === 'auto') {
+            try {
+                cooling_ipmi_store($incidentFile, ['schema' => 1, 'at' => $sampleFinished, 'episodes' => $sensorGuard['episodes']]);
+            } catch (Throwable $error) {
+                cooling_ipmi_latch('Could not persist the automatic recovery cooldown');
+                $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Automatic recovery cooldown persistence failed'];
+            }
+        }
         $applied = cooling_ipmi_apply($target, 'cooling_ipmi_run', $lease);
-        if (!$applied['ok'] || ($config['enabled'] && $config['mode'] !== 'firmware' && (!$sensors['healthy'] || $target['mode'] === 'firmware'))) {
+        if ($policy['pending'] && !$wasPending && $applied['ok'] && $applied['mode'] === 'firmware' && !is_file($lease)) {
+            $sensorGuard['handbackAt'] = hrtime(true) / 1e9;
+        }
+        if ($wasPending && !$policy['pending'] && $applied['ok'] && $applied['mode'] === 'auto' &&
+            (!is_file(COOLING_IPMI_RECOVERY) || !@unlink(COOLING_IPMI_RECOVERY))) {
+            cooling_ipmi_latch('Could not clear the automatic recovery marker');
+            $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Automatic recovery marker cleanup failed'];
+            $applied = cooling_ipmi_apply($target, 'cooling_ipmi_run', $lease);
+        }
+        if (!$applied['ok'] || ($config['enabled'] && $config['mode'] !== 'firmware' && (!$capability['available'] || $policy['latch']))) {
             $reason = !$applied['ok'] ? $applied['message'] : (!$capability['available'] ? $capability['message']
                 : ($output['code'] !== 0 ? 'Sensor query failed (exit ' . $output['code'] . ')' : $target['reason']));
             cooling_ipmi_latch($reason, ['sensorExitCode' => $output['code'], 'sensors' => $sensors,
+                'collectionSeconds' => $sampleFinished - $sampleStarted, 'sampleFresh' => $fresh, 'sensorConfirmation' => $policy,
                 'lastHealthy' => $lastHealthy, 'requestedTarget' => $target, 'applied' => $applied]);
         }
+        if (!$policy['pending'] && ($applied['ok'] || is_file($latch))) @unlink($pendingMarker);
         if ($sensors['healthy']) $lastHealthy = ['generatedAt' => time(), 'sensors' => $sensors];
         $fault = !$applied['ok'] || is_file($latch);
         $previousAutoPercent = !$fault && $applied['mode'] === 'auto' ? $target['percent'] : null;
         cooling_ipmi_store(COOLING_IPMI_RUNTIME . '/ipmi-status.json', array_merge($sensors, [
-            'generatedAt' => time(), 'state' => $fault ? 'fault' : 'normal', 'enabled' => $config['enabled'],
+            'generatedAt' => time(), 'state' => $fault ? 'fault' : ($policy['pending'] ? 'recovering' : 'normal'), 'enabled' => $config['enabled'],
             'mode' => $applied['mode'], 'targetPercent' => $applied['ok'] ? $target['percent'] : null,
             'message' => $applied['message'], 'targetReason' => $target['reason'], 'latched' => is_file($latch),
-            'effectiveHysteresisC' => $config['effectiveHysteresisC'],
+            'effectiveHysteresisC' => $config['effectiveHysteresisC'], 'sensorConfirmationPending' => $policy['pending'],
+            'collectionSeconds' => $sampleFinished - $sampleStarted,
         ]));
     } finally { flock($guard, LOCK_UN); fclose($guard); }
-    for ($i = 0; $i < 5 && $running; $i++) sleep(1);
+    $wakeAt = hrtime(true) / 1e9 + 5;
+    if (!is_file($latch) && isset($sensorGuard['pendingSince'])) {
+        $wakeAt = min($wakeAt, ($sensorGuard['handbackAt'] ?? $sensorGuard['pendingSince']) + COOLING_IPMI_CONFIRMATION_LIMIT);
+    }
+    while ($running && hrtime(true) / 1e9 < $wakeAt) usleep(50000);
 }
 
 ]]>
@@ -3469,11 +3587,13 @@ while ($running) {
 declare(strict_types=1);
 if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require_once __DIR__ . '/ipmi.php';
-if (!is_file(COOLING_IPMI_LEASE)) exit(0);
+$pending = COOLING_IPMI_RUNTIME . '/ipmi-confirmation-pending.json';
+if (!is_file(COOLING_IPMI_LEASE) && !is_file($pending)) exit(0);
 $lock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-command.lock', 'c+');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) exit(2);
-cooling_ipmi_latch('Supervisor recovery with outstanding ownership; controller loss, stale status or shutdown',
+cooling_ipmi_latch(is_file($pending) ? 'Supervisor recovery during pending sensor confirmation' : 'Supervisor recovery with outstanding ownership; controller loss, stale status or shutdown',
     ['previousStatus' => cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-status.json')]);
+if (is_file(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched')) @unlink($pending);
 exit(cooling_ipmi_restore('cooling_ipmi_run', COOLING_IPMI_LEASE) ? 0 : 1);
 
 ]]>
@@ -3491,6 +3611,9 @@ const COOLING_IPMI_CONFIG = '/boot/config/plugins/md12xx.fancontrol/ipmi.json';
 const COOLING_IPMI_RUNTIME = '/var/run/md12xx.fancontrol';
 const COOLING_IPMI_TOOL = '/usr/local/emhttp/plugins/md12xx.fancontrol/bin/ipmitool.bin';
 const COOLING_IPMI_LEASE = '/boot/config/plugins/md12xx.fancontrol/ipmi-owned.json';
+const COOLING_IPMI_RECOVERY = '/boot/config/plugins/md12xx.fancontrol/ipmi-recovery.json';
+const COOLING_IPMI_HOLD_SECONDS = 60;
+const COOLING_IPMI_CONFIRMATION_LIMIT = 90;
 function cooling_ipmi_host_id(): string {
     $uuid = strtolower(trim((string) @file_get_contents('/sys/class/dmi/id/product_uuid')));
     if (!preg_match('/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/', $uuid) || preg_match('/^(?:0+|f+)$/', str_replace('-', '', $uuid))) return '';
@@ -3542,6 +3665,31 @@ function cooling_ipmi_cpu_count(string $root = '/sys/devices/system/cpu'): int {
     }
     return count($packages);
 }
+function cooling_ipmi_read_budget(float $now, ?float $deadline): float {
+    if (!is_finite($now) || ($deadline !== null && !is_finite($deadline))) return 0.0;
+    return $deadline === null ? 15.0 : max(0.0, min(15.0, $deadline - $now));
+}
+// Runtime incident history contains no trusted samples and cannot authorize control after restart.
+function cooling_ipmi_incident_history(array $record, float $now): array {
+    if (!is_finite($now) || $now < 0 || ($record['schema'] ?? null) !== 1 || !is_numeric($record['at'] ?? null) || !is_finite((float)$record['at'])
+        || $record['at'] < 0 || $record['at'] > $now || !is_array($record['episodes'] ?? null))
+        throw new RuntimeException('Invalid persisted sensor incident history');
+    $last = -1.0; $episodes = [];
+    foreach ($record['episodes'] as $t) {
+        if (!is_numeric($t) || !is_finite((float)$t) || $t < $last || $t < 0 || $t > $now)
+            throw new RuntimeException('Invalid persisted sensor episode time');
+        $last = (float)$t;
+        if ($now - $t <= 300) $episodes[] = (float)$t;
+    }
+    return ['episodes' => $episodes];
+}
+// A status report alone cannot assert cleanup. The private group wrapper must
+// also report signal9 from the explicitly forked util-linux setsid --wait monitor.
+function cooling_ipmi_runner_exit(int $monitorExit, string $report): ?int {
+    if ($monitorExit !== 9 || !preg_match('/^cooling-ipmi-exit:([0-9]{1,3})\n?$/D', $report, $match)) return null;
+    $code = (int)$match[1];
+    return $code <= 255 ? $code : null;
+}
 function cooling_ipmi_run(array $args): array {
     $allowed = $args === ['sdr', 'elist', 'all'] || $args === ['mc', 'info']
         || $args === ['raw', '0x30', '0x30', '0x01', '0x01'] || $args === ['raw', '0x30', '0x30', '0x01', '0x00'];
@@ -3550,24 +3698,48 @@ function cooling_ipmi_run(array $args): array {
         $allowed = $speed >= 15 && $speed <= 100;
     }
     if (!$allowed) throw new InvalidArgumentException('Unsupported local IPMI operation');
+    $budget = 15.0;
+    if ($args === ['sdr', 'elist', 'all'] || $args === ['mc', 'info']) {
+        $deadline = $GLOBALS['cooling_ipmi_read_deadline'] ?? null;
+        $budget = cooling_ipmi_read_budget(hrtime(true) / 1e9, $deadline);
+    }
+    if ($budget <= 0.25) return ['code' => 124, 'output' => 'Sensor confirmation deadline exhausted'];
+    // Soft TERM plus mandatory KILL fits inside the total budget, including TERM-resistant tools.
+    $soft = sprintf('%.6fs', $budget - 0.25);
+    $wrapper = dirname(__DIR__) . '/scripts/ipmi-runner.sh';
+    if (!is_executable('/usr/bin/setsid') || !is_executable('/bin/kill') || !is_readable($wrapper))
+        return ['code' => 1, 'output' => 'IPMI process-group runner prerequisites unavailable'];
     $pipes = [];
-    $process = proc_open(array_merge(['/usr/bin/timeout', '15', COOLING_IPMI_TOOL, '-I', 'open'], $args), [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $process = proc_open(array_merge(['/usr/bin/setsid', '--fork', '--wait', '/bin/sh', $wrapper, $soft, COOLING_IPMI_TOOL, '-I', 'open'], $args),
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'], 3 => ['pipe', 'w']], $pipes);
     if (!is_resource($process)) return ['code' => 1, 'output' => 'IPMI tool could not start'];
     fclose($pipes[0]);
     // SDR output is bounded by the local BMC's sensor inventory; both pipes are drained concurrently.
-    stream_set_blocking($pipes[1], false); stream_set_blocking($pipes[2], false);
-    $out = '';
+    foreach ([1, 2, 3] as $n) stream_set_blocking($pipes[$n], false);
+    $out = ''; $report = '';
     do {
-        foreach ([1, 2] as $n) $out .= stream_get_contents($pipes[$n]);
+        foreach ([1, 2, 3] as $n) {
+            $chunk = stream_get_contents($pipes[$n]);
+            if ($n === 3) $report = substr($report . $chunk, 0, 256);
+            else $out = substr($out . $chunk, 0, 262144);
+        }
         $status = proc_get_status($process);
         if ($status['running']) usleep(10000);
     } while ($status['running']);
-    foreach ([1, 2] as $n) { $out .= stream_get_contents($pipes[$n]); fclose($pipes[$n]); }
+    foreach ([1, 2, 3] as $n) {
+        $chunk = stream_get_contents($pipes[$n]);
+        if ($n === 3) $report = substr($report . $chunk, 0, 256);
+        else $out = substr($out . $chunk, 0, 262144);
+        fclose($pipes[$n]);
+    }
     $closed = proc_close($process);
-    return ['code' => $status['exitcode'] >= 0 ? $status['exitcode'] : $closed, 'output' => substr($out, 0, 262144)];
+    $monitorExit = $status['exitcode'] >= 0 ? $status['exitcode'] : $closed;
+    $exit = cooling_ipmi_runner_exit($monitorExit, $report);
+    return $exit === null ? ['code' => 1, 'output' => 'IPMI process-group cleanup was not confirmed']
+        : ['code' => $exit, 'output' => $out];
 }
 function cooling_ipmi_sensors(string $output, int $expectedCpus): array {
-    $cpus = []; $fans = []; $inlet = null; $bad = [];
+    $cpus = []; $fans = []; $inlet = null; $bad = []; $rows = []; $hardFault = $expectedCpus <= 0; $thermal = false; $inletRows = 0; $cpuEntitiesSeen = []; $cpuIdsSeen = [];
     foreach (preg_split('/\R/', $output) as $line) {
         $parts = array_map('trim', explode('|', $line));
         if (count($parts) < 5) continue;
@@ -3576,23 +3748,94 @@ function cooling_ipmi_sensors(string $output, int $expectedCpus): array {
         $fan = preg_match('/^fan\s*\d+/i', $name) === 1;
         $isInlet = preg_match('/inlet.*temp/i', $name) === 1;
         if (!$cpu && !$fan && !$isInlet) continue;
+        if ($isInlet && ++$inletRows > 1) $hardFault = true;
+        if ($cpu) {
+            $sensorId = strtolower($parts[1]);
+            if (isset($cpuEntitiesSeen[$entity]) || isset($cpuIdsSeen[$sensorId])) $hardFault = true;
+            $cpuEntitiesSeen[$entity] = true; $cpuIdsSeen[$sensorId] = true;
+        }
+        $rows[] = ['name' => substr($name, 0, 64), 'id' => substr($parts[1], 0, 16), 'entity' => substr($entity, 0, 32), 'status' => substr($status, 0, 32), 'reading' => substr($reading, 0, 80)];
         $numeric = preg_match('/^(-?\d+(?:\.\d+)?)\s+(RPM|degrees C)$/i', $reading, $match) === 1;
-        if ($status !== 'ok' || !$numeric) { $bad[] = $name; continue; }
+        if ($numeric && strcasecmp($match[2], 'degrees C') === 0 && (($cpu && (float) $match[1] >= 70) || ($isInlet && (float) $match[1] >= 35))) $thermal = true;
+        if ($status !== 'ok' || !$numeric) {
+            $bad[] = $name;
+            if (!in_array($status, ['ok', 'ns', 'na'], true) ||
+                !in_array(strtolower($reading), ['', 'no reading', 'not available', 'na', 'ns'], true)) $hardFault = true;
+            continue;
+        }
         $value = (float) $match[1];
         if ($cpu && strcasecmp($match[2], 'degrees C') === 0) {
-            if (array_key_exists($entity, $cpus) || $value <= 0 || $value > 120) $bad[] = $name;
+            if (array_key_exists($entity, $cpus) || $value <= 0 || $value > 120) { $bad[] = $name; $hardFault = true; }
             $cpus[$entity] = $value;
         }
         if ($isInlet && strcasecmp($match[2], 'degrees C') === 0) $inlet = $value;
         if ($fan && strcasecmp($match[2], 'RPM') === 0) {
-            if (array_key_exists($name, $fans) || $value <= 0) $bad[] = $name;
+            if (array_key_exists($name, $fans) || $value <= 0) { $bad[] = $name; $hardFault = true; }
             $fans[$name] = $value;
         }
     }
-    $healthy = $expectedCpus > 0 && count($cpus) === $expectedCpus && count($fans) >= 6 && $inlet !== null && $inlet > -10 && $inlet < 80 && !$bad;
+    $healthy = !$hardFault && count($cpus) === $expectedCpus && count($fans) >= 6 && $inlet !== null && $inlet > -10 && $inlet < 80 && !$bad;
+    $identities = array_map(static fn(array $row): array => [$row['id'], $row['entity'], $row['name']], $rows);
+    sort($identities);
     return ['healthy' => $healthy, 'cpuTemperaturesC' => array_values($cpus), 'cpuMaxC' => $cpus ? max($cpus) : null,
         'inletC' => $inlet, 'fanRpms' => array_values($fans), 'averageRpm' => $fans ? (int) round(array_sum($fans) / count($fans)) : null,
-        'message' => $healthy ? '' : 'Complete healthy CPU, inlet and six-fan telemetry is required'];
+        'message' => $healthy ? '' : 'Complete healthy CPU, inlet and six-fan telemetry is required',
+        'observedThermal' => $thermal, 'hardFault' => $hardFault, 'sensorIdentities' => $identities,
+        'diagnostics' => ['expectedCpus' => $expectedCpus, 'acceptedCpuEntities' => array_keys($cpus), 'rejectedNames' => $bad, 'rows' => array_slice($rows, 0, 32)]];
+}
+/** Delay manual intervention only: every untrusted/pending sample selects firmware. */
+function cooling_ipmi_sensor_guard(array $state, array $sensors, bool $fresh, float $now, bool $allowRecovery = true): array {
+    $decision = static function (array $s, bool $pending, bool $latch, string $reason): array {
+        return ['state' => $s, 'pending' => $pending, 'latch' => $latch, 'reason' => $reason];
+    };
+    if (!is_finite($now) || $now < 0 || (isset($state['at']) && $now < $state['at']))
+        return $decision([], false, true, 'Invalid or reversed monotonic sample time');
+    $state['at'] = $now;
+    if (($sensors['observedThermal'] ?? false) || (is_numeric($sensors['cpuMaxC'] ?? null) && $sensors['cpuMaxC'] >= 70)
+        || (is_numeric($sensors['inletC'] ?? null) && $sensors['inletC'] >= 35))
+        return $decision($state, false, true, 'Thermal limit: returning control to iDRAC');
+    if ($sensors['hardFault'] ?? false)
+        return $decision($state, false, true, 'Invalid or ambiguous sensor identity/value');
+    // One automatic recovery per rolling five minutes, including after a process restart.
+    $state['episodes'] = array_values(array_filter($state['episodes'] ?? [], static fn($t) => $now - $t <= 300));
+    $complete = $fresh && ($sensors['healthy'] ?? false);
+    $pending = isset($state['pendingSince']);
+    if ($pending && $now - ($state['handbackAt'] ?? $state['pendingSince']) >= COOLING_IPMI_CONFIRMATION_LIMIT)
+        return $decision($state, false, true, 'iDRAC recovery exceeded 90 seconds');
+    if ($complete && isset($state['trustedIdentities']) && $state['trustedIdentities'] !== $sensors['sensorIdentities'])
+        return $decision($state, false, true, 'Trusted sensor identities changed');
+    if (!$complete) {
+        if (!$pending) {
+            if (!$allowRecovery || !isset($state['trustedAt']) || $now - $state['trustedAt'] > 15)
+                return $decision($state, false, true, 'No recent complete sample for bounded confirmation');
+            $state['episodes'][] = $now;
+            if (count($state['episodes']) >= 2)
+                return $decision($state, false, true, 'Sensor fault recurred within five minutes of recovery');
+            $state['pendingSince'] = $now;
+            $state['badSamples'] = 0;
+        }
+        $state['healthyStreak'] = 0;
+        unset($state['lastRecoveryAt']);
+        $state['badSamples'] = ($state['badSamples'] ?? 0) + 1;
+        if ($state['badSamples'] >= 3)
+            return $decision($state, false, true, 'Three incomplete or stale samples in one incident');
+        return $decision($state, true, false, 'Sensor confirmation pending: iDRAC automatic cooling');
+    }
+    if ($pending) {
+        if (!isset($state['handbackAt']) || $now - $state['handbackAt'] < COOLING_IPMI_HOLD_SECONDS)
+            return $decision($state, true, false, 'iDRAC automatic cooling: 60-second hold');
+        if (!isset($state['lastRecoveryAt']) || $now - $state['lastRecoveryAt'] >= 5) {
+            $state['healthyStreak'] = ($state['healthyStreak'] ?? 0) + 1;
+            $state['lastRecoveryAt'] = $now;
+        }
+        if ($state['healthyStreak'] < 2)
+            return $decision($state, true, false, 'Waiting for two fresh complete samples: iDRAC automatic cooling');
+        $state['episodes'] = [$now];
+        unset($state['pendingSince'], $state['handbackAt'], $state['badSamples'], $state['healthyStreak'], $state['lastRecoveryAt']);
+    }
+    $state['trustedIdentities'] = $sensors['sensorIdentities'];
+    $state['trustedAt'] = $now;
+    return $decision($state, false, false, 'Complete fresh sensor sample');
 }
 function cooling_ipmi_target(array $config, array $sensors, ?int $previous = null): array {
     if (!$config['enabled'] || $config['mode'] === 'firmware') return ['mode' => 'firmware', 'percent' => null, 'reason' => 'iDRAC automatic control'];
@@ -4802,6 +5045,38 @@ done
 ]]>
 </INLINE>
 </FILE>
+<FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/ipmi-runner.sh">
+<INLINE>
+<![CDATA[
+#!/bin/sh
+# Invoked only through setsid --fork --wait: $$ is the private command process-group ID.
+# No background task is supported by the bundled local IPMI command contract.
+set -u
+[ -x /bin/kill ] && [ -x /usr/bin/timeout ] || exit 126
+# If the PHP reader dies, EPIPE must not stop the EXIT group cleanup.
+trap '' PIPE
+cleanup() {
+    result=$?
+    trap - EXIT TERM INT HUP
+    # FD3 is private to this wrapper; the IPMI tool never inherits it.
+    printf 'cooling-ipmi-exit:%s\n' "$result" >&3 || :
+    exec 3>&-
+    # This intentionally kills the wrapper too. PHP accepts the report only if
+    # the forked monitor reports signal9; a failed kill exits125 and fails closed.
+    /bin/kill -KILL -- "-$$" 2>/dev/null
+    exit 125
+}
+trap cleanup EXIT
+trap 'exit 143' TERM HUP
+trap 'exit 130' INT
+# Foreground mode keeps timeout and its complete inherited child tree inside
+# this wrapper-owned group. Cleanup also runs when the direct parent exits early.
+/usr/bin/timeout --foreground --kill-after=0.25s "$@" 3>&-
+exit "$?"
+
+]]>
+</INLINE>
+</FILE>
 <FILE Name="/usr/local/emhttp/plugins/.md12xx.fancontrol.staged/scripts/ipmi-supervisor.sh">
 <INLINE>
 <![CDATA[
@@ -4831,7 +5106,7 @@ while true; do
   echo "$child" > "$STATE/ipmi-controller.pid"
   while kill -0 "$child" 2>/dev/null; do
     sleep 5
-    if [ -f /boot/config/plugins/md12xx.fancontrol/ipmi-owned.json ] && { [ ! -f "$STATE/ipmi-status.json" ] || [ $(( $(date +%s) - $(stat -c %Y "$STATE/ipmi-status.json") )) -gt 40 ]; }; then
+    if { [ -f /boot/config/plugins/md12xx.fancontrol/ipmi-owned.json ] || [ -f "$STATE/ipmi-confirmation-pending.json" ]; } && { [ ! -f "$STATE/ipmi-status.json" ] || [ $(( $(date +%s) - $(stat -c %Y "$STATE/ipmi-status.json") )) -gt 40 ]; }; then
       /usr/bin/php "$RUNTIME/include/ipmi-recover.php" || true
     fi
   done
@@ -5138,7 +5413,7 @@ cat <<'MD12XX_BANNER'
       Storage is awesome. Quiet is power.
 
 MD12XX_BANNER
-echo "Version 0.5.2 installed. Configure it under Settings → Utilities."
+echo "Version 0.5.3 installed. Configure it under Settings → Utilities."
 ]]>
 </INLINE>
 </FILE>

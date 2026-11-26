@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 // Run the actual controller and supervisor against a fake local IPMI executable.
-// Only absolute path constants are relocated; no host device or fan command is used.
+// Paths are relocated and only the recovery clock is accelerated; no hardware is used.
 $source = dirname(__DIR__) . '/source/usr/local/emhttp/plugins/md12xx.fancontrol';
 $root = sys_get_temp_dir() . '/ipmi-lifecycle-' . bin2hex(random_bytes(5));
 foreach (['plugin/include','plugin/scripts','plugin/bin','state','config','cpu/cpu0/topology','cpu/cpu1/topology'] as $dir) mkdir($root . '/' . $dir, 0755, true);
@@ -18,6 +18,11 @@ $map = ['/usr/local/emhttp/plugins/md12xx.fancontrol'=>$root.'/plugin','/var/run
 $process = null;
 try {
     foreach (['ipmi.php','ipmi-controller.php','ipmi-recover.php','curves.php'] as $file) file_put_contents($root.'/plugin/include/'.$file, strtr(file_get_contents($source.'/include/'.$file), $map));
+    $controllerPath = $root . '/plugin/include/ipmi-controller.php';
+    $clockAdjustment = var_export($root . '/clock-adjustment', true);
+    file_put_contents($controllerPath, str_replace('hrtime(true) / 1e9',
+        '(hrtime(true) / 1e9 + (float) @file_get_contents(' . $clockAdjustment . '))', file_get_contents($controllerPath)));
+    copy($source.'/scripts/ipmi-runner.sh', $root.'/plugin/scripts/ipmi-runner.sh');
     file_put_contents($root.'/plugin/scripts/ipmi-supervisor.sh', strtr(file_get_contents($source.'/scripts/ipmi-supervisor.sh'), $map));
     file_put_contents($root.'/vendor','Dell Inc.'); file_put_contents($root.'/model','PowerEdge R730xd'); file_put_contents($root.'/uuid','12345678-1234-5678-1234-567812345678'); touch($root.'/device');
     file_put_contents($root.'/cpu/cpu0/topology/physical_package_id','0'); file_put_contents($root.'/cpu/cpu1/topology/physical_package_id','1');
@@ -66,16 +71,24 @@ try {
             return ($state['cpuMaxC']??null)===$temperature && ($state['targetPercent']??null)===$percent && ($state['effectiveHysteresisC']??null)===3;
         }, 'Global hysteresis did not override the saved individual setting');
     }
-    // A failed SDR command must hand back immediately and retain its first cause
-    // after healthy polls return, rather than replacing it with generic pause text.
+    // One transient fault yields a single handback and leaves the plugin unowned.
+    $readStatus = static fn(): array => json_decode((string) @file_get_contents($root.'/state/ipmi-status.json'), true) ?? [];
     touch($root.'/query-failure');
-    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'), 'Query failure did not latch');
+    lifecycle_wait(fn()=>($readStatus()['state']??'')==='recovering' && !is_file($root.'/config/ipmi-owned.json'), 'Transient fault did not give control to firmware');
+    lifecycle_check(is_file($root.'/config/ipmi-recovery.json') && !is_file($root.'/state/ipmi-fault-latched'), 'Recovery must persist a guard without latching the first passing handoff');
+    unlink($root.'/query-failure');
+    file_put_contents($root.'/clock-adjustment', '60');
+    lifecycle_wait(fn()=>str_contains($readStatus()['targetReason']??'', 'Waiting for two fresh complete samples'), 'Healthy first sample after hold was not observed');
+    lifecycle_check(!is_file($root.'/config/ipmi-owned.json'), 'One healthy sample took control too early');
+    lifecycle_wait(fn()=>($readStatus()['mode']??'')==='auto' && is_file($root.'/config/ipmi-owned.json'), 'Two healthy samples did not recover Auto');
+    touch($root.'/query-failure');
+    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'), 'Repeat query failure did not latch');
     $first=file_get_contents($root.'/config/ipmi-last-fault.json');
     $fault=json_decode($first,true);
-    lifecycle_check($fault['reason']==='Sensor query failed (exit 124)', 'SDR exit code was not preserved');
+    lifecycle_check($fault['reason']==='Sensor query failed (exit 124)' && $fault['evidence']['sensorExitCode']===124, 'Repeat fault class and SDR exit code were not preserved');
     lifecycle_check(($fault['evidence']['lastHealthy']['sensors']['healthy']??false)===true, 'Prior healthy sample missing');
     unlink($root.'/query-failure');
-    lifecycle_wait(function()use($root):bool{$s=json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true);return ($s['healthy']??false)&&($s['mode']??'')==='firmware'&&str_contains($s['targetReason']??'','Sensor query failed (exit 124)');}, 'Healthy polls lost the first fault reason');
+    lifecycle_wait(fn()=>($readStatus()['healthy']??false)&&($readStatus()['mode']??'')==='firmware'&&str_contains($readStatus()['targetReason']??'','Sensor query failed (exit 124)'), 'Healthy polls lost the first fault reason');
     lifecycle_check(file_get_contents($root.'/config/ipmi-last-fault.json')===$first,'Healthy latched poll rewrote first fault');
     lifecycle_check((fileperms($root.'/config/ipmi-last-fault.json')&0777)===0600,'Persistent evidence must be private');
     // Deliberate fixture re-arm, then independent thermal and write failures.
