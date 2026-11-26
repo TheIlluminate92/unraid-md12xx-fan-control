@@ -49,12 +49,25 @@ try {
     $s = cycle($root,$tmp,"temp=*\nspundown=0\n");
     check($s['shelves'][0]['targetPercent'] === 50 && $s['shelves'][0]['missingTemperatures'] === ['disk2'], 'Partial active temperature failure uses fail-safe');
     $s = cycle($root,$tmp,"temp=*\nspundown=1\n");
-    check($s['shelves'][0]['targetPercent'] === 50 && $s['shelves'][0]['diskInputFreshness'] === 'unverified', 'Unverified standby alongside a cool report cannot authorize lower cooling');
+    check($s['shelves'][0]['targetPercent'] === 20 && $s['shelves'][0]['activeDisks'] === 1
+        && $s['shelves'][0]['diskInputFreshness'] === 'unverified', 'Explicit native standby is excluded without a wake');
+    $s = cycle($root, $tmp, "temp=54\ncolor=green-blink\n");
+    check($s['shelves'][0]['targetPercent'] === 20 && $s['shelves'][0]['temperatureC'] === 30,
+        'A numeric value on a native standby row must not feed the curve');
+    $s = cycle($root, $tmp, "temp=46\ncolor=green-on\n");
+    check($s['shelves'][0]['targetPercent'] === 30 && $s['shelves'][0]['temperatureSource'] === 'disk2',
+        'Native active color supports a usable numeric value without a separate spin flag');
+    foreach (["temp=*\n", "temp=26\n", "temp=26\nspundown=0\ncolor=green-blink\n",
+        "temp=*\ncolor=red-blink\n", "temp=26\nspundown=maybe\ncolor=green-on\n"] as $ambiguous) {
+        $s = cycle($root, $tmp, $ambiguous);
+        check($s['shelves'][0]['targetPercent'] === 50 && str_contains($s['shelves'][0]['targetReason'], 'standby state unverified'),
+            'Missing, conflicting or unhealthy state cannot authorize a curve target');
+    }
     foreach (['current' => time(), 'aged' => time() - 86400] as $case => $mtime) {
         $s = cycle($root, $tmp, "temp=26\nspundown=0\nsampleTime=$mtime\n", $mtime);
-        check($s['controller']['state'] === 'attention' && $s['shelves'][0]['temperatureC'] === 30
-            && $s['shelves'][0]['diskInputFreshness'] === 'unverified' && $s['shelves'][0]['targetPercent'] === 50,
-            "The $case cache preserves reported temperature but cannot authorize lower cooling");
+        check($s['controller']['state'] === 'normal' && $s['shelves'][0]['temperatureC'] === 30
+            && $s['shelves'][0]['diskInputFreshness'] === 'unverified' && $s['shelves'][0]['targetPercent'] === 20,
+            "The $case file timestamp does not change the accepted best-available numeric policy");
         $s = cycle($root, $tmp, "temp=*\nspundown=1\nsampleTime=$mtime\n", $mtime, true);
         check($s['shelves'][0]['targetPercent'] === 50 && $s['shelves'][0]['reportedStandby'] === true
             && $s['shelves'][0]['diskInputFreshness'] === 'unverified', "Reported standby in the $case cache must fail safe");

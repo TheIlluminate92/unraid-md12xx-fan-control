@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4 Beta candidate — 2026-11-26 (build 2026.11.26.04)
+
+- Use usable native temperature reports for normal shelf Auto curves and hysteresis. The Settings label is “Unraid-reported, age unverified.” A reported standby disk can be excluded if its native state is clear and another active mapped disk supplies a usable reading.
+- Keep the fail-safe for missing active readings, ambiguous standby, unverified current automatic mapping, and all-standby shelves. Commissioning continues to require verified observations. The versioned .03 installer remains in the release index.
+
 ## 0.5.4 Beta — 2026-11-26 (build 2026.11.26.03)
 
 - Preserve the chassis re-arm requirement across loss of runtime state. Explicit WebGUI re-arm is tied to the current fault and requires fresh measurements and firmware handback.

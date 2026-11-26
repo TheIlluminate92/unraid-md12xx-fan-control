@@ -28,28 +28,53 @@ if (function_exists('pcntl_async_signals') && function_exists('pcntl_signal')) {
     pcntl_signal(SIGINT, static function () use (&$running): void { $running = false; });
 }
 
+// Use only native normal active/standby indications. Missing, unknown or
+// conflicting indicators cannot justify excluding an assigned disk.
+function md12xx_controller_disk_standby(array $disk): ?bool
+{
+    $spin = strtolower(trim((string) ($disk['spundown'] ?? '')));
+    $color = strtolower(trim((string) ($disk['color'] ?? '')));
+    $fromSpin = match ($spin) {
+        '1', 'yes', 'true', 'on' => true,
+        '0', 'no', 'false', 'off' => false,
+        default => null,
+    };
+    $fromColor = match ($color) {
+        'green-blink' => true,
+        'green-on' => false,
+        default => null,
+    };
+    if (($spin !== '' && $fromSpin === null) || ($color !== '' && $fromColor === null)
+        || ($fromSpin !== null && $fromColor !== null && $fromSpin !== $fromColor)) return null;
+    return $fromSpin ?? $fromColor;
+}
+
 function md12xx_controller_temperature(array $assigned, array $disks): array
 {
     $assigned = array_values(array_unique(array_map(static fn($name): string => strtolower((string) $name), $assigned)));
     $temperatures = [];
     $seen = 0;
     $active = 0;
+    $standbyCount = 0;
     $missing = [];
     $missingTemperatures = [];
     foreach ($assigned as $name) {
-        $disk = $disks[strtolower((string) $name)] ?? null;
-        if (!is_array($disk)) { $missing[] = (string) $name; continue; }
+        $disk = $disks[$name] ?? null;
+        if (!is_array($disk)) { $missing[] = $name; continue; }
         $seen++;
-        $standby = md12xx_disk_reports_standby($disk);
-        if (!$standby) $active++;
+        $standby = md12xx_controller_disk_standby($disk);
+        if ($standby === true) { $standbyCount++; continue; }
+        if ($standby === null) continue;
+        $active++;
         $raw = trim((string) ($disk['temp'] ?? ''));
-        if (is_numeric($raw) && is_finite((float) $raw) && (float) $raw > 0.0) $temperatures[$name] = (float) $raw;
-        elseif (!$standby) $missingTemperatures[] = $name;
+        $celsius = is_numeric($raw) ? (float) $raw : null;
+        if ($celsius !== null && is_finite($celsius) && $celsius > 0 && $celsius <= 100) $temperatures[$name] = $celsius;
+        else $missingTemperatures[] = $name;
     }
     arsort($temperatures, SORT_NUMERIC);
-    $source = $temperatures ? (string) array_key_first($temperatures) : null;
+    $source = array_key_first($temperatures);
     return [
-        'temperatureC' => $source === null ? null : round((float) $temperatures[$source], 1),
+        'temperatureC' => $source === null ? null : $temperatures[$source],
         'temperatureSource' => $source,
         'assignedCount' => count($assigned),
         'assignedSeen' => $seen,
@@ -57,21 +82,29 @@ function md12xx_controller_temperature(array $assigned, array $disks): array
         'missingTemperatures' => $missingTemperatures,
         'activeDisks' => $active,
         'diskInputFreshness' => $seen > 0 ? 'unverified' : 'unavailable',
-        'reportedStandby' => count($assigned) > 0 && $seen === count($assigned) && $active === 0,
+        'diskPowerStateUnverified' => $seen > $active + $standbyCount,
+        'reportedStandby' => count($assigned) > 0 && $standbyCount === count($assigned),
     ];
 }
 
-function md12xx_controller_auto_target(int $failureSpeed, array $thermal): array
+function md12xx_controller_auto_target(int $failureSpeed, array $thermal, array $curve, ?int $previous, float $hysteresis): array
 {
     if (!empty($thermal['mappingUnverified'])) $reason = 'automatic disk mapping unverified';
     elseif (!empty($thermal['mappingChanged'])) $reason = 'automatic disk mapping changed';
     elseif ($thermal['assignedCount'] === 0) $reason = 'no assigned disks';
     elseif ($thermal['missingDisks']) $reason = 'assigned disk inventory incomplete';
+    elseif ($thermal['diskPowerStateUnverified']) $reason = 'disk standby state unverified';
     elseif ($thermal['missingTemperatures']) $reason = 'active disk temperature unavailable';
-    else $reason = 'disk temperature or standby freshness unverified';
-
-    // Current disk rows are reporting only. No row can authorize a lower curve target.
-    return ['speed' => $failureSpeed, 'reason' => $reason . '; fail-safe'];
+    elseif ($thermal['temperatureC'] === null) $reason = 'no usable active disk temperature';
+    else {
+        $celsius = $thermal['temperatureC'];
+        return [
+            'speed' => cooling_curve_target($curve, $celsius, $previous, $hysteresis),
+            'reason' => $thermal['temperatureSource'] . ' ' . round($celsius, 1) . '°C (Unraid-reported, age unverified)',
+            'usingCurve' => true,
+        ];
+    }
+    return ['speed' => $failureSpeed, 'reason' => $reason . '; fail-safe', 'usingCurve' => false];
 }
 
 function md12xx_controller_send(string $port, int $speed, bool $dryRun): array
@@ -166,6 +199,7 @@ function md12xx_controller_write_state(string $path, array $state): void
 }
 
 $previousTargets = [];
+$previousAutoTargets = [];
 $lastCommands = [];
 $nextPollAt = 0;
 $lastConfigSignature = '';
@@ -307,8 +341,11 @@ while ($running) {
         $thermal = md12xx_controller_temperature($assignedDisks, $disks);
         $thermal['mappingChanged'] = $mappingChanged;
         $thermal['mappingUnverified'] = $mappingUnverified;
-        $failureSpeed = md12xx_sensor_failure_speed($config, cooling_device_curve($shelf, $config['curve']));
-        $auto = md12xx_controller_auto_target($failureSpeed, $thermal);
+        $curve = cooling_device_curve($shelf, $config['curve']);
+        $failureSpeed = md12xx_sensor_failure_speed($config, $curve);
+        $hysteresis = cooling_device_hysteresis($shelf, $config['hysteresisC']);
+        $previousAuto = $controlChanged ? null : ($previousAutoTargets[$id] ?? null);
+        $auto = md12xx_controller_auto_target($failureSpeed, $thermal, $curve, $previousAuto, $hysteresis);
         $telemetry = $invalidSesMapping
             ? ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $connection['message']]
             : md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
@@ -416,7 +453,7 @@ while ($running) {
         elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
         elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }
         elseif ($operable && !empty($thermal['missingTemperatures']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': active disk temperature unavailable'; }
-        elseif ($operable && $mode === 'auto' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': disk temperature or standby freshness unverified; using fail-safe'; }
+        elseif ($operable && $mode === 'auto' && !$auto['usingCurve'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $auto['reason']; }
         elseif ($enabled && (bool) $shelf['enabled'] && !(bool) $shelf['commissioned'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': commissioning required'; }
         elseif ($enabled && (bool) $shelf['enabled'] && $telemetry['state'] !== 'normal' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $telemetry['message']; }
 
@@ -440,9 +477,10 @@ while ($running) {
             'missingDisks' => $thermal['missingDisks'],
             'missingTemperatures' => $thermal['missingTemperatures'],
             'activeDisks' => $thermal['activeDisks'],
-            'temperatureC' => $thermal['temperatureC'],
+            'temperatureC' => $thermal['temperatureC'] === null ? null : round($thermal['temperatureC'], 1),
             'temperatureSource' => $thermal['temperatureSource'],
             'diskInputFreshness' => $thermal['diskInputFreshness'],
+            'diskPowerStateUnverified' => $thermal['diskPowerStateUnverified'],
             'reportedStandby' => $thermal['reportedStandby'],
             'averageRpm' => $telemetry['averageRpm'],
             'fanCount' => $telemetry['fanCount'],
@@ -455,6 +493,8 @@ while ($running) {
             'writeMessage' => $write['message'],
         ];
         $previousTargets[$id] = $target;
+        $previousAutoTargets[$id] = $mode === 'auto' && $operable && !$invalidSesMapping && !$conflicts && !$commissioningActive
+            && $auto['usingCurve'] && $telemetry['state'] !== 'fault' && $write['state'] !== 'fault' ? $target : null;
     }
 
     $state = [

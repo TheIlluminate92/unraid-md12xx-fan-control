@@ -41,10 +41,15 @@ Preserves the `md12xx.fancontrol` update identity and existing shelf settings.
 
 Current Beta release: **0.5.3 / 2026.11.26.01**. One transient chassis sensor-read fault in Auto hands cooling to iDRAC for at least one minute. The plugin resumes only after two complete sensor samples. See [IPMI safeguards](docs/IPMI_PREVIEW.md) and [maintenance and migration guidance](docs/MAINTENANCE_AND_MIGRATION.md).
 
-The offline 0.5.4 candidate holds shelf Auto at the configured fail-safe while
+The published versioned 0.5.4 build 2026.11.26.03 holds shelf Auto at the configured fail-safe while
 the Unraid source cannot establish current disk temperature or standby. Its
 commissioning and startup ramps are also held. The shelf procedure below
-describes the published 0.5.3 release. See the [candidate maintenance notes](docs/MAINTENANCE_AND_MIGRATION.md#november-26-safety-candidate-054--2026112603) for operational limits.
+describes the published 0.5.3 release. See the [.03 maintenance notes](docs/MAINTENANCE_AND_MIGRATION.md#november-26-safety-release-054--2026112603) for operational limits.
+
+The local .04 candidate restores shelf Auto curves using usable active disk
+temperatures. Settings labels them “Unraid-reported, age unverified.” The
+fail-safe remains active for incomplete observations and all-standby
+shelves. See the [candidate policy](docs/MAINTENANCE_AND_MIGRATION.md#november-26-shelf-auto-candidate-054--2026112604).
 
 Host-native chassis and disk-shelf cooling. This release adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [IPMI scope and validation](docs/IPMI_PREVIEW.md).
 

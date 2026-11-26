@@ -1,3 +1,9 @@
+## Local beta candidate 0.5.4 / 2026.11.26.04
+
+This candidate uses reported numeric temperatures from active mapped disks for
+shelf Auto. Reading age remains unverified. Its unique versioned filename is
+md12xx.fancontrol-0.5.4-2026.11.26.04.plg. See the [candidate policy](../docs/MAINTENANCE_AND_MIGRATION.md#november-26-shelf-auto-candidate-054--2026112604).
+
 ## Versioned beta 0.5.4 / 2026.11.26.03
 
 The [versioned installer](md12xx.fancontrol-0.5.4.plg) passed PHP 8.3 and 8.4 verification and a controlled R730 installation. It retains the chassis re-arm requirement across restarts. If shelf temperature or standby freshness is unverified, shelf Auto uses the configured fail-safe or maximum effective curve speed, whichever is higher. Commissioning ramps require verified inputs. See [maintenance and migration](../docs/MAINTENANCE_AND_MIGRATION.md) for rollback requirements. The rolling installer documented below is still 0.5.3.

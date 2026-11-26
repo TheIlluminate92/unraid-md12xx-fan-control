@@ -74,7 +74,7 @@ foreach ($forbidden in @(
 foreach ($marker in @(
     'MD1200', 'MD1220', '/dev/serial/by-id/', 'commissioned',
     'set_speed', 'Actual\s+speed', 'window.csrf_token',
-    'disk temperature or standby freshness unverified', 'active disk temperature unavailable',
+    'disk standby state unverified', 'active disk temperature unavailable',
     'Another fan controller', 'fan speeds cannot decrease as temperature rises',
     'autoProbeKnownFtdi', 'MD12xx EMM console verified as primary and active'
 )) { if ($text -notmatch [regex]::Escape($marker) -and $marker -notmatch '\\') { throw "Missing required marker: $marker" } }
@@ -177,7 +177,7 @@ if (-not $controllerSource.Contains('$reader = @fopen($port, ''r'');') -or -not 
 if (-not $controllerSource.Contains("'state' => 'blocked'")) { throw 'Competing-controller shelf status is not blocked.' }
 if (-not $controllerSource.Contains("'timeout 10 '")) { throw 'SES telemetry command timeout is missing.' }
 if (-not $controllerSource.Contains("unset(`$controlConfig['discovery'], `$controlConfig['pollSeconds'])") -or -not $controllerSource.Contains('$controlChanged')) { throw 'Discovery-only changes are not isolated from control writes.' }
-foreach ($marker in 'md12xx_controller_verify_target', '$pendingVerifications', "`$write['state'] === 'pending'", 'no assigned disks; using fail-safe', 'assigned disk inventory incomplete', 'automatic disk mapping changed', 'disk temperature or standby freshness unverified') {
+foreach ($marker in 'md12xx_controller_verify_target', '$pendingVerifications', "`$write['state'] === 'pending'", 'no assigned disks; using fail-safe', 'assigned disk inventory incomplete', 'automatic disk mapping changed', 'disk standby state unverified') {
     if (-not $controllerSource.Contains($marker)) { throw "Closed-loop controller safety marker is missing: $marker" }
 }
 if (-not $text.Contains("'sas-expander'")) { throw 'SAS expander disk mapping fallback is missing.' }

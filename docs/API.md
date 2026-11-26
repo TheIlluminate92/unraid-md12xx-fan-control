@@ -80,11 +80,12 @@ Representative response:
       "temperatureC": 31,
       "temperatureSource": "disk2",
       "diskInputFreshness": "unverified",
+      "diskPowerStateUnverified": false,
       "reportedStandby": false,
-      "averageRpm": 6318,
+      "averageRpm": 3518,
       "fanCount": 4,
-      "targetPercent": 50,
-      "targetReason": "disk temperature or standby freshness unverified; fail-safe",
+      "targetPercent": 20,
+      "targetReason": "disk2 31°C (Unraid-reported, age unverified)",
       "telemetryState": "normal",
       "writeState": "verified",
       "writeMessage": "Independent SES telemetry verified the response"
@@ -124,10 +125,11 @@ The exact shelf object can grow during Beta. These are the integration fields da
 | `sesIdentity` | Commissioned primary enclosure logical identifier; empty for legacy configurations awaiting re-pairing. |
 | `sesDevice`, `sesAddress` | Current identity-resolved host paths, or empty when identity verification fails. Saved configuration paths are historical hints. |
 | `assignedDisks` | Current Unraid disk names assigned to the shelf. |
-| `activeDisks` | Assigned disks present in the cache that are reported as active. |
-| `temperatureC` | Highest finite positive temperature reported for the assigned disks, or `null`. |
+| `activeDisks` | Assigned disks with a recognized, consistent native active indication. |
+| `temperatureC` | Highest usable temperature reported for known active assigned disks, or `null`. |
 | `temperatureSource` | Disk that supplied `temperatureC`, or `null`. |
 | `diskInputFreshness` | In the 0.5.4 candidate, `unverified` if assigned rows are present and `unavailable` when there are no rows to assess. A current controller heartbeat does not establish disk freshness. |
+| `diskPowerStateUnverified` | At least one assigned cache row has missing, unknown or contradictory native power indicators. Auto uses the fail-safe. |
 | `reportedStandby` | All assigned disks are present and report standby in the cache. This is informational and does not authorize a lower Auto target. |
 | `averageRpm` | Average of the nonzero fan RPM readings reported independently by SES. |
 | `fanCount` | Number of nonzero fan readings used for RPM telemetry. |

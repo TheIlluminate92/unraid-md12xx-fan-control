@@ -1,11 +1,33 @@
 # Safety maintenance and migration
 
-Current source and versioned beta: **0.5.4 / 2026.11.26.03**. The rolling installer remains at **0.5.3 / 2026.11.26.01**. The plugin includes bundled
+Published versioned beta: **0.5.4 / 2026.11.26.03**. The rolling installer remains at **0.5.3 / 2026.11.26.01**. The plugin includes bundled
 R730/R730xd IPMI chassis support; see the [README](../README.md) and
 [current IPMI scope, fault evidence and validation limits](IPMI_PREVIEW.md).
 The 0.4.14 notes below retain their historical release scope. Their statement
 that chassis control was planned is not the current implementation status.
 Source review does not establish installation or hardware acceptance.
+
+## November 26 shelf Auto candidate (0.5.4 / 2026.11.26.04)
+
+The accepted shelf Auto policy uses valid positive numeric Unraid reports for
+active mapped disks. Reading age is unverified. The hottest usable active disk
+feeds the existing Global or Individual curve and its downshift hysteresis.
+A native normal standby report can exclude that disk without querying or waking
+it. The normal green active/standby indicator and an explicit native spin flag
+are accepted if present and consistent. A blank temperature or asterisk alone
+does not establish standby. [Unraid WebGUI device list](https://github.com/unraid/webgui/blob/master/emhttp/plugins/dynamix/nchan/device_list)
+
+Auto uses the greater of the failure setting and effective curve maximum for
+uncertain mapping, ambiguous disk state, a missing or invalid active reading,
+or zero usable active readings. This includes all-standby shelves. The existing
+hardware identity, writer and commissioning guards continue to apply. The
+candidate infers no reading age from file timestamps or polling cadence.
+
+Explicit Manual, chassis recovery, and diagnostic redaction retain .03 behavior.
+Normal and quiet commissioning ramps still require independently verifiable
+current observations. The published .03 installer remains available for
+compatibility rollback. Its policy chooses sustained shelf Auto fail-safe when
+temperature or standby age is unverified.
 
 ## November 26 safety release (0.5.4 / 2026.11.26.03)
 

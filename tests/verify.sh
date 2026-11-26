@@ -126,7 +126,7 @@ php "$PROJECT_DIR/tests/identity.php" "$PLUGIN_DIR/include/common.php" "$TMP_DIR
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
   --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/identity-state.json"
-jq -e '.controller.state == "attention" and .shelves[0].diskInputFreshness == "unverified" and .shelves[0].sesDevice == "/dev/sg200" and .shelves[0].sesAddress == "5:0:200:0" and .shelves[0].diskMappingState == "verified" and .shelves[0].assignedDisks == ["disk1"] and .shelves[0].averageRpm == 3500 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/identity-state.json" >/dev/null
+jq -e '.controller.state == "normal" and .shelves[0].diskInputFreshness == "unverified" and .shelves[0].sesDevice == "/dev/sg200" and .shelves[0].sesAddress == "5:0:200:0" and .shelves[0].diskMappingState == "verified" and .shelves[0].assignedDisks == ["disk1"] and .shelves[0].averageRpm == 3500 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/identity-state.json" >/dev/null
 # A current SES identity with no current disk topology must not reuse commissioned disk temperatures.
 mv "$TMP_DIR/identity-fixture/sys" "$TMP_DIR/identity-mapped-sys"
 mkdir "$TMP_DIR/identity-fixture/sys"
@@ -467,7 +467,7 @@ php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
   --fixture-dir="$PROJECT_DIR/tests/fixtures/ses" \
   --state="$TMP_DIR/auto-state.json"
-jq -e '.controller.state == "attention" and .shelves[0].targetPercent == 50 and .shelves[0].temperatureC == 46 and .shelves[0].diskInputFreshness == "unverified" and .shelves[0].averageRpm == 3500 and .shelves[0].fanCount == 4 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/auto-state.json" >/dev/null
+jq -e '.controller.state == "normal" and .shelves[0].targetPercent == 30 and .shelves[0].temperatureC == 46 and .shelves[0].diskInputFreshness == "unverified" and .shelves[0].averageRpm == 3500 and .shelves[0].fanCount == 4 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/auto-state.json" >/dev/null
 
 jq '.shelves[0].disks = ["disk1", "disk2"]' "$PROJECT_DIR/tests/fixtures/auto.json" > "$TMP_DIR/incomplete.json"
 php "$PLUGIN_DIR/include/controller.php" --once --dry-run \

@@ -22,15 +22,68 @@ try {
     exec($command . ' 2>&1', $output, $code);
     mixed_check($code === 0, implode("\n", $output));
     $state = json_decode(file_get_contents($dir . '/state.json'), true);
-    mixed_check($state['shelves'][0]['targetPercent'] === 50 && $state['shelves'][1]['targetPercent'] === 80, 'Unverified observations use the maximum of each effective curve');
+    mixed_check($state['shelves'][0]['targetPercent'] === 30 && $state['shelves'][1]['targetPercent'] === 60, 'Usable numeric observations select each effective curve');
     $config['shelves'][1]['curveMode'] = 'global'; file_put_contents($dir . '/config.json', json_encode($config));
     exec($command . ' 2>&1', $output2, $code2);
     $state = json_decode(file_get_contents($dir . '/state.json'), true);
-    mixed_check($code2 === 0 && $state['shelves'][1]['targetPercent'] === 50 && $state['shelves'][1]['temperatureC'] === 28, 'Switch back to Global uses its fallback and preserves the reported temperature');
+    mixed_check($code2 === 0 && $state['shelves'][1]['targetPercent'] === 20 && $state['shelves'][1]['temperatureC'] === 28, 'Switch back to Global uses the active shelf temperature');
+    // Replay both native active/standby count profiles with exact green and spin flags.
+    $profileConfig = $config;
+    $profileRows = [];
+    foreach ([[7,4], [5,1]] as $index => [$awake, $asleep]) {
+        $profileConfig['shelves'][$index]['disks'] = [];
+        for ($disk = 0; $disk < $awake + $asleep; $disk++) {
+            $name = 'fixture' . $index . 'disk' . $disk;
+            $profileConfig['shelves'][$index]['disks'][] = $name;
+            $profileRows[] = "[$name]\nname=$name\n" . ($disk < $awake
+                ? "spundown=0\ncolor=green-on\ntemp=39" : "spundown=1\ncolor=green-blink\ntemp=*");
+        }
+    }
+    file_put_contents($dir . '/config.json', json_encode($profileConfig));
+    file_put_contents($dir . '/disks.ini', implode("\n", $profileRows) . "\n");
+    exec($command . ' 2>&1', $profileOutput, $profileCode);
+    $state = json_decode(file_get_contents($dir . '/state.json'), true);
+    mixed_check($profileCode === 0 && array_column($state['shelves'], 'activeDisks') === [7,5]
+        && array_column($state['shelves'], 'targetPercent') === [25,25]
+        && array_column($state['shelves'], 'diskInputFreshness') === ['unverified','unverified'],
+        'Native mixed 7/11 and 5/6 row fixtures select curves, without a freshness claim');
+
     $normalized = md12xx_validate_config($config);
     mixed_check($normalized['shelves'][1]['curve'][0]['speed'] === 60, 'Individual curve survives a switch back to Global');
     mixed_check($normalized['shelves'][1]['hysteresisC'] === 3.0 && cooling_device_hysteresis($normalized['shelves'][1], 2.0) === 2.0, 'Individual hysteresis is retained while Global is active');
     $config['shelves'][1]['curveMode'] = 'individual';
     mixed_check(md12xx_commission_temperature_policy($config, ['disk1'=>['temp'=>'28','spundown'=>'0']])['restoreSpeed'] === 80, 'Commissioning abort respects the individual curve maximum');
+
+    // Keep the real dry-run controller alive across samples to exercise per-shelf hysteresis.
+    file_put_contents($dir . '/config.json', json_encode($config));
+    $publish = static function (int $celsius) use ($dir): void {
+        file_put_contents($dir . '/next-rows.ini', "[disk1]\nname=disk1\ntemp=46\nspundown=0\n[disk2]\nname=disk2\ntemp=$celsius\nspundown=0\n");
+        rename($dir . '/next-rows.ini', $dir . '/disks.ini');
+    };
+    $publish(51);
+    unlink($dir . '/state.json');
+    $pipes = [];
+    $process = proc_open('exec ' . str_replace(' --once', '', $command),
+        [0=>['pipe','r'],1=>['file',$dir.'/controller.log','a'],2=>['file',$dir.'/controller.log','a']], $pipes);
+    mixed_check(is_resource($process), 'Cannot start multi-cycle shelf fixture');
+    fclose($pipes[0]);
+    try {
+        foreach ([[51,80],[49,80],[46,60]] as [$celsius,$expected]) {
+            $publish($celsius);
+            $end = microtime(true) + 9;
+            do {
+                $live = json_decode((string) @file_get_contents($dir . '/state.json'), true);
+                if (($live['shelves'][1]['temperatureC'] ?? null) === $celsius) break;
+                usleep(100000);
+            } while (microtime(true) < $end);
+            mixed_check(($live['shelves'][1]['temperatureC'] ?? null) === $celsius
+                && ($live['shelves'][1]['targetPercent'] ?? null) === $expected,
+                "Individual shelf hysteresis at $celsius C did not select $expected percent");
+        }
+    } finally {
+        proc_terminate($process);
+        proc_close($process);
+    }
+
 } finally { foreach (glob($dir . '/*') as $path) unlink($path); rmdir($dir); }
 echo "Mixed per-shelf curve controller regression tests passed.\n";
