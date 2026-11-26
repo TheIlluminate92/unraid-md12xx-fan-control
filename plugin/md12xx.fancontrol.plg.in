@@ -8,6 +8,10 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
+### 0.5.4 Beta - Build 2026.11.26.05
+- Eligible MD1200 shelves can use the commissioned 20% baseline when every mapped disk reports standby and the shelf passes the existing identity, writer and fan checks.
+- Active disks resume their normal Auto curve on the next poll. Missing active temperatures or ambiguous standby retain the fail-safe.
+
 ### 0.5.4 Beta - Build 2026.11.26.04
 - Restore shelf Auto curves and downshift hysteresis using usable Unraid-reported temperatures from active mapped disks. Reading age is unverified.
 - Keep the fail-safe for incomplete input or uncertain mapping, including shelves with no usable active disk temperature. Commissioning remains held pending verified observations.

@@ -349,8 +349,18 @@ while ($running) {
         $telemetry = $invalidSesMapping
             ? ['state' => 'fault', 'averageRpm' => null, 'fanCount' => 0, 'fanRpms' => [], 'message' => $connection['message']]
             : md12xx_controller_rpm($id, $sesDevice, $fixtureDirectory);
+        $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
+        $standbyQuiet = $mode === 'auto' && $thermal['reportedStandby'] && $shelf['model'] === 'MD1200'
+            && $operable && !$invalidSesMapping && $diskMapping['state'] === 'verified'
+            && !$conflicts && !$commissioningActive && $telemetry['state'] === 'normal'
+            && $identityMode === 'rpm' && md12xx_controller_calibration($shelf) !== null
+            && !isset($verificationFaults[$id]);
         $target = $mode === 'manual' ? $manualSpeed : (int) $auto['speed'];
         $reason = $mode === 'manual' ? 'manual selection' : (string) $auto['reason'];
+        if ($standbyQuiet) {
+            $target = 20;
+            $reason = 'All assigned disks in standby (Unraid-reported, age unverified)';
+        }
         if ($mode === 'auto' && $telemetry['state'] === 'fault') {
             $target = max($target, $failureSpeed);
             $reason = 'fan telemetry fault; fail-safe';
@@ -363,7 +373,6 @@ while ($running) {
             $diskMapping['state'] = 'invalid';
             $diskMapping['message'] = $connection['message'];
         }
-        $operable = $enabled && (bool) $shelf['enabled'] && (bool) $shelf['commissioned'];
         $lastCommand = $lastCommands[$id] ?? null;
         $commandDue = $operable && !$invalidSesMapping && !$conflicts && !$commissioningActive && ($controlChanged || $lastCommand === null || ($previousTargets[$id] ?? null) !== $target || (time() - (int) $lastCommand) >= (int) $config['reassertSeconds']);
         if ($commissioningActive) {
@@ -453,7 +462,7 @@ while ($running) {
         elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
         elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }
         elseif ($operable && !empty($thermal['missingTemperatures']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': active disk temperature unavailable'; }
-        elseif ($operable && $mode === 'auto' && !$auto['usingCurve'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $auto['reason']; }
+        elseif ($operable && $mode === 'auto' && !$auto['usingCurve'] && !$standbyQuiet && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $auto['reason']; }
         elseif ($enabled && (bool) $shelf['enabled'] && !(bool) $shelf['commissioned'] && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': commissioning required'; }
         elseif ($enabled && (bool) $shelf['enabled'] && $telemetry['state'] !== 'normal' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $telemetry['message']; }
 

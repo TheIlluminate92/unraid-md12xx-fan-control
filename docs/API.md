@@ -130,7 +130,7 @@ The exact shelf object can grow during Beta. These are the integration fields da
 | `temperatureSource` | Disk that supplied `temperatureC`, or `null`. |
 | `diskInputFreshness` | In the 0.5.4 candidate, `unverified` if assigned rows are present and `unavailable` when there are no rows to assess. A current controller heartbeat does not establish disk freshness. |
 | `diskPowerStateUnverified` | At least one assigned cache row has missing, unknown or contradictory native power indicators. Auto uses the fail-safe. |
-| `reportedStandby` | All assigned disks are present and report standby in the cache. This is informational and does not authorize a lower Auto target. |
+| `reportedStandby` | All assigned rows report standby. Build 2026.11.26.05 can use 20% on an eligible MD1200 after mapping, fan and writer checks pass. The target reason identifies the decision. |
 | `averageRpm` | Average of the nonzero fan RPM readings reported independently by SES. |
 | `fanCount` | Number of nonzero fan readings used for RPM telemetry. |
 | `targetPercent` | Current fan target. |

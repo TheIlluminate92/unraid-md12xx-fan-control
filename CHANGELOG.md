@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.4 Beta candidate — 2026-11-26 (build 2026.11.26.05)
+
+- Use 20% in Auto on an independently RPM-commissioned MD1200 when current automatic mapping is complete, every assigned disk reports standby, and independent SES fan telemetry is healthy. The normal writer safeguards still apply.
+- Each shelf resumes its active curve on the next poll after a reported wake. An ambiguous or incomplete observation uses the existing fail-safe. The standby label identifies an Unraid report with unverified age. This policy issues no SMART query or wake.
+
 ## 0.5.4 Beta — 2026-11-26 (build 2026.11.26.04)
 
 - Use usable native temperature reports for normal shelf Auto curves and hysteresis. The Settings label is “Unraid-reported, age unverified.” A reported standby disk can be excluded if its native state is clear and another active mapped disk supplies a usable reading.

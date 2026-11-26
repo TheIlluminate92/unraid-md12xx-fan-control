@@ -7,6 +7,24 @@ The 0.4.14 notes below retain their historical release scope. Their statement
 that chassis control was planned is not the current implementation status.
 Source review does not establish installation or hardware acceptance.
 
+## November 26 MD1200 standby candidate (0.5.4 / 2026.11.26.05)
+
+An enabled, commissioned MD1200 in Auto can use its proven 20% baseline when
+every currently assigned disk has a clear Unraid standby report. This requires
+complete current automatic mapping, matching enclosure identity, saved
+independent RPM calibration, healthy SES fans and the existing exclusive
+writer guards. The decision is per shelf. A manual disk mapping does not
+establish current complete topology for this decision.
+
+The target reason identifies the Unraid standby report and its unverified age.
+An active disk uses the existing thermal curve on the next normal poll. Missing
+or invalid active temperature, ambiguous standby, changed or incomplete
+mapping, or unhealthy fan evidence keeps the existing fail-safe. No disk wake
+or SMART query is added. This is independent of the separate commissioning
+and quiet startup recovery workflows, which still require verified current
+observations. Versioned .04 remains the prior rollback package. The rolling
+installer remains at its published version.
+
 ## November 26 shelf Auto release (0.5.4 / 2026.11.26.04)
 
 The accepted shelf Auto policy uses valid positive numeric Unraid reports for

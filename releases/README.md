@@ -1,3 +1,10 @@
+## Local beta candidate 0.5.4 / 2026.11.26.05
+
+This candidate applies the proven 20% baseline per eligible MD1200 when all
+assigned disks report standby and the current safety checks pass. The unique
+candidate filename is md12xx.fancontrol-0.5.4-2026.11.26.05.plg. The .04
+versioned release remains available below. [Candidate policy](../docs/MAINTENANCE_AND_MIGRATION.md#november-26-md1200-standby-candidate-054--2026112605)
+
 ## Versioned beta 0.5.4 / 2026.11.26.04
 
 This release uses reported numeric temperatures from active mapped disks for

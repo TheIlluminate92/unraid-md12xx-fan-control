@@ -46,10 +46,10 @@ the Unraid source cannot establish current disk temperature or standby. Its
 commissioning and startup ramps are also held. The shelf procedure below
 describes the published 0.5.3 release. See the [.03 maintenance notes](docs/MAINTENANCE_AND_MIGRATION.md#november-26-safety-release-054--2026112603) for operational limits.
 
-The local .04 candidate restores shelf Auto curves using usable active disk
-temperatures. Settings labels them “Unraid-reported, age unverified.” The
-fail-safe remains active for incomplete observations and all-standby
-shelves. See the [candidate policy](docs/MAINTENANCE_AND_MIGRATION.md#november-26-shelf-auto-release-054--2026112604).
+The versioned .04 release uses numeric active disk reports for Auto curves.
+Settings labels them “Unraid-reported, age unverified.” The .05 candidate adds
+20% standby operation per eligible MD1200 when every assigned disk reports
+standby and the existing safety checks pass. See the [candidate policy](docs/MAINTENANCE_AND_MIGRATION.md#november-26-md1200-standby-candidate-054--2026112605).
 
 Host-native chassis and disk-shelf cooling. This release adds bundled local IPMI support for Dell R730/R730xd, independent Global/Individual curve choices per device, automatic hiding of unavailable hardware, and a Plugins-page PNG icon. See [IPMI scope and validation](docs/IPMI_PREVIEW.md).
 
