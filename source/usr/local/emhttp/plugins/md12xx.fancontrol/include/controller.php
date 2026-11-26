@@ -70,11 +70,14 @@ function md12xx_controller_auto_target(array $config, array $thermal, ?int $prev
 {
     $curve = $config['curve'];
     $cool = (int) $curve[0]['speed'];
-    if (($thermal['assignedCount'] ?? 0) === 0) {
-        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'no assigned disks; fail-safe'];
+    if (!empty($thermal['mappingUnverified'])) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'automatic disk mapping unverified; fail-safe'];
     }
     if (!empty($thermal['mappingChanged'])) {
         return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'automatic disk mapping changed; fail-safe'];
+    }
+    if (($thermal['assignedCount'] ?? 0) === 0) {
+        return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'no assigned disks; fail-safe'];
     }
     if (!empty($thermal['missingDisks'])) {
         return ['speed' => (int) $config['sensorFailureSpeed'], 'reason' => 'assigned disk inventory incomplete; fail-safe'];
@@ -293,36 +296,39 @@ while ($running) {
         $sesAddress = (string) $connection['address'];
         $invalidSesMapping = $connection['state'] !== 'normal';
         $assignmentMode = (string) ($shelf['diskAssignment'] ?? 'manual');
-        $assignedDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
-        $savedAssignedDisks = $assignedDisks;
-        $mappingChanged = false;
+        $savedAssignedDisks = is_array($shelf['disks'] ?? null) ? array_values($shelf['disks']) : [];
+        $assignedDisks = $assignmentMode === 'automatic' ? [] : $savedAssignedDisks;
         $diskMapping = [
             'state' => $assignmentMode === 'automatic' ? 'unavailable' : 'manual',
-            'disks' => $assignedDisks,
             'message' => $assignmentMode === 'automatic' ? 'SES enclosure is not mapped' : 'Manual disk override',
         ];
         if ($assignmentMode === 'automatic' && !$invalidSesMapping && $sesAddress !== '') {
             $diskMapping = md12xx_ses_disk_mapping($sesAddress, $disksPath, $mappingSysfs);
-            // Keep the last hardware-confirmed snapshot if sysfs is temporarily
-            // unavailable. A successful current mapping always wins.
-            if (!empty($diskMapping['disks'])) {
-                $currentDisks = array_values(array_unique($diskMapping['disks']));
-                $savedComparison = $savedAssignedDisks;
-                $currentComparison = $currentDisks;
-                sort($savedComparison, SORT_NATURAL | SORT_FLAG_CASE);
-                sort($currentComparison, SORT_NATURAL | SORT_FLAG_CASE);
-                $mappingChanged = $savedComparison !== [] && $savedComparison !== $currentComparison;
-                $assignedDisks = $mappingChanged
-                    ? array_values(array_unique(array_merge($savedAssignedDisks, $currentDisks)))
-                    : $currentDisks;
-                if ($mappingChanged) {
-                    $diskMapping['state'] = 'changed';
-                    $diskMapping['message'] = 'The current SES-to-disk mapping differs from the commissioned snapshot';
+            if ($diskMapping['state'] === 'invalid') {
+                $invalidSesMapping = true;
+                $connection['message'] = $diskMapping['message'];
+            } elseif ($diskMapping['state'] === 'verified') {
+                if (count($diskMapping['disks']) !== count($diskMapping['blockDevices'])) {
+                    $diskMapping['state'] = 'partial';
+                    $diskMapping['message'] = 'Current SES topology does not map every detected block device to an Unraid disk';
+                } else {
+                    $assignedDisks = $diskMapping['disks'];
+                    $savedComparison = $savedAssignedDisks;
+                    $currentComparison = $assignedDisks;
+                    sort($savedComparison, SORT_NATURAL | SORT_FLAG_CASE);
+                    sort($currentComparison, SORT_NATURAL | SORT_FLAG_CASE);
+                    if ($savedComparison !== [] && $savedComparison !== $currentComparison) {
+                        $diskMapping['state'] = 'changed';
+                        $diskMapping['message'] = 'The current SES-to-disk mapping differs from the commissioned snapshot';
+                    }
                 }
             }
         }
+        $mappingChanged = $diskMapping['state'] === 'changed';
+        $mappingUnverified = $assignmentMode === 'automatic' && !$mappingChanged && $diskMapping['state'] !== 'verified';
         $thermal = md12xx_controller_temperature($assignedDisks, $disks);
         $thermal['mappingChanged'] = $mappingChanged;
+        $thermal['mappingUnverified'] = $mappingUnverified;
         $deviceConfig = $config;
         $deviceConfig['curve'] = cooling_device_curve($shelf, $config['curve']);
         $deviceConfig['hysteresisC'] = cooling_device_hysteresis($shelf, $config['hysteresisC']);
@@ -430,6 +436,7 @@ while ($running) {
         elseif ($operable && $write['state'] === 'unverified' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $write['state'] === 'pending' && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $write['message']; }
         elseif ($operable && $mappingChanged && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': automatic disk mapping changed'; }
+        elseif ($operable && $mode === 'auto' && $mappingUnverified && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': automatic disk mapping unverified; using fail-safe'; }
         elseif ($operable && $identityVerified && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': ' . $identityLabel . ' pairing; SES fan response is not verified'; }
         elseif ($operable && $mode === 'auto' && $thermal['assignedCount'] === 0 && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': no assigned disks; using fail-safe'; }
         elseif ($operable && !empty($thermal['missingDisks']) && $controllerState !== 'fault') { $controllerState = 'attention'; $messages[] = $shelf['name'] . ': assigned disk inventory incomplete'; }

@@ -24,8 +24,8 @@ while true; do
   echo "$child" > "$STATE/ipmi-controller.pid"
   while kill -0 "$child" 2>/dev/null; do
     sleep 5
-    if { [ -f /boot/config/plugins/md12xx.fancontrol/ipmi-owned.json ] || [ -f "$STATE/ipmi-confirmation-pending.json" ]; } && { [ ! -f "$STATE/ipmi-status.json" ] || [ $(( $(date +%s) - $(stat -c %Y "$STATE/ipmi-status.json") )) -gt 40 ]; }; then
-      /usr/bin/php "$RUNTIME/include/ipmi-recover.php" || true
+    if [ -f /boot/config/plugins/md12xx.fancontrol/ipmi-owned.json ] || [ -f "$STATE/ipmi-confirmation-pending.json" ]; then
+      /usr/bin/php "$RUNTIME/include/ipmi-recover.php" --if-stale || true
     fi
   done
   wait "$child" 2>/dev/null || true

@@ -28,6 +28,7 @@ php "$PROJECT_DIR/tests/ipmi-api.php"
 php "$PROJECT_DIR/tests/mixed-curves.php"
 php "$PROJECT_DIR/tests/ipmi-lifecycle.php"
 bash "$PROJECT_DIR/tests/security.sh"
+bash "$PROJECT_DIR/tests/diagnostics.sh" "$PLUGIN_DIR/scripts/diagnose.sh" "$TMP_DIR"
 php "$PROJECT_DIR/tests/registration.php" "$TMP_DIR/md12xx.fancontrol.plg"
 php "$PROJECT_DIR/tests/activation.php" "$TMP_DIR/md12xx.fancontrol.plg"
 if grep -qE 'require_once[[:space:]]+__DIR__' "$PLUGIN_DIR/MD12xxFanControl.page"; then
@@ -117,6 +118,22 @@ php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
   --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
   --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/identity-state.json"
 jq -e '.controller.state == "normal" and .shelves[0].sesDevice == "/dev/sg200" and .shelves[0].sesAddress == "5:0:200:0" and .shelves[0].diskMappingState == "verified" and .shelves[0].assignedDisks == ["disk1"] and .shelves[0].averageRpm == 3500 and .shelves[0].writeState == "dry-run"' "$TMP_DIR/identity-state.json" >/dev/null
+# A current SES identity with no current disk topology must not reuse commissioned disk temperatures.
+mv "$TMP_DIR/identity-fixture/sys" "$TMP_DIR/identity-mapped-sys"
+mkdir "$TMP_DIR/identity-fixture/sys"
+php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+  --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+  --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/unknown-mapping-state.json"
+jq -e '.controller.state == "attention" and .shelves[0].diskMappingState == "unavailable" and .shelves[0].targetPercent == 50 and .shelves[0].assignedDisks == [] and .shelves[0].temperatureC == null and (.shelves[0].targetReason | contains("mapping unverified")) and .shelves[0].writeState == "dry-run"' "$TMP_DIR/unknown-mapping-state.json" >/dev/null
+rmdir "$TMP_DIR/identity-fixture/sys"
+mv "$TMP_DIR/identity-mapped-sys" "$TMP_DIR/identity-fixture/sys"
+PARTIAL_MAP="$TMP_DIR/identity-fixture/sys/class/enclosure/5:0:200:0"
+mkdir -p "$PARTIAL_MAP/Slot 00/device/block/sda" "$PARTIAL_MAP/Slot 01/device/block/sdb"
+php "$PLUGIN_DIR/include/controller.php" --once --dry-run \
+  --config="$TMP_DIR/identity-config.json" --disks="$PROJECT_DIR/tests/fixtures/disks.ini" \
+  --fixture-dir="$TMP_DIR/identity-fixture" --state="$TMP_DIR/partial-mapping-state.json"
+jq -e '.controller.state == "attention" and .shelves[0].diskMappingState == "partial" and .shelves[0].assignedDisks == [] and .shelves[0].targetPercent == 50' "$TMP_DIR/partial-mapping-state.json" >/dev/null
+rmdir "$PARTIAL_MAP/Slot 00/device/block/sda" "$PARTIAL_MAP/Slot 01/device/block/sdb"
 for BAD_INVENTORY in identity-missing identity-duplicate; do
   cp "$TMP_DIR/$BAD_INVENTORY.json" "$TMP_DIR/identity-fixture/ses-inventory.json"
   php "$PLUGIN_DIR/include/controller.php" --once --dry-run \

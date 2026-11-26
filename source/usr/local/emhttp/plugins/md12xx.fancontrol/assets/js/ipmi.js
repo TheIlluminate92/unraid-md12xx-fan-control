@@ -23,6 +23,7 @@
     node('cooling-ipmi-description').textContent = (data.model || 'Unknown host') + ' · ' + data.message + fault;
     node('cooling-ipmi-health').textContent = !data.available ? 'UNAVAILABLE' : data.stale ? 'STALE' : (data.state || 'normal').toUpperCase();
     node('cooling-ipmi-readings').textContent = 'CPU ' + (data.cpuMaxC == null ? '—' : data.cpuMaxC + '°C') + ' · Inlet ' + (data.inletC == null ? '—' : data.inletC + '°C') + ' · Fans ' + (data.averageRpm == null ? '—' : data.averageRpm + ' RPM') + ' · ' + (data.targetReason || 'iDRAC automatic');
+    node('cooling-ipmi-save').textContent = data.latched ? 'Save or re-arm chassis control' : 'Save chassis settings';
     node('cooling-ipmi-save').disabled = !data.available || data.stale;
     if (!initialized && data.config) {
       node('cooling-ipmi-enabled').checked = data.config.enabled;
@@ -47,9 +48,18 @@
   async function save(config) {
     var token = String(window.csrf_token || '');
     if (!token) { node('cooling-ipmi-message').textContent = 'Reload the page to obtain the current session token'; return; }
-    if (config.enabled && config.mode !== 'firmware' && !window.confirm('Apply chassis fan control with thermal guards? iDRAC automatic cooling will resume on a detected fault.')) return;
+    var enablesControl = config.enabled && config.mode !== 'firmware';
+    var rearm = enablesControl && current && current.latched;
+    if (rearm && !current.rearmId) {
+      node('cooling-ipmi-message').textContent = 'Review the unresolved chassis re-arm state before enabling control';
+      return;
+    }
+    if (enablesControl && !window.confirm(rearm
+      ? 'Re-arm chassis fan control after reviewing the active fault?'
+      : 'Apply chassis fan control with thermal guards? iDRAC automatic cooling will resume on a detected fault.')) return;
     try {
       var body = new URLSearchParams(); body.set('csrf_token', token); body.set('config', JSON.stringify(config));
+      if (rearm) body.set('rearm', current.rearmId);
       var response = await fetch(endpoint, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
       var payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Could not save cooling settings');

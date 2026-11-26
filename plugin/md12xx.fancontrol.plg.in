@@ -8,6 +8,11 @@
 
 <PLUGIN name="&name;" author="&author;" version="&version;" launch="&launch;" pluginURL="https://raw.githubusercontent.com/TheIlluminate92/unraid-md12xx-fan-control/main/releases/md12xx.fancontrol.plg" min="7.3.2" support="https://forums.unraid.net/topic/200454-plugin-md12xx-fan-control-dell-md1200-md1220-fan-control-beta/" icon="icon.png">
 <CHANGES>
+### 0.5.4 Beta - Build 2026.11.26.02
+- Preserve the chassis re-arm requirement across lost runtime state and bind re-arm to the current fault.
+- Reject invalid chassis status timestamps. Use the existing shelf fail-safe while current automatic disk membership is unverified.
+- Remove diagnostic JSON reasons and messages that could include private labels.
+
 ### 0.5.3 Beta - Build 2026.11.26.01
 - Give iDRAC at least 60 seconds of control after an isolated Auto sensor-read fault. Resume after two complete samples from the same sensors.
 - Keep thermal, invalid sensor, failed handback, interrupted recovery and repeat faults latched for manual review.

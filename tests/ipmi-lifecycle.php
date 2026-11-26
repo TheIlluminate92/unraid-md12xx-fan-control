@@ -17,7 +17,12 @@ $map = ['/usr/local/emhttp/plugins/md12xx.fancontrol'=>$root.'/plugin','/var/run
     '/sys/devices/system/cpu'=>$root.'/cpu','/dev/ipmi0'=>$root.'/device','/dev/ipmi/0'=>$root.'/device'];
 $process = null;
 try {
-    foreach (['ipmi.php','ipmi-controller.php','ipmi-recover.php','curves.php'] as $file) file_put_contents($root.'/plugin/include/'.$file, strtr(file_get_contents($source.'/include/'.$file), $map));
+    foreach (['ipmi.php','ipmi-api.php','ipmi-controller.php','ipmi-recover.php','curves.php'] as $file) file_put_contents($root.'/plugin/include/'.$file, strtr(file_get_contents($source.'/include/'.$file), $map));
+    $ipmiPath = $root . '/plugin/include/ipmi.php';
+    $blockedStorage = var_export($root . '/block-rearm-storage', true);
+    file_put_contents($ipmiPath, str_replace('cooling_ipmi_store(COOLING_IPMI_REARM, $marker);',
+        'if (is_file(' . $blockedStorage . ')) throw new RuntimeException("Synthetic flash failure"); cooling_ipmi_store(COOLING_IPMI_REARM, $marker);',
+        file_get_contents($ipmiPath)));
     $controllerPath = $root . '/plugin/include/ipmi-controller.php';
     $clockAdjustment = var_export($root . '/clock-adjustment', true);
     file_put_contents($controllerPath, str_replace('hrtime(true) / 1e9',
@@ -31,9 +36,28 @@ try {
     file_put_contents($root.'/sensors', $sensors);
     $binary = "#!/bin/bash\nset -eu\nshift 2\nif [ \"\$1\" = sdr ]; then if [ -f " . escapeshellarg($root.'/query-failure') . " ]; then exit 124; fi; cat " . escapeshellarg($root.'/sensors') . "; else echo \"\$*\" >> " . escapeshellarg($root.'/commands') . "; if [ -f " . escapeshellarg($root.'/command-failure') . " ] && [ \"\$*\" = 'raw 0x30 0x30 0x01 0x00' ]; then exit 1; fi; fi\n";
     file_put_contents($root.'/plugin/bin/ipmitool.bin', $binary); chmod($root.'/plugin/bin/ipmitool.bin',0755);
+    $launch = static function () use ($root) {
+        $pipes = [];
+        $process = proc_open(['bash', $root.'/plugin/scripts/ipmi-supervisor.sh'], [0=>['pipe','r'],1=>['file',$root.'/output','a'],2=>['file',$root.'/output','a']], $pipes);
+        fclose($pipes[0]);
+        return $process;
+    };
+    $post = static function (array $config, bool $rearm = false, ?string $rearmId = null) use ($root): array {
+        if ($rearm && $rearmId === null)
+            $rearmId = (json_decode((string) @file_get_contents($root.'/config/ipmi-rearm-required.json'), true)['id'] ?? '');
+        $bootstrap = '$_SERVER["REQUEST_METHOD"] = "POST"; $_POST = ' . var_export(
+            ['config' => json_encode($config)] + ($rearm ? ['rearm' => $rearmId] : []), true) . '; require $argv[1];';
+        $pipes = [];
+        $process = proc_open([PHP_BINARY, '-r', $bootstrap, $root.'/plugin/include/ipmi-api.php'],
+            [0=>['pipe','r'],1=>['pipe','w'],2=>['file',$root.'/output','a']], $pipes);
+        fclose($pipes[0]);
+        $response = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        lifecycle_check(proc_close($process) === 0, 'Endpoint fixture exited unexpectedly');
+        return json_decode($response, true, 32, JSON_THROW_ON_ERROR);
+    };
     file_put_contents($root.'/config/ipmi.json', json_encode(['enabled'=>true,'mode'=>'manual','manualSpeed'=>80]));
-    $pipes=[];
-    $process=proc_open(['bash',$root.'/plugin/scripts/ipmi-supervisor.sh'], [0=>['pipe','r'],1=>['file',$root.'/output','a'],2=>['file',$root.'/output','a']],$pipes); fclose($pipes[0]);
+    $process = $launch();
     lifecycle_wait(fn()=>is_file($root.'/state/ipmi-status.json') && str_contains((string)@file_get_contents($root.'/commands'),'0x02 0xff 0x50'), 'Controller did not apply fake 80% target');
     lifecycle_check(is_file($root.'/config/ipmi-owned.json'), 'Persistent ownership was not recorded');
     $pid=(int)file_get_contents($root.'/state/ipmi-controller.pid'); lifecycle_check($pid>1,'Invalid test controller PID');
@@ -46,8 +70,8 @@ try {
     lifecycle_wait(fn()=>(int)@file_get_contents($root.'/state/ipmi-controller.pid') !== $pid, 'Controller did not restart after recovery');
     lifecycle_wait(fn()=>(json_decode((string)@file_get_contents($root.'/state/ipmi-status.json'),true)['mode']??'')==='firmware','Restart did not remain in firmware mode');
     lifecycle_check(substr_count(file_get_contents($root.'/commands'),'0x01 0x00')===$manualCount, 'Restart re-entered manual mode despite latch');
-    file_put_contents($root.'/config/ipmi.json', json_encode(['enabled'=>true,'mode'=>'auto','curveMode'=>'individual','curve'=>[['temperatureC'=>0,'speed'=>15],['temperatureC'=>40,'speed'=>40]]]));
-    unlink($root.'/state/ipmi-fault-latched');
+    $individual = ['enabled'=>true,'mode'=>'auto','curveMode'=>'individual','curve'=>[['temperatureC'=>0,'speed'=>15],['temperatureC'=>40,'speed'=>40]]];
+    lifecycle_wait(fn()=>($post($individual, true)['ok']??false)===true, 'Explicit re-arm with healthy telemetry failed');
     lifecycle_wait(fn()=>str_contains((string)@file_get_contents($root.'/commands'),'0x02 0xff 0x0f'), 'Controller did not apply IPMI individual 15% curve');
     foreach ([[40,40],[39,40],[38,15]] as [$temperature,$percent]) {
         file_put_contents($root.'/sensors', strtr($sensors, ['37 degrees C'=>$temperature.' degrees C','36 degrees C'=>($temperature-1).' degrees C']));
@@ -82,7 +106,7 @@ try {
     lifecycle_check(!is_file($root.'/config/ipmi-owned.json'), 'One healthy sample took control too early');
     lifecycle_wait(fn()=>($readStatus()['mode']??'')==='auto' && is_file($root.'/config/ipmi-owned.json'), 'Two healthy samples did not recover Auto');
     touch($root.'/query-failure');
-    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'), 'Repeat query failure did not latch');
+    lifecycle_wait(fn()=>($readStatus()['latched']??false)===true, 'Repeat query failure did not latch');
     $first=file_get_contents($root.'/config/ipmi-last-fault.json');
     $fault=json_decode($first,true);
     lifecycle_check($fault['reason']==='Sensor query failed (exit 124)' && $fault['evidence']['sensorExitCode']===124, 'Repeat fault class and SDR exit code were not preserved');
@@ -91,18 +115,63 @@ try {
     lifecycle_wait(fn()=>($readStatus()['healthy']??false)&&($readStatus()['mode']??'')==='firmware'&&str_contains($readStatus()['targetReason']??'','Sensor query failed (exit 124)'), 'Healthy polls lost the first fault reason');
     lifecycle_check(file_get_contents($root.'/config/ipmi-last-fault.json')===$first,'Healthy latched poll rewrote first fault');
     lifecycle_check((fileperms($root.'/config/ipmi-last-fault.json')&0777)===0600,'Persistent evidence must be private');
-    // Deliberate fixture re-arm, then independent thermal and write failures.
-    unlink($root.'/state/ipmi-fault-latched');
+    // Simulate a cold boot after acknowledged handback, including loss of all runtime state.
+    lifecycle_check(!is_file($root.'/config/ipmi-owned.json'), 'Expected completed firmware handback before cold boot');
+    proc_terminate($process);
+    proc_close($process);
+    $process = null;
+    lifecycle_clean($root.'/state');
+    mkdir($root.'/state');
+    $manualCount = substr_count(file_get_contents($root.'/commands'), '0x01 0x00');
+    $process = $launch();
+    lifecycle_wait(fn()=>($readStatus()['healthy']??false)===true, 'Cold boot did not gather healthy telemetry');
+    lifecycle_check(($readStatus()['latched']??false)===true && $readStatus()['mode']==='firmware', 'Cold boot cleared active re-arm requirement');
+    lifecycle_check(substr_count(file_get_contents($root.'/commands'), '0x01 0x00')===$manualCount, 'Cold boot enabled plugin fan control before re-arm');
+    lifecycle_wait(fn()=>($post(['enabled'=>false,'mode'=>'firmware'])['ok']??false)===true, 'Firmware settings should remain usable');
+    lifecycle_check(isset($post($individual)['error']), 'Ordinary save must not clear the latch');
+    lifecycle_check(isset($post($individual, true, 'earlier-incident')['error']), 'Re-arm for a different incident must fail');
+    lifecycle_check(file_get_contents($root.'/config/ipmi-last-fault.json')===$first, 'Cold boot or firmware settings changed historical evidence');
+    lifecycle_wait(fn()=>($post($individual, true)['ok']??false)===true, 'Guarded explicit re-arm after cold boot failed');
+    lifecycle_wait(fn()=>($readStatus()['mode']??'')==='auto', 'Authorized re-arm did not restore Auto');
     file_put_contents($root.'/sensors',strtr($sensors,['37 degrees C'=>'70 degrees C']));
-    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'),'Thermal guard did not latch');
+    lifecycle_wait(fn()=>($readStatus()['cpuMaxC']??null)===70 && ($readStatus()['latched']??false)===true, 'Thermal guard did not latch');
     $thermal=json_decode(file_get_contents($root.'/config/ipmi-last-fault.json'),true);
     lifecycle_check($thermal['reason']==='Thermal limit: returning control to iDRAC'&&$thermal['evidence']['sensors']['cpuMaxC']===70,'Thermal cause/readings lost');
     file_put_contents($root.'/sensors',$sensors);
-    touch($root.'/command-failure'); unlink($root.'/state/ipmi-fault-latched');
-    lifecycle_wait(fn()=>is_file($root.'/state/ipmi-fault-latched'),'Fan command failure did not latch');
+    lifecycle_wait(fn()=>($readStatus()['cpuMaxC']??null)===37, 'Healthy telemetry not available before re-arm');
+    touch($root.'/command-failure');
+    lifecycle_wait(fn()=>($post($individual, true)['ok']??false)===true, 'Explicit re-arm after thermal fault failed');
+    lifecycle_wait(fn()=>($readStatus()['message']??null)==='Fan command failed; returned to iDRAC'
+        && ($readStatus()['latched']??false)===true, 'Fan command failure did not latch');
     $write=json_decode(file_get_contents($root.'/config/ipmi-last-fault.json'),true);
     lifecycle_check($write['reason']==='Fan command failed; returned to iDRAC','Write failure cause lost');
     lifecycle_check(!is_file($root.'/config/ipmi-owned.json'),'Write failure did not restore firmware');
+    // Supervisor's stale-status entry point must reject both future content and future mtime.
+    proc_terminate($process);
+    proc_close($process);
+    $process = null;
+    lifecycle_clean($root.'/state');
+    mkdir($root.'/state');
+    unlink($root.'/config/ipmi-rearm-required.json');
+    file_put_contents($root.'/config/ipmi-owned.json', json_encode(['host'=>hash('sha256', file_get_contents($root.'/uuid'))]));
+    file_put_contents($root.'/state/ipmi-status.json', json_encode(['generatedAt'=>time()]));
+    $countHandbacks = fn(): int => substr_count(file_get_contents($root.'/commands'), '0x01 0x01');
+    $n = $countHandbacks();
+    $recover = static function () use ($root): int {
+        $cmd = escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($root.'/plugin/include/ipmi-recover.php') . ' --if-stale';
+        exec($cmd . ' 2>>' . escapeshellarg($root.'/output'), $unused, $exit);
+        return $exit;
+    };
+    lifecycle_check($recover()===0 && $countHandbacks()===$n, 'Fresh status unexpectedly triggered firmware handback');
+    touch($root.'/block-rearm-storage');
+    file_put_contents($root.'/state/ipmi-status.json', json_encode(['generatedAt'=>time()+300]));
+    lifecycle_check($recover()===0 && $countHandbacks()===$n+1, 'Future status did not trigger independent handback on flash failure');
+    lifecycle_check(is_file($root.'/config/ipmi-owned.json') && !is_file($root.'/config/ipmi-rearm-required.json'), 'Failed marker write dropped durable ownership fence');
+    unlink($root.'/block-rearm-storage');
+    file_put_contents($root.'/state/ipmi-status.json', json_encode(['generatedAt'=>time()]));
+    touch($root.'/state/ipmi-status.json', time()+300);
+    lifecycle_check($recover()===0 && $countHandbacks()===$n+2, 'Future status metadata did not trigger recovery');
+    lifecycle_check(is_file($root.'/config/ipmi-rearm-required.json') && !is_file($root.'/config/ipmi-owned.json'), 'Successful recovery did not replace the ownership fence with durable re-arm');
     echo "IPMI supervisor recovery, sensor/thermal/command fault evidence and latched restart passed.\n";
 } finally {
     if (is_resource($process)) { proc_terminate($process); $end=microtime(true)+30; do { $status=proc_get_status($process); if (!$status['running']) break; usleep(100000); } while (microtime(true)<$end); proc_close($process); }

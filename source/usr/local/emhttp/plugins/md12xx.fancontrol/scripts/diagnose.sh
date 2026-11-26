@@ -21,8 +21,16 @@ mkdir -p "$RESULT_DIR"
   echo "Privacy: local archive; hostname, serial identifiers, disk names, and paths redacted"
 } > "$RESULT_DIR/system.txt"
 
+# Free-text explanations may include private names or paths at any nesting level.
+FREE_TEXT_FILTER='walk(if type == "object" then
+  with_entries(select(.key | test("(message|reason)s?$"; "i") | not))
+  else . end)'
+redacted_jq() {
+  jq "($1) | $FREE_TEXT_FILTER" "$2"
+}
+
 if [ -f "$CONFIG_DIR/config.json" ]; then
-  jq '
+  redacted_jq '
     .legacyContainerNames = ((.legacyContainerNames // []) | length) |
     .shelves = ((.shelves // []) | to_entries | map(
       (.key + 1) as $index | .value |
@@ -37,7 +45,7 @@ if [ -f "$CONFIG_DIR/config.json" ]; then
 fi
 
 if [ -f /var/run/md12xx.fancontrol/status.json ]; then
-  jq '
+  redacted_jq '
     .shelves = ((.shelves // []) | to_entries | map(
       (.key + 1) as $index | .value |
       .name = ("Shelf " + ($index | tostring)) |
@@ -54,17 +62,17 @@ if [ -f /var/run/md12xx.fancontrol/status.json ]; then
 fi
 
 if [ -f /var/run/md12xx.fancontrol/watchdog.json ]; then
-  jq '{generatedAt, state, message, restartCount, restartDelaySeconds}' \
+  redacted_jq '{generatedAt, state, message, restartCount, restartDelaySeconds}' \
     /var/run/md12xx.fancontrol/watchdog.json > "$RESULT_DIR/watchdog.json"
 fi
 
 if [ -f "$STATE_DIR/ipmi-status.json" ]; then
-  jq '{generatedAt, state, enabled, mode, targetPercent, cpuMaxC, inletC, fanRpms, averageRpm, healthy, message, targetReason, latched}' \
+  redacted_jq '{generatedAt, state, enabled, mode, targetPercent, cpuMaxC, inletC, fanRpms, averageRpm, healthy, message, targetReason, latched}' \
     "$STATE_DIR/ipmi-status.json" > "$RESULT_DIR/ipmi-status.redacted.json"
 fi
 
 if [ -f /var/run/md12xx.fancontrol/discovery.json ]; then
-  jq '
+  redacted_jq '
     .serialPorts = ((.serialPorts // []) | map({
       vendorId, productId, manufacturer, product, knownFtdiCandidate,
       probeState, blueDressPrompt, md12xxResponse, primaryActive, consoleVerified, message

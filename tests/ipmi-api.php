@@ -62,6 +62,12 @@ PHP;
     api_check(isset($request('PUT', [])['error']), 'Unsupported methods must fail');
     $read = $request('GET', []);
     api_check($read['config']['curveMode'] === 'individual' && $read['config']['hysteresisC'] === 2.5, 'GET must return persisted Individual settings');
+    foreach ([time() + 300, time() - 41, 'bad', (string) time(), null] as $timestamp) {
+        file_put_contents($root . '/state/ipmi-status.json', json_encode(['generatedAt' => $timestamp]));
+        api_check($request('GET', [])['stale'] === true, 'Invalid, future or expired status must be stale');
+    }
+    file_put_contents($root . '/state/ipmi-status.json', json_encode(['generatedAt' => time()]));
+    api_check($request('GET', [])['stale'] === false, 'Current valid status must be fresh');
     $js = file_get_contents($source . '/assets/js/ipmi.js');
     api_check(str_contains($js, "body.set('csrf_token', token)"), 'Browser must continue sending the native CSRF token');
 

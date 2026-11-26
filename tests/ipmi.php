@@ -1,6 +1,17 @@
 <?php
 declare(strict_types=1);
-require_once dirname(__DIR__) . '/source/usr/local/emhttp/plugins/md12xx.fancontrol/include/ipmi.php';
+$source = dirname(__DIR__) . '/source/usr/local/emhttp/plugins/md12xx.fancontrol/include';
+$fixture = sys_get_temp_dir() . '/ipmi-unit-' . bin2hex(random_bytes(5));
+mkdir($fixture);
+register_shutdown_function(static function () use ($fixture): void {
+    foreach (glob($fixture . '/*') as $path) unlink($path);
+    rmdir($fixture);
+});
+file_put_contents($fixture . '/host-id', '12345678-1234-5678-1234-567812345678');
+copy($source . '/curves.php', $fixture . '/curves.php');
+file_put_contents($fixture . '/ipmi.php', str_replace('/sys/class/dmi/id/product_uuid', $fixture . '/host-id',
+    file_get_contents($source . '/ipmi.php')));
+require_once $fixture . '/ipmi.php';
 function ipmi_check(bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); }
 $fixture = "Inlet Temp | 04h | ok | 7.1 | 23 degrees C\nTemp | 0Eh | ok | 3.1 | 37 degrees C\nTemp | 0Fh | ok | 3.2 | 36 degrees C\n";
 for ($i = 1; $i <= 6; $i++) $fixture .= "Fan$i RPM | 30h | ok | 7.1 | 8640 RPM\n";

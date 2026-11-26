@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4 Beta candidate — 2026-11-26 (build 2026.11.26.02)
+
+- Preserve the chassis re-arm requirement across loss of runtime state. Explicit WebGUI re-arm is tied to the current fault and requires fresh measurements and firmware handback.
+- Reject invalid or future chassis status in the API and supervisor. Use the existing shelf Auto fail-safe when current automatic disk membership is unverified, and remove free-text reasons and messages from diagnostic JSON.
+- Upstream disk temperature and standby freshness remains open pending producer evidence. The published 0.5.3 installer is unchanged. The candidate is offline only.
+
 ## 0.5.3 Beta — 2026-11-26 (build 2026.11.26.01)
 
 - An isolated incomplete chassis sensor read in verified Auto mode hands cooling to iDRAC. Plugin Auto can resume after at least 60 seconds under firmware control and two complete, matching samples at least five seconds apart.

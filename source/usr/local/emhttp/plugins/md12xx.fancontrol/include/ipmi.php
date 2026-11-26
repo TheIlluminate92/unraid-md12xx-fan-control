@@ -8,6 +8,7 @@ const COOLING_IPMI_RUNTIME = '/var/run/md12xx.fancontrol';
 const COOLING_IPMI_TOOL = '/usr/local/emhttp/plugins/md12xx.fancontrol/bin/ipmitool.bin';
 const COOLING_IPMI_LEASE = '/boot/config/plugins/md12xx.fancontrol/ipmi-owned.json';
 const COOLING_IPMI_RECOVERY = '/boot/config/plugins/md12xx.fancontrol/ipmi-recovery.json';
+const COOLING_IPMI_REARM = '/boot/config/plugins/md12xx.fancontrol/ipmi-rearm-required.json';
 const COOLING_IPMI_HOLD_SECONDS = 60;
 const COOLING_IPMI_CONFIRMATION_LIMIT = 90;
 function cooling_ipmi_host_id(): string {
@@ -26,17 +27,55 @@ function cooling_ipmi_store(string $path, array $data): void {
     chmod($temp, 0600);
     if (!rename($temp, $path)) { @unlink($temp); throw new RuntimeException('Cannot activate cooling state'); }
 }
-// Record one first-cause snapshot per incident, never one flash write per poll.
-// Call under ipmi-command.lock; the latch remains authoritative if recording fails.
+function cooling_ipmi_rearm_required(): bool {
+    clearstatcache();
+    return file_exists(COOLING_IPMI_REARM) || is_file(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched');
+}
+
+// Called with the command lock held, before a fault handback can release ownership.
+function cooling_ipmi_require_rearm(): bool {
+    @touch(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched');
+    clearstatcache();
+    if (is_file(COOLING_IPMI_REARM)) return true;
+    try {
+        $marker = ['id' => bin2hex(random_bytes(16))];
+        cooling_ipmi_store(COOLING_IPMI_REARM, $marker);
+        if (cooling_ipmi_read(COOLING_IPMI_REARM) === $marker) return true;
+    } catch (Throwable $error) {
+        // A failed state write must not prevent the attempt to hand cooling back.
+    }
+    error_log('Cooling: could not persist the IPMI re-arm requirement; keep the ownership fence if present');
+    return false;
+}
+
+function cooling_ipmi_active_fault(): array {
+    if (!cooling_ipmi_rearm_required()) return [];
+    $runtime = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-fault.json');
+    if ($runtime !== []) return $runtime;
+    $id = cooling_ipmi_read(COOLING_IPMI_REARM)['id'] ?? null;
+    $history = cooling_ipmi_read(dirname(COOLING_IPMI_CONFIG) . '/ipmi-last-fault.json');
+    return is_string($id) && ($history['id'] ?? null) === $id ? $history : [];
+}
+
+// Record one first-cause snapshot per incident. Incident history never grants or blocks ownership.
 function cooling_ipmi_latch(string $reason, array $evidence = []): void {
-    $latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
-    if (is_file($latch)) return;
-    touch($latch);
-    $record = ['occurredAt' => time(), 'reason' => $reason, 'evidence' => $evidence];
+    $record = cooling_ipmi_active_fault();
+    if (is_file(COOLING_IPMI_REARM) && $record !== []) return;
+    $durable = cooling_ipmi_require_rearm();
+    $record = ($record ?: ['occurredAt' => time(), 'reason' => $reason, 'evidence' => $evidence]);
+    if ($durable) $record['id'] = cooling_ipmi_read(COOLING_IPMI_REARM)['id'] ?? null;
     foreach ([COOLING_IPMI_RUNTIME . '/ipmi-fault.json', dirname(COOLING_IPMI_CONFIG) . '/ipmi-last-fault.json'] as $path) {
         try { cooling_ipmi_store($path, $record); }
         catch (Throwable $error) { error_log('Cooling: could not preserve IPMI fault evidence'); }
     }
+}
+
+function cooling_ipmi_status_stale(array $state): bool {
+    $now = time();
+    $generatedAt = $state['generatedAt'] ?? null;
+    $mtime = @filemtime(COOLING_IPMI_RUNTIME . '/ipmi-status.json');
+    return !is_int($generatedAt) || $generatedAt <= 0 || $generatedAt > $now || $now - $generatedAt > 40
+        || $mtime === false || $mtime <= 0 || $mtime > $now || $now - $mtime > 40;
 }
 function cooling_ipmi_config(array $input): array {
     $mode = $input['mode'] ?? 'firmware';
@@ -241,16 +280,16 @@ function cooling_ipmi_target(array $config, array $sensors, ?int $previous = nul
     if ($config['mode'] === 'auto') $speed = cooling_curve_target($config['effectiveCurve'] ?? $config['curve'], (float) $sensors['cpuMaxC'], $previous, (float) ($config['effectiveHysteresisC'] ?? $config['hysteresisC']));
     return ['mode' => $config['mode'], 'percent' => $speed, 'reason' => $config['mode'] === 'manual' ? 'Manual target with thermal guard' : 'CPU/inlet temperature curve'];
 }
-function cooling_ipmi_restore(callable $run, string $lease): bool {
+function cooling_ipmi_restore(callable $run, string $lease, bool $releaseLease = true): bool {
     if (!is_file($lease)) return true;
     if (cooling_ipmi_host_id() === '' || (cooling_ipmi_read($lease)['host'] ?? '') !== cooling_ipmi_host_id()) return false;
     $result = $run(['raw', '0x30', '0x30', '0x01', '0x01']);
     if ($result['code'] !== 0) return false;
-    return unlink($lease);
+    return !$releaseLease || unlink($lease);
 }
-function cooling_ipmi_apply(array $target, callable $run, string $lease): array {
+function cooling_ipmi_apply(array $target, callable $run, string $lease, ?callable $beforeFailedHandback = null): array {
     if ($target['mode'] === 'firmware') {
-        $ok = cooling_ipmi_restore($run, $lease);
+        $ok = cooling_ipmi_restore($run, $lease, !cooling_ipmi_rearm_required() || is_file(COOLING_IPMI_REARM));
         return ['ok' => $ok, 'mode' => $ok ? 'firmware' : 'unknown', 'message' => $ok ? $target['reason'] : 'iDRAC restoration failed; manual recovery required'];
     }
     // Record ownership before entering manual mode so a crash can always trigger recovery.
@@ -260,7 +299,8 @@ function cooling_ipmi_apply(array $target, callable $run, string $lease): array 
     $mode = $run(['raw', '0x30', '0x30', '0x01', '0x00']);
     $speed = $mode['code'] === 0 ? $run(['raw', '0x30', '0x30', '0x02', '0xff', sprintf('0x%02x', $target['percent'])]) : ['code' => 1];
     if ($speed['code'] !== 0) {
-        $restored = cooling_ipmi_restore($run, $lease);
+        $releaseLease = $beforeFailedHandback === null || $beforeFailedHandback();
+        $restored = cooling_ipmi_restore($run, $lease, $releaseLease);
         return ['ok' => false, 'mode' => $restored ? 'firmware' : 'unknown', 'modeExitCode' => $mode['code'],
             'speedExitCode' => $mode['code'] === 0 ? $speed['code'] : null,
             'message' => $restored ? 'Fan command failed; returned to iDRAC' : 'Fan command and iDRAC restoration failed; manual recovery required'];
@@ -278,6 +318,6 @@ function cooling_ipmi_public(): array {
     $state = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-status.json');
     $capability = cooling_ipmi_capability();
     $global = cooling_validate_curve(cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json')['curve'] ?? cooling_default_curve());
-    return array_merge($state, $capability, ['activeFault' => is_file(COOLING_IPMI_RUNTIME . '/ipmi-fault-latched') ? cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-fault.json') : [], 'lastFault' => cooling_ipmi_read(dirname(COOLING_IPMI_CONFIG) . '/ipmi-last-fault.json'), 'message' => $state['message'] ?? $capability['message'], 'capabilityMessage' => $capability['message'], 'config' => cooling_ipmi_config(cooling_ipmi_read(COOLING_IPMI_CONFIG)), 'globalCurve' => $global,
-        'stale' => !isset($state['generatedAt']) || time() - (int) $state['generatedAt'] > 40]);
+    return array_merge($state, $capability, ['latched' => cooling_ipmi_rearm_required(), 'rearmId' => cooling_ipmi_read(COOLING_IPMI_REARM)['id'] ?? null, 'activeFault' => cooling_ipmi_active_fault(), 'lastFault' => cooling_ipmi_read(dirname(COOLING_IPMI_CONFIG) . '/ipmi-last-fault.json'), 'message' => $state['message'] ?? $capability['message'], 'capabilityMessage' => $capability['message'], 'config' => cooling_ipmi_config(cooling_ipmi_read(COOLING_IPMI_CONFIG)), 'globalCurve' => $global,
+        'stale' => cooling_ipmi_status_stale($state)]);
 }

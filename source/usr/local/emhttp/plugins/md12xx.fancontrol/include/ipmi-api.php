@@ -18,12 +18,25 @@ try {
         $commandLock = fopen(COOLING_IPMI_RUNTIME . '/ipmi-command.lock', 'c+');
         if (!$commandLock || !flock($commandLock, LOCK_EX | LOCK_NB)) throw new RuntimeException('Cooling controller is busy; retry shortly');
         $status = cooling_ipmi_public();
-        if ($config['enabled'] && $config['mode'] !== 'firmware' && (!$status['available'] || $status['stale'] || !($status['healthy'] ?? false))) throw new RuntimeException('Fresh healthy local CPU, inlet and fan telemetry is required before enabling control');
+        $enableControl = $config['enabled'] && $config['mode'] !== 'firmware';
+        $rearm = array_key_exists('rearm', $_POST);
+        if ($rearm && (!is_string($_POST['rearm']) || !is_string($status['rearmId'])
+            || !hash_equals($status['rearmId'], $_POST['rearm'])))
+            throw new RuntimeException('Refresh and review the current chassis fault before re-arming');
+        if ($enableControl && (!$status['available'] || $status['stale'] || !($status['healthy'] ?? false)))
+            throw new RuntimeException('Fresh healthy local CPU, inlet and fan telemetry is required before enabling control');
+        if ($rearm && (!$enableControl || !$status['latched'] || ($status['mode'] ?? null) !== 'firmware' || ($status['state'] ?? null) !== 'fault'
+            || is_file(COOLING_IPMI_LEASE) || ($status['cpuMaxC'] ?? INF) >= 70 || ($status['inletC'] ?? INF) >= 35))
+            throw new RuntimeException('Re-arm requires confirmed firmware control, safe temperatures and an active fault');
+        if ($enableControl && $status['latched'] && !$rearm)
+            throw new RuntimeException('Review the fault and explicitly re-arm chassis control');
         cooling_ipmi_store(COOLING_IPMI_CONFIG, $config);
-        $latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
-        if (is_file($latch)) {
-            if (is_file(COOLING_IPMI_RECOVERY) && !unlink(COOLING_IPMI_RECOVERY)) throw new RuntimeException('Cannot clear the interrupted recovery record');
-            if (!unlink($latch)) throw new RuntimeException('Cannot clear the cooling fault latch');
+        if ($rearm) {
+            foreach ([COOLING_IPMI_RECOVERY, COOLING_IPMI_RUNTIME . '/ipmi-confirmation-pending.json',
+                COOLING_IPMI_RUNTIME . '/ipmi-fault.json', COOLING_IPMI_RUNTIME . '/ipmi-fault-latched', COOLING_IPMI_REARM] as $marker) {
+                if (file_exists($marker) && !@unlink($marker))
+                    throw new RuntimeException('Cannot clear the chassis re-arm requirement');
+            }
         }
     } finally {
         if (is_resource($commandLock)) fclose($commandLock);

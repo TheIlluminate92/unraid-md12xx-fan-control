@@ -7,7 +7,6 @@ $singleton = fopen(COOLING_IPMI_RUNTIME . '/ipmi-controller.lock', 'c+');
 if (!$singleton || !flock($singleton, LOCK_EX | LOCK_NB)) exit(1);
 $lease = COOLING_IPMI_LEASE;
 $recoverStartup = is_file($lease);
-$latch = COOLING_IPMI_RUNTIME . '/ipmi-fault-latched';
 $running = true;
 $previousAutoPercent = null;
 $previousProfile = null;
@@ -15,17 +14,7 @@ $lastHealthy = null;
 $sensorGuard = [];
 $pendingMarker = COOLING_IPMI_RUNTIME . '/ipmi-confirmation-pending.json';
 $incidentFile = COOLING_IPMI_RUNTIME . '/ipmi-sensor-incidents.json';
-// A pending restart is never a clean startup, even though handback removed the ownership lease.
-$priorStatus = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-status.json');
-if (is_file(COOLING_IPMI_RECOVERY) || is_file($pendingMarker) || ($priorStatus['sensorConfirmationPending'] ?? false) === true) {
-    cooling_ipmi_latch('Controller restarted during sensor confirmation',
-        ['pendingConfirmation' => cooling_ipmi_read($pendingMarker), 'previousStatus' => $priorStatus]);
-    if (is_file($latch)) @unlink($pendingMarker);
-}
-if (is_file($incidentFile)) {
-    try { $sensorGuard = cooling_ipmi_incident_history(cooling_ipmi_read($incidentFile), hrtime(true) / 1e9); }
-    catch (Throwable $error) { cooling_ipmi_latch('Invalid persisted sensor incident history'); }
-}
+$initialize = true;
 
 if (function_exists('pcntl_async_signals')) {
     pcntl_async_signals(true);
@@ -33,7 +22,9 @@ if (function_exists('pcntl_async_signals')) {
     pcntl_signal(SIGINT, function () use (&$running): void { $running = false; });
 }
 register_shutdown_function(function () use ($lease): void {
-    if (!cooling_ipmi_restore('cooling_ipmi_run', $lease)) error_log('Cooling: iDRAC restoration failed; manual recovery required');
+    $releaseLease = !cooling_ipmi_rearm_required() || is_file(COOLING_IPMI_REARM);
+    if (!cooling_ipmi_restore('cooling_ipmi_run', $lease, $releaseLease))
+        error_log('Cooling: iDRAC restoration failed; manual recovery required');
 });
 while ($running) {
     $guard = fopen(COOLING_IPMI_RUNTIME . '/ipmi-command.lock', 'c+');
@@ -42,11 +33,29 @@ while ($running) {
         $deadlineStart = $sensorGuard['handbackAt'] ?? $sensorGuard['pendingSince'] ?? null;
         $GLOBALS['cooling_ipmi_read_deadline'] = $deadlineStart === null ? null : $deadlineStart + COOLING_IPMI_CONFIRMATION_LIMIT;
         $capability = cooling_ipmi_capability();
-        $config = cooling_ipmi_config(cooling_ipmi_read(COOLING_IPMI_CONFIG));
-        if ($recoverStartup) {
-            if (!cooling_ipmi_restore('cooling_ipmi_run', $lease)) cooling_ipmi_latch('Startup iDRAC restoration failed');
-            $recoverStartup = false;
+        if ($initialize) {
+            // A pending restart is never a clean startup, even though handback removed the ownership lease.
+            $priorStatus = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-status.json');
+            if (is_file(COOLING_IPMI_RECOVERY) || is_file($pendingMarker) || ($priorStatus['sensorConfirmationPending'] ?? false) === true) {
+                cooling_ipmi_latch('Controller restarted during sensor confirmation',
+                    ['pendingConfirmation' => cooling_ipmi_read($pendingMarker), 'previousStatus' => $priorStatus]);
+                if (is_file(COOLING_IPMI_REARM)) @unlink($pendingMarker);
+            }
+            if (is_file($incidentFile)) {
+                try { $sensorGuard = cooling_ipmi_incident_history(cooling_ipmi_read($incidentFile), hrtime(true) / 1e9); }
+                catch (Throwable $error) { cooling_ipmi_latch('Invalid persisted sensor incident history'); }
+            }
+            if (cooling_ipmi_rearm_required() && !is_file(COOLING_IPMI_REARM)) {
+                cooling_ipmi_latch('Existing manual re-arm requirement');
+            }
+            if ($recoverStartup) {
+                cooling_ipmi_latch('Controller restarted with outstanding ownership');
+                if (!cooling_ipmi_restore('cooling_ipmi_run', $lease, is_file(COOLING_IPMI_REARM)))
+                    error_log('Cooling: startup iDRAC restoration failed');
+            }
+            $initialize = false;
         }
+        $config = cooling_ipmi_config(cooling_ipmi_read(COOLING_IPMI_CONFIG));
         $globalConfig = cooling_ipmi_read('/boot/config/plugins/md12xx.fancontrol/config.json');
         $globalCurve = cooling_validate_curve($globalConfig['curve'] ?? cooling_default_curve());
         $config['effectiveCurve'] = cooling_device_curve($config, $globalCurve, 15);
@@ -66,7 +75,7 @@ while ($running) {
         if (!$fresh) $sensors['healthy'] = false;
         $policy = ['state' => [], 'pending' => false, 'latch' => false, 'reason' => ''];
         $wasPending = isset($sensorGuard['pendingSince']);
-        if ($config['enabled'] && $config['mode'] !== 'firmware' && $capability['available'] && !is_file($latch)) {
+        if ($config['enabled'] && $config['mode'] !== 'firmware' && $capability['available'] && !cooling_ipmi_rearm_required()) {
             $policy = cooling_ipmi_sensor_guard($sensorGuard, $sensors, $fresh, $sampleFinished,
                 $config['mode'] === 'auto' && (is_file($lease) || $wasPending));
             $sensorGuard = $policy['state'];
@@ -74,9 +83,9 @@ while ($running) {
         $target = cooling_ipmi_target($config, $sensors, $previousAutoPercent);
         if ($policy['pending'] || $policy['latch'])
             $target = ['mode' => 'firmware', 'percent' => null, 'reason' => $policy['reason']];
-        if (!$capability['available'] || is_file($latch)) {
-            $firstFault = cooling_ipmi_read(COOLING_IPMI_RUNTIME . '/ipmi-fault.json');
-            $target = ['mode' => 'firmware', 'percent' => null, 'reason' => is_file($latch)
+        if (!$capability['available'] || cooling_ipmi_rearm_required()) {
+            $firstFault = cooling_ipmi_active_fault();
+            $target = ['mode' => 'firmware', 'percent' => null, 'reason' => cooling_ipmi_rearm_required()
                 ? 'Control paused after a fault: ' . ($firstFault['reason'] ?? 'original cause unavailable for this older latch') . '; review and save settings to re-arm'
                 : $capability['message']];
         }
@@ -95,8 +104,8 @@ while ($running) {
         }
         // A manual latch inserted during collection always dominates a previously calculated recovery.
         if ($wasPending && is_file($lease)) cooling_ipmi_latch('Ownership changed during iDRAC recovery');
-        if (is_file($latch) && $target['mode'] !== 'firmware') $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Control paused after a latched fault'];
-        if ($wasPending && !$policy['pending'] && !$policy['latch'] && !is_file($latch) && $target['mode'] === 'auto') {
+        if (cooling_ipmi_rearm_required() && $target['mode'] !== 'firmware') $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Control paused after a latched fault'];
+        if ($wasPending && !$policy['pending'] && !$policy['latch'] && !cooling_ipmi_rearm_required() && $target['mode'] === 'auto') {
             try {
                 cooling_ipmi_store($incidentFile, ['schema' => 1, 'at' => $sampleFinished, 'episodes' => $sensorGuard['episodes']]);
             } catch (Throwable $error) {
@@ -104,7 +113,14 @@ while ($running) {
                 $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Automatic recovery cooldown persistence failed'];
             }
         }
-        $applied = cooling_ipmi_apply($target, 'cooling_ipmi_run', $lease);
+        $recordFault = static function (string $reason, ?array $applied = null) use ($output, $sensors, $sampleFinished, $sampleStarted, $fresh, $policy, $lastHealthy, $target): void {
+            cooling_ipmi_latch($reason, ['sensorExitCode' => $output['code'], 'sensors' => $sensors,
+                'collectionSeconds' => $sampleFinished - $sampleStarted, 'sampleFresh' => $fresh, 'sensorConfirmation' => $policy,
+                'lastHealthy' => $lastHealthy, 'requestedTarget' => $target, 'applied' => $applied]);
+        };
+        $requiresRearm = $config['enabled'] && $config['mode'] !== 'firmware' && (!$capability['available'] || $policy['latch']);
+        if ($requiresRearm && !cooling_ipmi_rearm_required()) cooling_ipmi_require_rearm();
+        $applied = cooling_ipmi_apply($target, 'cooling_ipmi_run', $lease, 'cooling_ipmi_require_rearm');
         if ($policy['pending'] && !$wasPending && $applied['ok'] && $applied['mode'] === 'firmware' && !is_file($lease)) {
             $sensorGuard['handbackAt'] = hrtime(true) / 1e9;
         }
@@ -114,27 +130,25 @@ while ($running) {
             $target = ['mode' => 'firmware', 'percent' => null, 'reason' => 'Automatic recovery marker cleanup failed'];
             $applied = cooling_ipmi_apply($target, 'cooling_ipmi_run', $lease);
         }
-        if (!$applied['ok'] || ($config['enabled'] && $config['mode'] !== 'firmware' && (!$capability['available'] || $policy['latch']))) {
+        if (!$applied['ok'] || $requiresRearm) {
             $reason = !$applied['ok'] ? $applied['message'] : (!$capability['available'] ? $capability['message']
                 : ($output['code'] !== 0 ? 'Sensor query failed (exit ' . $output['code'] . ')' : $target['reason']));
-            cooling_ipmi_latch($reason, ['sensorExitCode' => $output['code'], 'sensors' => $sensors,
-                'collectionSeconds' => $sampleFinished - $sampleStarted, 'sampleFresh' => $fresh, 'sensorConfirmation' => $policy,
-                'lastHealthy' => $lastHealthy, 'requestedTarget' => $target, 'applied' => $applied]);
+            $recordFault($reason, $applied);
         }
-        if (!$policy['pending'] && ($applied['ok'] || is_file($latch))) @unlink($pendingMarker);
+        if (!$policy['pending'] && (!cooling_ipmi_rearm_required() || is_file(COOLING_IPMI_REARM))) @unlink($pendingMarker);
         if ($sensors['healthy']) $lastHealthy = ['generatedAt' => time(), 'sensors' => $sensors];
-        $fault = !$applied['ok'] || is_file($latch);
+        $fault = !$applied['ok'] || cooling_ipmi_rearm_required();
         $previousAutoPercent = !$fault && $applied['mode'] === 'auto' ? $target['percent'] : null;
         cooling_ipmi_store(COOLING_IPMI_RUNTIME . '/ipmi-status.json', array_merge($sensors, [
             'generatedAt' => time(), 'state' => $fault ? 'fault' : ($policy['pending'] ? 'recovering' : 'normal'), 'enabled' => $config['enabled'],
             'mode' => $applied['mode'], 'targetPercent' => $applied['ok'] ? $target['percent'] : null,
-            'message' => $applied['message'], 'targetReason' => $target['reason'], 'latched' => is_file($latch),
+            'message' => $applied['message'], 'targetReason' => $target['reason'], 'latched' => cooling_ipmi_rearm_required(),
             'effectiveHysteresisC' => $config['effectiveHysteresisC'], 'sensorConfirmationPending' => $policy['pending'],
             'collectionSeconds' => $sampleFinished - $sampleStarted,
         ]));
     } finally { flock($guard, LOCK_UN); fclose($guard); }
     $wakeAt = hrtime(true) / 1e9 + 5;
-    if (!is_file($latch) && isset($sensorGuard['pendingSince'])) {
+    if (!cooling_ipmi_rearm_required() && isset($sensorGuard['pendingSince'])) {
         $wakeAt = min($wakeAt, ($sensorGuard['handbackAt'] ?? $sensorGuard['pendingSince']) + COOLING_IPMI_CONFIRMATION_LIMIT);
     }
     while ($running && hrtime(true) / 1e9 < $wakeAt) usleep(50000);

@@ -1,11 +1,33 @@
 # Safety maintenance and migration
 
-Current source documentation: beta **0.5.2 / 2026.10.28.01**, including bundled
+Current source documentation: published beta **0.5.3 / 2026.11.26.01**, including bundled
 R730/R730xd IPMI chassis support; see the [README](../README.md) and
 [current IPMI scope, fault evidence and validation limits](IPMI_PREVIEW.md).
 The 0.4.14 notes below retain their historical release scope. Their statement
 that chassis control was planned is not the current implementation status.
 Source review does not establish installation or hardware acceptance.
+
+## November 26 safety candidate (0.5.4 / 2026.11.26.02)
+
+The source candidate retains a chassis re-arm requirement across a controller
+restart or loss of runtime files. An interrupted transient sensor check and
+historical fault evidence remain distinct. An earlier package cannot interpret
+the new active re-arm marker. Before considering an older runtime as rollback,
+establish firmware control independently, persist chassis settings as disabled
+and in firmware mode before any older writer can start, and carry the active re-arm requirement and first-fault evidence into the
+operator handoff. Retain the current private configuration checkpoint.
+
+In shelf Auto, unavailable, empty or partial current automatic membership
+uses the existing sensor-failure target, bounded below by the effective curve
+maximum. Configured enclosure, writer and commissioning guards still apply.
+The commissioned disk list stays in configuration for review. A current
+controller status does not establish successful upstream temperature or standby
+observations. The Unraid producer contract for per-reading age and failed
+refresh behavior remains unresolved. The candidate does not infer age from
+cache file timestamps or polling settings.
+
+Verification is isolated from hardware. The candidate requires separate
+release and native acceptance. Existing 0.5.3 installer artifacts are unchanged.
 
 ## Current IPMI recovery: preserve evidence before acting
 
